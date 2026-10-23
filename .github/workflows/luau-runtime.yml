@@ -1,23 +1,40 @@
-name: OpenXzuff UI Runtime and 3D
+name: OpenXzuff UI Runtime, OS Contracts and 3D
 on:
   push:
     paths:
+      - "Kernel/**"
+      - "sys/**"
+      - "user/**"
+      - "gui/**"
+      - "tests/**"
+      - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
       - ".github/workflows/luau-runtime.yml"
   pull_request:
     paths:
+      - "Kernel/**"
+      - "sys/**"
+      - "user/**"
+      - "gui/**"
+      - "tests/**"
+      - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
       - ".github/workflows/luau-runtime.yml"
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: lukka/get-cmake@latest
+      - name: Configure OS contract smoke tests
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build OS contract smoke tests
+        run: cmake --build build --parallel 2
+      - name: Run OS contract smoke tests
+        run: ctest --test-dir build --output-on-failure
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
