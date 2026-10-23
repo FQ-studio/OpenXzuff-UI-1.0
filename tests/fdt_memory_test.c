@@ -29,8 +29,8 @@ int main(void)
     TOKEN(3); PROP(4,0); put32(blob+p,2); p+=4; while(p%4) blob[p++]=0;
     TOKEN(3); PROP(4,15); put32(blob+p,2); p+=4; while(p%4) blob[p++]=0;
     TOKEN(1); memcpy(blob+p,"memory@80000000",16); p+=16; while(p%4) blob[p++]=0;
-    TOKEN(3); PROP(7,26); memcpy(blob+p,"memory",7); p+=7; while(p%4) blob[p++]=0;
-    TOKEN(3); PROP(16,37); put64(blob+p,0x80000000ULL); put64(blob+p+8,0x08000000ULL); p+=16;
+    TOKEN(3); PROP(7,27); memcpy(blob+p,"memory",7); p+=7; while(p%4) blob[p++]=0;
+    TOKEN(3); PROP(16,39); put64(blob+p,0x80000000ULL); put64(blob+p+8,0x08000000ULL); p+=16;
     TOKEN(2); TOKEN(2); TOKEN(9);
 #undef TOKEN
 #undef PROP
