@@ -1,0 +1,13 @@
+[package]
+name = "gravity-sql-ai"
+version = "0.2.0"
+edition = "2021"
+description = "SQLite-backed document store and lexical retrieval for Gravity AI"
+license = "MIT"
+
+[lib]
+name = "gravity_sql_ai"
+path = "src/lib.rs"
+
+[dependencies]
+rusqlite = { version = "0.32.1", features = ["bundled"] }
