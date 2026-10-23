@@ -31,11 +31,12 @@ function Adapter:hub_list(query)
   return records
 end
 
-function Adapter:hub_download(app_id)
+function Adapter:hub_download(app_id, app_record)
   assert(type(app_id)=="string" and app_id:match("^[%w_.%-]+$") and not app_id:find("..",1,true),
     "invalid App Hub ID")
   local download=self:_require("download_to_file")
-  local path=self:_require("make_download_path")("xzuff-"..app_id)
+  local ext=(type(app_record)=="table" and app_record.package_type=="LUAP") and ".luap" or ".lap"
+  local path=self:_require("make_download_path")("xzuff-"..app_id..ext)
   local status,actual_path=download(self.base_url.."/api/apps/"..app_id.."/download",path,{})
   if status~=200 or type(actual_path)~="string" or actual_path=="" then
     return nil,"download failed: "..tostring(status)
