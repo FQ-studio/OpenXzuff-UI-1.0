@@ -5,6 +5,7 @@ SQLite-backed catalog and package upload/download API for OpenXzuff UI LAP/LUAP 
 ## Run locally
 
 ```sh
+export XZUFF_HUB_UPLOAD_TOKEN='replace-with-a-long-random-token'
 cargo run --manifest-path services/app-hub/Cargo.toml
 ```
 
@@ -13,7 +14,6 @@ Defaults: API at `http://127.0.0.1:8787`, SQLite at `data/xzuff-app-hub.sqlite3`
 ## Upload a package
 
 ```sh
-export XZUFF_HUB_UPLOAD_TOKEN='replace-with-a-long-random-token'
 curl -f -X POST http://127.0.0.1:8787/api/apps \
   -H "Authorization: Bearer $XZUFF_HUB_UPLOAD_TOKEN" \
   -F 'title=My Luau App' \
