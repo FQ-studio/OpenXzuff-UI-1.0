@@ -8,6 +8,9 @@
 #include <limits>
 #include <string>
 #include <vector>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 namespace fs = std::filesystem;
 namespace {
 constexpr std::size_t kMaxArchive=64u*1024u*1024u, kMaxFiles=2048, kMaxEntry=32u*1024u*1024u, kMaxTotal=128u*1024u*1024u;
