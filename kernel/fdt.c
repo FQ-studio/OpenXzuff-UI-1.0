@@ -55,7 +55,7 @@ static int range_inside(size_t offset, size_t length, size_t total)
 }
 
 int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
-                           gravity_memory_map_t *map)
+                           gravity_memory_map_t *map, size_t *parsed_total_size)
 {
     const uint8_t *b = (const uint8_t *)blob;
     uint32_t total, off_struct, off_strings, off_reserve, size_strings, size_struct;
@@ -68,6 +68,7 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
     const uint8_t *reg_data[FDT_MAX_DEPTH] = {0};
     uint32_t reg_length[FDT_MAX_DEPTH] = {0};
 
+    if (parsed_total_size != NULL) *parsed_total_size = 0;
     if (b == NULL || map == NULL || available_bytes < FDT_HEADER_SIZE ||
         be32(b) != FDT_MAGIC)
         return -1;
@@ -214,6 +215,7 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
         } else return -1;
     }
     if (!found_memory) return -1;
+    if (parsed_total_size != NULL) *parsed_total_size = total;
 
     /* FDT memory-reservation block consists of big-endian 64-bit addr/size pairs. */
     reserve_cursor = off_reserve;
