@@ -241,6 +241,8 @@ async fn health() -> &'static str { "xzuff-app-hub:ok" }
 
 #[tokio::main]
 async fn main() {
+    // Load local development configuration; environment variables already set by hosting take precedence.
+    let _ = dotenvy::dotenv();
     let db_path = PathBuf::from(env::var("XZUFF_HUB_DB").unwrap_or_else(|_| "data/xzuff-app-hub.sqlite3".into()));
     let storage = PathBuf::from(env::var("XZUFF_HUB_STORAGE").unwrap_or_else(|_| "data/packages".into()));
     let bind: SocketAddr = env::var("XZUFF_HUB_BIND").unwrap_or_else(|_| "127.0.0.1:8787".into())
