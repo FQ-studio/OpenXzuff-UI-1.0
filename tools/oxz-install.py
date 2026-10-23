@@ -46,7 +46,7 @@ def _safe_member(name: str) -> PurePosixPath:
     if not name or "\\" in name or "\x00" in name:
         raise PackageError(f"unsafe archive path: {name!r}")
     path = PurePosixPath(name)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+    if not path.parts or path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
         raise PackageError(f"unsafe archive path: {name!r}")
     if path.parts and re.match(r"^[A-Za-z]:", path.parts[0]):
         raise PackageError(f"drive path is not allowed: {name!r}")
@@ -113,7 +113,8 @@ def validate_package(package: Path):
         missing = MANIFEST_KEYS - manifest.keys()
         if missing:
             raise PackageError("manifest missing fields: " + ", ".join(sorted(missing)))
-        if manifest["format"] != expected_format or manifest["formatVersion"] != 1:
+        if (manifest["format"] != expected_format or not isinstance(manifest["formatVersion"], int)
+                or isinstance(manifest["formatVersion"], bool) or manifest["formatVersion"] != 1):
             raise PackageError("package format or formatVersion does not match extension")
         if manifest["language"] != expected_language:
             raise PackageError("package language does not match extension")
