@@ -41,5 +41,7 @@ jobs:
           fi
           cat qemu-boot.log
           grep -F "OpenXzuff UI native kernel: RV64 entry reached." qemu-boot.log
+          grep -F "Gravity FDT RAM discovery: PASS; usable bytes=" qemu-boot.log
+          grep -F "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
           grep -F "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
           grep -F "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
