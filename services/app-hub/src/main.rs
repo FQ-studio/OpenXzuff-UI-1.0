@@ -1,9 +1,9 @@
 use axum::{
     body::Body,
     extract::{DefaultBodyLimit, Multipart, Path, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use rusqlite::{params, Connection};
@@ -100,7 +100,15 @@ async fn list_apps(State(state): State<AppState>, Query(q): Query<SearchQuery>) 
     }
 }
 
-async fn upload_app(State(state): State<AppState>, mut multipart: Multipart) -> Response {
+async fn upload_app(State(state): State<AppState>, headers: HeaderMap, mut multipart: Multipart) -> Response {
+    let expected = match env::var("XZUFF_HUB_UPLOAD_TOKEN") {
+        Ok(token) if !token.is_empty() => token,
+        _ => return error(StatusCode::SERVICE_UNAVAILABLE, "Uploads disabled: configure XZUFF_HUB_UPLOAD_TOKEN"),
+    };
+    let supplied = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).unwrap_or("");
+    if supplied.strip_prefix("Bearer ") != Some(expected.as_str()) {
+        return error(StatusCode::UNAUTHORIZED, "Missing or invalid upload token");
+    }
     let mut title = String::new();
     let mut version = "1.0.0".to_string();
     let mut description = String::new();
