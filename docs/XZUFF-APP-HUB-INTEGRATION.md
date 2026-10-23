@@ -10,7 +10,7 @@ The host-side service lives in services/app-hub and stores app metadata in SQLit
 - hub_upload(path) -> multipart POST /api/apps and return the JSON app record
 - install_package(path) -> call the native C++ installer and return true only after success
 
-The UI intentionally fails visibly if a host callback is absent. The repo does not yet include a bare-metal network stack, filesystem, Lua VM service, or host adapter that implements these callbacks, so a real Gravity Kernel desktop cannot use the network Hub until those platform services are built.
+The UI intentionally fails visibly if a host callback is absent. The Lua bridge module `runtime/lua/apps/xzuff_app_hub_adapter.lua` adapts native host callbacks (HTTP GET, multipart POST, file download, JSON parsing, file selection, prompts, and installer service) to the UI callback contract. Attach it with `Adapter.attach(native_platform, {base_url = "http://127.0.0.1:8787"})`. The repo does not yet include a bare-metal network stack, filesystem, Lua VM service, or host adapter that implements these callbacks, so a real Gravity Kernel desktop cannot use the network Hub until those platform services are built.
 
 ## SQL and package storage
 
