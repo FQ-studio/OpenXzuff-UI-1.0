@@ -1,0 +1,16 @@
+# Local secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Rust build output
+target/
+
+# Local App Hub database and uploaded packages
+data/
+services/app-hub/data/
+
+# Editor / OS files
+.DS_Store
+Thumbs.db
+.vscode/
