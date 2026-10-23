@@ -7,7 +7,7 @@ RV_LDFLAGS := -nostdlib -Wl,-T,kernel/linker-riscv.ld -Wl,--build-id=none
 .PHONY: help check-lua check-rust check-ai-cpp clean kernel-rv64
 help:
 	@echo 'Targets: check-lua, check-rust, check-ai-cpp, kernel-rv64, clean'
-	@echo 'kernel-rv64 builds only an early RV64 payload, not a complete bootable OS.'
+	@echo 'kernel-rv64 builds an RV64 early payload with a supervisor trap/syscall-path smoke test; it is not a complete OS.'
 
 check-lua:
 	lua tests/ui_spec.lua
@@ -21,12 +21,14 @@ check-ai-cpp:
 
 kernel-rv64: build/openxzuff-rv64.elf
 
-build/openxzuff-rv64.elf: kernel/kernel.c kernel/syscall.c kernel/include/gravity/syscall.h kernel/arch/riscv/entry.S kernel/linker-riscv.ld
+build/openxzuff-rv64.elf: kernel/kernel.c kernel/syscall.c kernel/trap.c kernel/include/gravity/syscall.h kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
 	mkdir -p build
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/kernel.c -o build/kernel.o
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/syscall.c -o build/syscall.o
+	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/trap.c -o build/trap.o
 	$(RISCV_PREFIX)gcc $(RV_ASFLAGS) -c kernel/arch/riscv/entry.S -o build/entry.o
-	$(RISCV_PREFIX)gcc $(RV_CFLAGS) $(RV_LDFLAGS) build/entry.o build/kernel.o build/syscall.o -o $@
+	$(RISCV_PREFIX)gcc $(RV_ASFLAGS) -c kernel/arch/riscv/trap.S -o build/trap_entry.o
+	$(RISCV_PREFIX)gcc $(RV_CFLAGS) $(RV_LDFLAGS) build/entry.o build/trap_entry.o build/kernel.o build/trap.o build/syscall.o -o $@
 
 clean:
 	rm -rf build
