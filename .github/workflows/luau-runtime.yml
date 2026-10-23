@@ -32,7 +32,9 @@ jobs:
         run: cmake -S graphics3d -B graphics3d/build -DCMAKE_BUILD_TYPE=Release
       - name: Build OpenXzuff3D
         run: cmake --build graphics3d/build --parallel 2
-      - name: Render 3D cube smoke test
-        run: graphics3d/build/xzuff3d-cube graphics3d/build/cube.ppm
+      - name: Test OpenXzuff3D geometry, transforms, and render
+        run: ctest --test-dir graphics3d/build --output-on-failure
+      - name: Render 3D scene smoke test
+        run: graphics3d/build/xzuff3d-cube graphics3d/build/scene.ppm
       - name: Verify rendered image
-        run: test -s graphics3d/build/cube.ppm
+        run: test -s graphics3d/build/scene.ppm
