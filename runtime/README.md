@@ -54,3 +54,8 @@ The manifest includes format, numeric format version, package name, packageVersi
 - App installer integration and mobile/Gravity Kernel integration
 
 **Security:** This is an early developer runtime, not a security boundary. Do not run untrusted packages on a sensitive system. Before distributing games, verify Luau API compatibility, test the build, restrict exposed libraries deliberately, and add OS-level isolation. The current package format has no signature or checksum.
+
+
+## Repository placement
+
+This runtime and its GitHub Actions workflow live in `FQ-studio/OpenXzuff-UI-1.0`, alongside the OpenXzuff UI OS project. The App Hub repository is not the home of the OS runtime.
