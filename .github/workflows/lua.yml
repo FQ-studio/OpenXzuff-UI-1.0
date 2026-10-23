@@ -1,4 +1,4 @@
-name: Lua UI checks
+name: Lua and RV64 kernel checks
 
 on:
   push:
@@ -7,17 +7,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  lua:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
       - name: Install Lua
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.4
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
       - name: Syntax-check Lua sources
-        run: |
-          find src tests -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+        run: find src tests -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
       - name: Run UI tests
         run: lua5.4 tests/ui_spec.lua
+  rv64-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install RV64 cross compiler
+        run: sudo apt-get update && sudo apt-get install -y gcc-riscv64-unknown-elf
+      - name: Build minimal RV64 payload
+        run: make kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
