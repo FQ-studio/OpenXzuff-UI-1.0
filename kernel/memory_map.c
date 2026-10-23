@@ -37,7 +37,27 @@ int gravity_memory_map_reserve(gravity_memory_map_t *map,
                                uintptr_t start, uintptr_t end)
 {
     size_t i;
+    size_t resulting_count;
+
     if (map == NULL || start == 0 || end <= start)
+        return -1;
+
+    /* Preflight capacity so a failed reservation never partially mutates map. */
+    resulting_count = map->count;
+    for (i = 0; i < map->count; ++i) {
+        gravity_memory_region_t region = map->regions[i];
+        uintptr_t cut_start;
+        uintptr_t cut_end;
+        if (end <= region.start || start >= region.end)
+            continue;
+        cut_start = start > region.start ? start : region.start;
+        cut_end = end < region.end ? end : region.end;
+        if (cut_start == region.start && cut_end == region.end)
+            --resulting_count;
+        else if (cut_start != region.start && cut_end != region.end)
+            ++resulting_count;
+    }
+    if (resulting_count > GRAVITY_MEMORY_MAP_MAX_REGIONS)
         return -1;
 
     for (i = 0; i < map->count; ++i) {
