@@ -16,7 +16,7 @@ static void put64(uint8_t *p, uint64_t v)
 
 int main(void)
 {
-    uint8_t blob[256] = {0};
+    uint8_t blob[512] = {0};
     const char strings[] = "#address-cells\0#size-cells\0device_type\0reg\0";
     size_t off_strings=80, off_struct=(off_strings+sizeof(strings)+3u)&~(size_t)3u, p=off_struct;
     gravity_memory_map_t map;
