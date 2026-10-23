@@ -46,9 +46,11 @@ int main(void)
     gravity_memory_map_init(&map);
     assert(gravity_fdt_add_memory(blob,sizeof(blob),&map,&parsed_size)==0);
     assert(parsed_size == p);
-    assert(map.count==1);
+    assert(map.count==2);
     assert(map.regions[0].start==0x80001000u);
-    assert(map.regions[0].end==0x88000000u);
+    assert(map.regions[0].end==0x87000000u);
+    assert(map.regions[1].start==0x87001000u);
+    assert(map.regions[1].end==0x88000000u);
     assert(gravity_fdt_add_memory(blob,20,&map,&parsed_size)==-1);
     blob[0]=0;
     assert(gravity_fdt_add_memory(blob,sizeof(blob),&map,&parsed_size)==-1);
