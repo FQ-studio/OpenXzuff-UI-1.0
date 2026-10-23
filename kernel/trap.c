@@ -38,8 +38,8 @@ void gravity_trap_handler(gravity_trap_frame_t *frame)
     uintptr_t cause;
     __asm__ volatile ("csrr %0, scause" : "=r"(cause));
 
-    /* Exception code 9: environment call from Supervisor mode. */
-    if (cause == 9) {
+    /* Exception code 8: environment call from User mode (real user syscall ABI). */
+    if (cause == 8) {
         gravity_syscall_args_t args = {
             frame->x[10], frame->x[11], frame->x[12],
             frame->x[13], frame->x[14], frame->x[15]
