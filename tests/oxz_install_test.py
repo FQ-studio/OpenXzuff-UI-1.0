@@ -1,10 +1,18 @@
+import importlib.util
 import json
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from oxz_install import PackageError, install_package, validate_package
+_spec = importlib.util.spec_from_file_location(
+    "oxz_install", Path(__file__).resolve().parents[1] / "tools" / "oxz-install.py"
+)
+_oxz = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_oxz)
+PackageError, install_package, validate_package = (
+    _oxz.PackageError, _oxz.install_package, _oxz.validate_package
+)
 
 
 def make_package(path: Path, ext=".lap", manifest_overrides=None, files=None):
