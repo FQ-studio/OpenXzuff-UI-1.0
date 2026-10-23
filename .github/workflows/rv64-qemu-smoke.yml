@@ -28,6 +28,8 @@ jobs:
         run: make check-fdt
       - name: Test native application package validation
         run: make check-app
+      - name: Test LAP and LUAP installer
+        run: make check-installer
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
       - name: Boot through OpenSBI in QEMU
