@@ -63,6 +63,6 @@ eq(desktop:pointer_released(20, 20, 1), true, "desktop menu button can be clicke
 eq(desktop.menu_open, true, "menu toggles open")
 desktop:pointer_pressed(40, 65, 1)
 desktop:pointer_released(40, 65, 1)
-eq(desktop.status, "OpenXzuff UI 1.0 · Lua UI core", "menu item updates status")
+eq(desktop.status, "OpenXzuff UI 1.0 · Lua-native UI core", "menu item updates status")
 
 print("OpenXzuff UI tests passed")
