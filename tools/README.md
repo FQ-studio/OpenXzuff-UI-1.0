@@ -1,37 +1,5 @@
-# OpenXzuff Package Installer (host-side foundation)
+# OpenXzuff native package installer
 
-This first installer validates and extracts `.lap` (Luau App Package) and
-`.luap` (Lua App Package) ZIP containers into a local application directory.
-It uses only the Python 3 standard library.
+C11 utility with no Python, Lua, Linux, Flutter, or third-party library dependency at build time. Build/test with make check-installer; install with build/oxz-install install MyApp.lap ./installed-apps.
 
-## Use
-
-Validate without installing:
-
-```sh
-python3 tools/oxz-install.py check MyApp.lap
-```
-
-Install:
-
-```sh
-python3 tools/oxz-install.py install MyApp.lap --root ./installed-apps
-python3 tools/oxz-install.py install Calculator.luap --root ./installed-apps
-```
-
-Replacing an installed app with the same ID is refused by default. To explicitly
-replace it, pass `--replace`.
-
-## Safety and limitations
-
-- Checks package extension, manifest schema fields, language/format agreement,
-  entry script, semantic version, duplicate paths/JSON keys, path traversal,
-  symbolic links, encrypted entries, compression types, and size limits.
-- Rejects all non-empty permissions until a real permission registry and
-  sandbox exist (fail-closed).
-- Extracts to a staging directory and atomically swaps it into place.
-- Does not execute scripts, verify signatures, resolve dependencies, or embed
-  Luau/Lua. It is a host-side developer tool, **not yet the native OS GUI
-  installer or a kernel-integrated package manager**.
-- Package contents remain untrusted. Do not run scripts from packages unless
-  they are handled by a properly sandboxed runtime.
+The initial ZIP reader deliberately supports ZIP_STORED only. Deflated ZIP entries, ZIP64, encrypted entries and multi-disk archives are rejected. Package creators must use uncompressed ZIP entries. The utility checks basic manifest fields, paths, size limits and CRC32, stages files, and refuses to overwrite an existing app. It does not execute scripts, verify signatures, provide a sandbox, or integrate with Gravity Kernel yet. This is a native C host utility foundation, not a completed OS GUI installer.
