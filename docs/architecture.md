@@ -1,46 +1,54 @@
 # Architecture
 
-## Scope and non-goals
-
-OpenXzuff UI is the open-source GUI layer, not the kernel and not the proprietary Xzuff UI. The first implementation keeps the UI core small and host-agnostic. It does not claim to boot hardware or to have a working Gravity Kernel integration.
+OpenXzuff UI is the open-source desktop/UI layer for the native OpenXzuff OS
+project. It is separate from proprietary Xzuff UI. The target architecture is
+RV64 first, with ARM64 later. Linux and Flutter are not runtime dependencies.
 
 ## Layers
 
-1. **Gravity Kernel (external dependency):** boot, memory management, scheduling, device discovery, input drivers, and framebuffer mapping.
-2. **Platform host adapter (to implement):** exposes a narrow graphics/input API to the Lua VM. It translates kernel-specific interfaces into stable UI calls.
-3. **Lua VM (to port/package):** executes UI scripts. VM allocator, panic handling, module loading, and security policy belong to the platform integration.
-4. **OpenXzuff UI core:** widgets, hit-testing, input dispatch, layout, and drawing commands.
-5. **Desktop shell:** panel, application menu, status, and later window management.
+1. **Gravity Kernel (in progress):** RV64 entry point and early SBI console
+   currently exist. Task scheduling, memory isolation, trap handling, IPC,
+   capabilities and drivers remain to be implemented.
+2. **Gravity syscall ABI:** names use `gravity_<group>_<operation>`. The current
+   header reserves stable IDs; the dispatcher fails closed with `-ENOSYS`.
+3. **Native services:** Rust for system services and Gravity SQL AI retrieval;
+   C++ for optional native inference backends.
+4. **Lua VM and platform host (not integrated):** the Lua UI core is host
+   agnostic. A real VM allocator, module loader, syscall/IPC bridge, framebuffer
+   and input adapter must be implemented.
+5. **OpenXzuff UI:** widgets, hit-testing, input dispatch and drawing commands.
+6. **Apps:** Lua app modules are loaded by a future application host. The current
+   settings and AI Assistant files are app shells, not installed/runnable OS apps.
 
-## Current foundation
+## Language responsibilities
 
-- `src/openxzuff/ui.lua`: button model, draw dispatch, reverse-order hit testing, pointer press/release and callback dispatch.
-- `src/openxzuff/desktop.lua`: simple desktop shell sample using a host-supplied drawing API.
-- `tests/ui_spec.lua`: tests against a fake host; no hardware is needed to test the core.
+- Assembly: architecture entry, trap entry/return and context-switch primitives.
+- Rust: memory-safe kernel/services where the chosen ABI and no_std support fit.
+- C++: native AI backend integration behind a stable C ABI.
+- Lua: desktop shell, widgets and sandboxed user apps.
 
-## Required platform API
+## AI and retrieval
 
-The host must implement:
+Gravity SQL AI starts as a Rust retrieval library. Its current lexical search
+provides candidate passages for RAG; it is not yet a SQL database or vector
+database. A separate C++ service boundary is reserved for LiteRT integration.
+Qwen2.5-0.5B is not assumed to run on LiteRT until its model format, tokenizer,
+operators and backend compatibility have been verified.
 
-- `fill_rect(x, y, width, height, rgba)`
-- `draw_text(text, x, y, rgba)`
+## Current UI host API
 
-The host must also call the shell's normalized pointer methods for press/release events. Coordinates are physical framebuffer pixels; the host is responsible for converting touch coordinates, display rotation, and device-specific events.
+The host implements `fill_rect(x, y, width, height, rgba)` and
+`draw_text(text, x, y, rgba)`, plus normalized pointer press/release callbacks.
+See `docs/platform-api.md`.
 
-This is deliberately not a kernel syscall specification. The actual OpenXzuff kernel ABI and framebuffer/input APIs must be implemented and verified before writing a real adapter. See `kernel/README.md` and `docs/roadmap.md`.
+## Implementation roadmap
 
-## Roadmap
-
-1. **Foundation (this branch):** Lua UI core, example shell, tests, CI, API documentation.
-2. **Runtime choice:** pin a Lua version, build configuration, allocator strategy, and target-specific VM port.
-3. **Gravity Kernel adapter:** use verified framebuffer, input, memory, and scheduling APIs from the kernel repository.
-4. **Raster/text backend:** pixel format handling, clipping, bitmap or glyph font rendering, damage regions, and frame pacing.
-5. **Desktop services:** windows, focus, keyboard events, app lifecycle, settings, and accessibility hooks.
-6. **Hardware test:** boot on a documented RV64 target or emulator only after the required kernel facilities exist.
-
-## Correctness constraints
-
-- UI callbacks run synchronously in the host event context for now. The platform must avoid re-entrant input dispatch.
-- Widget identifiers must be unique within a UI instance.
-- Rectangles use non-negative width/height and finite coordinates.
-- UI modules must not import Linux, Flutter, Android, or unverified kernel syscall bindings.
+1. Finish RV64 trap entry and privilege-separated syscall dispatch.
+2. Implement scheduler, physical/page memory management, capabilities and IPC.
+3. Add serial/framebuffer/input drivers and boot protocol for a named board.
+4. Port Lua VM as a bounded user task and connect UI drawing/events via IPC.
+5. Build the app manager and lifecycle/isolation model.
+6. Grow Gravity SQL AI from lexical retrieval to persistence, SQL queries,
+   embeddings, vector retrieval and source-grounded context.
+7. Verify LiteRT backend and Qwen model compatibility before enabling inference.
+8. Add ARM64 UEFI boot only after RV64 interfaces stabilize.

@@ -1,8 +1,8 @@
-name: Lua and RV64 kernel checks
+name: OpenXzuff native foundation checks
 
 on:
   push:
-    branches: [main, "feat/**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -14,9 +14,25 @@ jobs:
       - name: Install Lua
         run: sudo apt-get update && sudo apt-get install -y lua5.4
       - name: Syntax-check Lua sources
-        run: find src tests -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
+        run: find src tests runtime/lua -name '*.lua' -print0 | xargs -0 -n1 luac5.4 -p
       - name: Run UI tests
         run: lua5.4 tests/ui_spec.lua
+
+  rust-sql-ai:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test retrieval library
+        run: cargo test --manifest-path services/sql-ai/Cargo.toml
+
+  cpp-ai-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check C++ AI boundary
+        run: g++ -std=c++17 -Wall -Wextra -Werror -Iai/runtime/include -fsyntax-only ai/runtime/src/ai_runtime.cpp
+
   rv64-kernel:
     runs-on: ubuntu-latest
     steps:

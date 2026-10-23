@@ -1,0 +1,12 @@
+[package]
+name = "gravity-sql-ai"
+version = "0.1.0"
+edition = "2021"
+description = "Initial Rust library for Gravity SQL AI retrieval"
+license = "MIT"
+
+[lib]
+name = "gravity_sql_ai"
+path = "src/lib.rs"
+
+[dependencies]
