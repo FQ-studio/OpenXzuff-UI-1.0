@@ -1,0 +1,28 @@
+name: Xzuff Luau Runtime
+on:
+  push:
+    paths:
+      - "runtime/**"
+      - ".github/workflows/luau-runtime.yml"
+  pull_request:
+    paths:
+      - "runtime/**"
+      - ".github/workflows/luau-runtime.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@latest
+      - name: Configure
+        run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build runtime/build --parallel 2
+      - name: Run source smoke test
+        run: runtime/build/xzuff-luau runtime/examples/hello.luau
+      - name: Package smoke test
+        run: |
+          runtime/build/xzuff-luau --pack runtime/examples/hello.luau runtime/build/hello.luap "Hello Game" 1.0.0
+          runtime/build/xzuff-luau runtime/build/hello.luap
