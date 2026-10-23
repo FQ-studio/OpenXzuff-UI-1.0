@@ -12,3 +12,10 @@ endif()
 
 add_executable(xzuff3d-cube examples/cube_demo.cpp)
 target_link_libraries(xzuff3d-cube PRIVATE xzuff3d)
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(xzuff3d-tests tests/renderer_tests.cpp)
+  target_link_libraries(xzuff3d-tests PRIVATE xzuff3d)
+  add_test(NAME xzuff3d-tests COMMAND xzuff3d-tests)
+endif()
