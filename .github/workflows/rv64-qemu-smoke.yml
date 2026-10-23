@@ -20,6 +20,8 @@ jobs:
         run: make check-boot-alloc
       - name: Test physical memory map
         run: make check-memory-map
+      - name: Test FDT memory discovery
+        run: make check-fdt
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
       - name: Boot through OpenSBI in QEMU
