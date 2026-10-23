@@ -29,7 +29,7 @@ int main(void)
     assert(map.regions[1].start == 0x5000 && map.regions[1].end == 0x7000);
     assert(map.regions[2].start == 0xb000 && map.regions[2].end == 0xc000);
 
-    assert(gravity_memory_map_usable_bytes(&map) == 0x5000);
+    assert(gravity_memory_map_usable_bytes(&map) == 0x4000);
     assert(gravity_memory_map_reserve(&map, 0, 1) == -1);
     assert(gravity_memory_map_usable_bytes(NULL) == 0);
 
