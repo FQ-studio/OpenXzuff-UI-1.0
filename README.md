@@ -13,18 +13,27 @@ SBI. Gravity syscall IDs are reserved but not yet wired to a user-mode trap path
 The Lua UI core runs against a host adapter in tests; it is not yet embedded in a
 bare-metal Lua VM.
 
-The Rust Gravity SQL AI crate currently provides dependency-free lexical
-retrieval as a starting point for RAG. The C++ AI boundary is a stub and does
-not load LiteRT or Qwen2.5-0.5B yet.
+Gravity SQL AI now uses the real SQLite engine through Rust's rusqlite binding
+for persistent document storage and lexical retrieval. It is a working library
+baseline, but it is not yet running as a service on Gravity Kernel and does not
+yet include embeddings or vector search.
+
+Google LiteRT, Qwen2.5-0.5B inference, and Aurora Store are **not yet integrated**.
+LiteRT needs a compatible runtime/build target and Qwen needs a verified model
+format, tokenizer, and inference smoke test. Aurora Store is an Android Kotlin
+app and requires an Android compatibility runtime; it cannot run as a native Lua
+app merely by copying its APK. See
+[Runtime integration gates](docs/runtime-integration-gates.md).
 
 ## Components
 
 - `kernel/`: RV64 early entry and draft Gravity syscall ABI.
 - `src/openxzuff/`: host-agnostic Lua UI and desktop shell.
 - `runtime/lua/apps/`: early Settings and AI Assistant app modules.
-- `services/sql-ai/`: Rust lexical retrieval library with unit tests.
-- `ai/runtime/`: C++ ABI boundary for future inference backend.
+- `services/sql-ai/`: SQLite-backed Rust document store and lexical retrieval.
+- `ai/runtime/`: C++ ABI boundary; no inference backend is linked yet.
 - `docs/implementation-status.md`: implemented versus planned features.
+- `docs/runtime-integration-gates.md`: explicit dependency and acceptance gates.
 
 ## Checks
 
