@@ -50,11 +50,9 @@ fn safe_component(s: &str, max: usize) -> bool {
         !s.contains("..") && !s.starts_with('.')
 }
 
-fn init_db(path: &FsPath) -> Result<Connection, rusqlite::Error> {
-    let db = Connection::open(path)?;
+fn initialize_schema(db: &Connection) -> Result<(), rusqlite::Error> {
     db.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA foreign_keys=ON;
+        "PRAGMA foreign_keys=ON;
          CREATE TABLE IF NOT EXISTS apps (
            id TEXT PRIMARY KEY NOT NULL,
            title TEXT NOT NULL,
@@ -71,6 +69,13 @@ fn init_db(path: &FsPath) -> Result<Connection, rusqlite::Error> {
          CREATE INDEX IF NOT EXISTS apps_title_idx ON apps(title);
          CREATE INDEX IF NOT EXISTS apps_category_idx ON apps(category);"
     )?;
+    Ok(())
+}
+
+fn init_db(path: &FsPath) -> Result<Connection, rusqlite::Error> {
+    let db = Connection::open(path)?;
+    db.execute_batch("PRAGMA journal_mode=WAL;")?;
+    initialize_schema(&db)?;
     Ok(db)
 }
 
@@ -255,4 +260,28 @@ async fn main() {
     println!("SQLite: {}; package storage: {}", db_path.display(), state.storage.display());
     println!("Warning: upload endpoint has no authentication; keep bound to localhost or put behind authenticated HTTPS.");
     axum::serve(listener, app).await.expect("serve App Hub");
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_schema_lists_and_searches_uploaded_app_metadata() {
+        let db = Connection::open_in_memory().expect("open in-memory SQLite");
+        initialize_schema(&db).expect("initialize schema");
+        db.execute(
+            "INSERT INTO apps (id,title,version,package_type,description,publisher,category,filename,sha256,size_bytes)
+             VALUES ('demo-123','Demo Calculator','1.0.0','LAP','Simple calculator','FQ Studio','Utilities','demo.lap','abc123',42)",
+            [],
+        ).expect("insert fixture");
+        let results = read_apps(&db, "calculator", 20).expect("search catalog");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "demo-123");
+        assert_eq!(results[0].package_type, "LAP");
+        assert_eq!(read_apps(&db, "missing", 20).expect("empty search").len(), 0);
+        assert!(safe_component("demo-123", 140));
+        assert!(!safe_component("../secret", 140));
+    }
 }
