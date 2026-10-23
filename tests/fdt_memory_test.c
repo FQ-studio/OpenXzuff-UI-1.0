@@ -41,7 +41,8 @@ int main(void)
     put32(blob+28,0); put32(blob+32,sizeof(strings)); put32(blob+36,(uint32_t)(p-off_struct));
     gravity_memory_map_init(&map);
     assert(gravity_fdt_add_memory(blob,sizeof(blob),&map,&parsed_size)==0);
-    assert(parsed_size == p);\n    assert(map.count==1);
+    assert(parsed_size == p);
+    assert(map.count==1);
     assert(map.regions[0].start==0x80001000u);
     assert(map.regions[0].end==0x88000000u);
     assert(gravity_fdt_add_memory(blob,20,&map,&parsed_size)==-1);
