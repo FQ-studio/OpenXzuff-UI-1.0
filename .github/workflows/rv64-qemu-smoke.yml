@@ -18,6 +18,8 @@ jobs:
           sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
       - name: Test bounded boot allocator
         run: make check-boot-alloc
+      - name: Test physical memory map
+        run: make check-memory-map
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
       - name: Boot through OpenSBI in QEMU
