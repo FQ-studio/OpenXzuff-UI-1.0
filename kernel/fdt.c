@@ -34,7 +34,7 @@ static int name_is(const uint8_t *p, uint32_t length, const char *name)
             return 0;
         ++i;
     }
-    return i < length && p[i] == 0;
+    return length == i || (length == i + 1u && p[i] == 0);
 }
 
 static int node_is_memory(const uint8_t *name, uint32_t length)
