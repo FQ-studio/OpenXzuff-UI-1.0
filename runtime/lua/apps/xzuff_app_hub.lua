@@ -70,7 +70,7 @@ function Hub:download_selected(install_after)
  if type(self.platform.hub_download)~="function" then
   self.status="Hub download adapter unavailable."; self.status_color=C.warn; return false
  end
- local ok,path,detail=pcall(self.platform.hub_download,app.id)
+ local ok,path,detail=pcall(self.platform.hub_download,app.id,app)
  if not ok or type(path)~="string" or path=="" then
   self.status="Download failed: "..tostring(detail or path); self.status_color=C.warn; return false
  end
