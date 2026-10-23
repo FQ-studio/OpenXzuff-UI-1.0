@@ -4,12 +4,13 @@ RV_CFLAGS := -march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding -fno-stack
 RV_ASFLAGS := $(RV_CFLAGS)
 RV_LDFLAGS := -nostdlib -Wl,-T,kernel/linker-riscv.ld -Wl,--build-id=none
 
-.PHONY: help check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map clean kernel-rv64
+.PHONY: help check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt clean kernel-rv64
 help:
-	@echo 'Targets: check-lua, check-rust, check-ai-cpp, check-boot-alloc, check-memory-map, kernel-rv64, clean'
+	@echo 'Targets: check-lua, check-rust, check-ai-cpp, check-boot-alloc, check-memory-map, check-fdt, kernel-rv64, clean'
 	@echo 'check-boot-alloc tests the bounded early-boot allocator on the host.'
 	@echo 'check-memory-map tests RAM range tracking and reservation logic.'
-	@echo 'kernel-rv64 builds an RV64 early payload with a supervisor trap/syscall-path smoke test; it is not a complete OS.'
+	@echo 'check-fdt tests parsing a bootloader-provided Flattened Device Tree.'
+	@echo 'kernel-rv64 builds an RV64 early payload; it is not a complete OS.'
 
 check-lua:
 	lua tests/ui_spec.lua
@@ -31,18 +32,24 @@ check-memory-map:
 	$(CC) -std=c11 -Wall -Wextra -Werror -Ikernel/include kernel/memory_map.c tests/memory_map_test.c -o build/memory_map_test
 	./build/memory_map_test
 
+check-fdt:
+	mkdir -p build
+	$(CC) -std=c11 -Wall -Wextra -Werror -Ikernel/include kernel/fdt.c kernel/memory_map.c tests/fdt_memory_test.c -o build/fdt_memory_test
+	./build/fdt_memory_test
+
 kernel-rv64: build/openxzuff-rv64.elf
 
-build/openxzuff-rv64.elf: kernel/kernel.c kernel/syscall.c kernel/trap.c kernel/boot_alloc.c kernel/memory_map.c kernel/include/gravity/memory_map.h kernel/include/gravity/syscall.h kernel/include/gravity/boot_alloc.h kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
+build/openxzuff-rv64.elf: kernel/kernel.c kernel/syscall.c kernel/trap.c kernel/boot_alloc.c kernel/memory_map.c kernel/fdt.c kernel/include/gravity/fdt.h kernel/include/gravity/memory_map.h kernel/include/gravity/syscall.h kernel/include/gravity/boot_alloc.h kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
 	mkdir -p build
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/kernel.c -o build/kernel.o
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/boot_alloc.c -o build/boot_alloc.o
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/memory_map.c -o build/memory_map.o
+	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/fdt.c -o build/fdt.o
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/syscall.c -o build/syscall.o
 	$(RISCV_PREFIX)gcc $(RV_CFLAGS) -c kernel/trap.c -o build/trap.o
 	$(RISCV_PREFIX)gcc $(RV_ASFLAGS) -c kernel/arch/riscv/entry.S -o build/entry.o
 	$(RISCV_PREFIX)gcc $(RV_ASFLAGS) -c kernel/arch/riscv/trap.S -o build/trap_entry.o
-	$(RISCV_PREFIX)gcc $(RV_CFLAGS) $(RV_LDFLAGS) build/entry.o build/trap_entry.o build/kernel.o build/boot_alloc.o build/memory_map.o build/trap.o build/syscall.o -o $@
+	$(RISCV_PREFIX)gcc $(RV_CFLAGS) $(RV_LDFLAGS) build/entry.o build/trap_entry.o build/kernel.o build/boot_alloc.o build/memory_map.o build/fdt.o build/trap.o build/syscall.o -o $@
 
 clean:
 	rm -rf build
