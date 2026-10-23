@@ -20,6 +20,7 @@ check-installer:
 
 check-lua:
 	lua tests/ui_spec.lua
+	lua tests/package_installer_spec.lua
 	find src tests runtime/lua -name '*.lua' -print0 | xargs -0 -n1 luac -p
 
 check-rust:
