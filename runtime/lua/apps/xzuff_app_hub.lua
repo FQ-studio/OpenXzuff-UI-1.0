@@ -54,9 +54,9 @@ function Hub:refresh()
  if type(self.platform.hub_list)~="function" then
   self.status="Hub network adapter unavailable; catalog not loaded."; self.status_color=C.warn; return false
  end
- local ok,result=pcall(self.platform.hub_list,self.query)
+ local ok,result,detail=pcall(self.platform.hub_list,self.query)
  if not ok or type(result)~="table" then
-  self.status="Could not load catalog: "..tostring(result); self.status_color=C.warn; return false
+  self.status="Could not load catalog: "..tostring(detail or result); self.status_color=C.warn; return false
  end
  self.apps=result; self.selected=math.min(self.selected,math.max(1,#self.apps))
  self.status="Loaded "..tostring(#self.apps).." app(s) from Xzuff App Hub."
