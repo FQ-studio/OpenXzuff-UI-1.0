@@ -14,6 +14,6 @@
  * Returns 0 when at least one RAM range was parsed; otherwise -1.
  */
 int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
-                           gravity_memory_map_t *map);
+                           gravity_memory_map_t *map, size_t *parsed_total_size);
 
 #endif
