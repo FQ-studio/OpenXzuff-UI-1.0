@@ -97,7 +97,23 @@ function Hub:upload()
  if not ok or type(path)~="string" or path=="" then
   self.status="No package selected for upload."; self.status_color=C.warn; return false
  end
- local uok,result,detail=pcall(self.platform.hub_upload,path)
+ if type(self.platform.prompt_text)~="function" then
+  self.status="Upload needs metadata prompts for title and publisher."; self.status_color=C.warn; return false
+ end
+ local function ask(label, default)
+  local good,value=pcall(self.platform.prompt_text,label,default or "")
+  if not good or type(value)~="string" or value=="" then return nil end
+  return value
+ end
+ local metadata={
+  title=ask("App title"), publisher=ask("Publisher/studio"),
+  version=ask("Version","1.0.0"), category=ask("Category","Other"),
+  description=ask("Description","")
+ }
+ if not metadata.title or not metadata.publisher or not metadata.version or not metadata.category or not metadata.description then
+  self.status="Upload cancelled or required metadata missing."; self.status_color=C.warn; return false
+ end
+ local uok,result,detail=pcall(self.platform.hub_upload,path,metadata)
  if not uok or type(result)~="table" then
   self.status="Upload failed: "..tostring(detail or result); self.status_color=C.warn; return false
  end
