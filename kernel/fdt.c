@@ -67,6 +67,11 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
     int memory_device_type[FDT_MAX_DEPTH] = {0};
     const uint8_t *reg_data[FDT_MAX_DEPTH] = {0};
     uint32_t reg_length[FDT_MAX_DEPTH] = {0};
+    int reserved_container[FDT_MAX_DEPTH] = {0};
+    int reserved_child[FDT_MAX_DEPTH] = {0};
+    uintptr_t reserved_starts[GRAVITY_MEMORY_MAP_MAX_REGIONS];
+    uintptr_t reserved_ends[GRAVITY_MEMORY_MAP_MAX_REGIONS];
+    size_t reserved_count = 0;
 
     if (parsed_total_size != NULL) *parsed_total_size = 0;
     if (b == NULL || map == NULL || available_bytes < FDT_HEADER_SIZE ||
@@ -154,6 +159,8 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
             if (cursor == struct_end || depth >= FDT_MAX_DEPTH) return -1;
             len = (uint32_t)(cursor - start);
             memory_nodes[depth] = node_is_memory(b + start, len);
+            reserved_container[depth] = name_is(b + start, len, "reserved-memory");
+            reserved_child[depth] = depth > 0 && reserved_container[depth - 1u];
             memory_device_type[depth] = 0;
             reg_data[depth] = NULL;
             reg_length[depth] = 0;
@@ -164,6 +171,22 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
         } else if (token == FDT_END_NODE) {
             if (depth == 0) return -1;
             --depth;
+            if (reserved_child[depth] && reg_data[depth] != NULL && reg_length[depth] != 0) {
+                uint32_t tuple_cells = address_cells + size_cells;
+                uint32_t tuple_bytes = tuple_cells * 4u;
+                uint32_t pos;
+                if (tuple_bytes == 0 || reg_length[depth] % tuple_bytes != 0) return -1;
+                for (pos = 0; pos < reg_length[depth]; pos += tuple_bytes) {
+                    uint64_t base = read_cells(reg_data[depth] + pos, address_cells);
+                    uint64_t size = read_cells(reg_data[depth] + pos + address_cells * 4u, size_cells);
+                    if (size == 0 || base > UINTPTR_MAX || size > UINTPTR_MAX ||
+                        base + size < base || base + size > UINTPTR_MAX ||
+                        reserved_count >= GRAVITY_MEMORY_MAP_MAX_REGIONS) return -1;
+                    reserved_starts[reserved_count] = (uintptr_t)base;
+                    reserved_ends[reserved_count] = (uintptr_t)(base + size);
+                    ++reserved_count;
+                }
+            }
             if (memory_nodes[depth] || memory_device_type[depth]) {
                 uint32_t tuple_cells = address_cells + size_cells;
                 uint32_t tuple_bytes = tuple_cells * 4u;
@@ -215,6 +238,15 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
         } else return -1;
     }
     if (!found_memory) return -1;
+
+    /* Exclude /reserved-memory children after all RAM nodes have been collected. */
+    {
+        size_t i;
+        for (i = 0; i < reserved_count; ++i) {
+            if (gravity_memory_map_reserve(map, reserved_starts[i], reserved_ends[i]) != 0)
+                return -1;
+        }
+    }
 
     /* FDT memory-reservation block consists of big-endian 64-bit addr/size pairs. */
     reserve_cursor = off_reserve;
