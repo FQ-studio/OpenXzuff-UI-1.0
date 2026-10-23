@@ -82,7 +82,7 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
     if (total < FDT_HEADER_SIZE || total > available_bytes ||
         !range_inside(off_struct, size_struct, total) ||
         !range_inside(off_strings, size_strings, total) ||
-        off_reserve >= total)
+        off_reserve < FDT_HEADER_SIZE || off_reserve >= total)
         return -1;
 
     struct_end = (size_t)off_struct + size_struct;
@@ -215,7 +215,6 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
         } else return -1;
     }
     if (!found_memory) return -1;
-    if (parsed_total_size != NULL) *parsed_total_size = total;
 
     /* FDT memory-reservation block consists of big-endian 64-bit addr/size pairs. */
     reserve_cursor = off_reserve;
@@ -240,5 +239,6 @@ int gravity_fdt_add_memory(const void *blob, size_t available_bytes,
           be32(b + reserve_cursor - 4u) == 0))
         return -1;
 
+    if (parsed_total_size != NULL) *parsed_total_size = total;
     return 0;
 }
