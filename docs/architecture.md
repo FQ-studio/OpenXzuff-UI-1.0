@@ -27,7 +27,7 @@ The host must implement:
 
 The host must also call the shell's normalized pointer methods for press/release events. Coordinates are physical framebuffer pixels; the host is responsible for converting touch coordinates, display rotation, and device-specific events.
 
-This is deliberately not a kernel syscall specification. The actual Gravity Kernel ABI and framebuffer/input APIs must be inspected before writing a real adapter.
+This is deliberately not a kernel syscall specification. The actual OpenXzuff kernel ABI and framebuffer/input APIs must be implemented and verified before writing a real adapter. See `kernel/README.md` and `docs/roadmap.md`.
 
 ## Roadmap
 
