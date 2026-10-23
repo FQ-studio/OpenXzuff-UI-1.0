@@ -3,13 +3,17 @@ package.path = "src/?.lua;src/?/init.lua;" .. package.path
 local UI = require("openxzuff.ui")
 local Desktop = require("openxzuff.desktop")
 
-local calls = { rects = {}, texts = {} }
+local calls = { rects = {}, texts = {}, launched = {} }
 local platform = {
   fill_rect = function(x, y, w, h, color)
     calls.rects[#calls.rects + 1] = { x=x, y=y, w=w, h=h, color=color }
   end,
   draw_text = function(text, x, y, color)
     calls.texts[#calls.texts + 1] = { text=text, x=x, y=y, color=color }
+  end,
+  launch_app = function(id)
+    calls.launched[#calls.launched + 1] = id
+    return true
   end,
 }
 
@@ -64,5 +68,9 @@ eq(desktop.menu_open, true, "menu toggles open")
 desktop:pointer_pressed(40, 65, 1)
 desktop:pointer_released(40, 65, 1)
 eq(desktop.status, "OpenXzuff UI 1.0 · Lua-native UI core", "menu item updates status")
+desktop:pointer_pressed(40, 95, 1)
+eq(calls.launched[1], "apps.xzuff_app_hub", "desktop menu launches Xzuff App Hub")
+desktop:pointer_pressed(40, 133, 1)
+eq(calls.launched[2], "apps.package_installer", "desktop menu launches package installer")
 
 print("OpenXzuff UI tests passed")
