@@ -47,7 +47,6 @@ function Adapter:hub_upload(path, metadata)
   assert(type(path)=="string" and path~="","package path is required")
   assert(type(metadata)=="table","upload metadata is required")
   local post=self:_require("http_post_multipart")
-  local encode=self:_require("json_encode")
   local token=self:_require("get_secret")("xzuff_hub_upload_token")
   if type(token)~="string" or token=="" then
     return nil,"Set the host secret xzuff_hub_upload_token before uploading."
@@ -75,6 +74,21 @@ end
 
 function Adapter:prompt_text(label, default)
   return self:_require("prompt_text")(label,default)
+end
+
+-- Return a drawing platform that forwards UI drawing to the original host and
+-- exposes the network/file/native callbacks as plain functions for the GUI.
+function Adapter.attach(platform, options)
+  local bridge=Adapter.new(platform,options)
+  local proxy={
+    hub_list=function(query) return bridge:hub_list(query) end,
+    hub_download=function(id) return bridge:hub_download(id) end,
+    hub_upload=function(path,metadata) return bridge:hub_upload(path,metadata) end,
+    install_package=function(path) return bridge:install_package(path) end,
+    choose_package=function(exts) return bridge:choose_package(exts) end,
+    prompt_text=function(label,default) return bridge:prompt_text(label,default) end,
+  }
+  return setmetatable(proxy,{__index=platform})
 end
 
 return Adapter
