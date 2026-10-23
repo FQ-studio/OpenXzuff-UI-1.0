@@ -7,6 +7,7 @@ local platform={
  hub_download=function(id) downloaded=id; return "/tmp/demo.lap" end,
  install_package=function(path) installed=path; return true end,
  choose_package=function() return "/tmp/new.luap" end,
+ prompt_text=function(label,default) if label=="App title" then return "New App" elseif label=="Publisher/studio" then return "FQ Studio" else return default or "Test" end end,
  hub_upload=function(path) uploaded=path; return {id="new-1",title="New App"} end,
 }
 local hub=Hub.new(platform,{width=640,height=480})
