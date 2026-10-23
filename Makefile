@@ -4,9 +4,9 @@ RV_CFLAGS := -march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding -fno-stack
 RV_ASFLAGS := $(RV_CFLAGS)
 RV_LDFLAGS := -nostdlib -Wl,-T,kernel/linker-riscv.ld -Wl,--build-id=none
 
-.PHONY: help check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt clean kernel-rv64
+.PHONY: help check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app clean kernel-rv64
 help:
-	@echo 'Targets: check-lua, check-rust, check-ai-cpp, check-boot-alloc, check-memory-map, check-fdt, kernel-rv64, clean'
+	@echo 'Targets: check-lua, check-rust, check-ai-cpp, check-boot-alloc, check-memory-map, check-fdt, check-app, kernel-rv64, clean'
 	@echo 'check-boot-alloc tests the bounded early-boot allocator on the host.'
 	@echo 'check-memory-map tests RAM range tracking and reservation logic.'
 	@echo 'check-fdt tests parsing a bootloader-provided Flattened Device Tree.'
@@ -36,6 +36,11 @@ check-fdt:
 	mkdir -p build
 	$(CC) -std=c11 -Wall -Wextra -Werror -Ikernel/include kernel/fdt.c kernel/memory_map.c tests/fdt_memory_test.c -o build/fdt_memory_test
 	./build/fdt_memory_test
+
+check-app:
+	mkdir -p build
+	$(CC) -std=c11 -Wall -Wextra -Werror -Ikernel/include kernel/app.c tests/app_format_test.c -o build/app_format_test
+	./build/app_format_test
 
 kernel-rv64: build/openxzuff-rv64.elf
 
