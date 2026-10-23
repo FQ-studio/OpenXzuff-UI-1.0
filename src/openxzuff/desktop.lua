@@ -54,15 +54,29 @@ end
 
 function Desktop:pointer_pressed(x, y, button)
   if self.menu_open and button == 1 and x >= 16 and x < 256
-      and y >= 56 and y < 208 then
+      and y >= 56 and y < 284 then
     local choice = math.floor((y - 56) / 38)
     if choice == 0 then
       self.status = "OpenXzuff UI 1.0 · Lua-native UI core"
     elseif choice == 1 then
-      self.status = "No application is bundled in this foundation build."
+      if type(self.platform.launch_app) == "function" then
+        local ok, result = pcall(self.platform.launch_app, "apps.xzuff_app_hub")
+        self.status = ok and result ~= false and "Launching Xzuff App Hub..." or "Could not launch Xzuff App Hub."
+      else
+        self.status = "Xzuff App Hub needs the host app-launch service."
+      end
     elseif choice == 2 then
-      self.status = "Kernel and framebuffer integration are not wired yet."
+      if type(self.platform.launch_app) == "function" then
+        local ok, result = pcall(self.platform.launch_app, "apps.package_installer")
+        self.status = ok and result ~= false and "Launching Package Installer..." or "Could not launch Package Installer."
+      else
+        self.status = "Package Installer needs the host app-launch service."
+      end
     elseif choice == 3 then
+      self.status = "No application is bundled in this foundation build."
+    elseif choice == 4 then
+      self.status = "Kernel and framebuffer integration are not wired yet."
+    elseif choice == 5 then
       self.menu_open = false
     end
     return true
@@ -94,9 +108,9 @@ function Desktop:draw()
   p.draw_text(self.status, 16, math.max(58, self.height - 28), COLORS.muted)
 
   if self.menu_open then
-    p.fill_rect(16, 56, 240, 152, { 28, 38, 55, 255 })
-    p.fill_rect(16, 56, 3, 152, COLORS.accent)
-    local items = { "About OpenXzuff", "Applications", "Platform status", "Close menu" }
+    p.fill_rect(16, 56, 240, 228, { 28, 38, 55, 255 })
+    p.fill_rect(16, 56, 3, 228, COLORS.accent)
+    local items = { "About OpenXzuff", "Xzuff App Hub", "Package Installer", "Applications", "Platform status", "Close menu" }
     for i, label in ipairs(items) do
       p.draw_text(label, 30, 66 + (i - 1) * 38, COLORS.text)
     end
