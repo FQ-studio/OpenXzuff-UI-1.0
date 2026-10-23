@@ -14,8 +14,8 @@ help:
 
 check-installer:
 	mkdir -p build
-	$(CC) -std=c11 -Wall -Wextra -Werror tools/oxz-install.c -o build/oxz-install
-	$(CC) -std=c11 -Wall -Wextra -Werror tests/oxz_install_native_test.c -o build/oxz-install-test
+	$(CXX) -std=c++17 -Wall -Wextra -Werror tools/oxz-install.cpp -o build/oxz-install
+	$(CXX) -std=c++17 -Wall -Wextra -Werror tests/oxz_install_cpp_test.cpp -o build/oxz-install-test
 	./build/oxz-install-test
 
 check-lua:
