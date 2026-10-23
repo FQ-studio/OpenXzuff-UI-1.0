@@ -48,7 +48,7 @@ bool readArchive(const fs::path&path,std::vector<std::uint8_t>&b){
  std::error_code ec;auto sz=fs::file_size(path,ec);if(ec||sz>kMaxArchive)return false;
  std::ifstream f(path,std::ios::binary);if(!f)return false;b.resize(static_cast<std::size_t>(sz));
  if(!b.empty())f.read(reinterpret_cast<char*>(b.data()),static_cast<std::streamsize>(b.size()));
- return f.good()||f.eof()&&static_cast<std::size_t>(f.gcount())==b.size();
+ return f.good() || (f.eof() && static_cast<std::size_t>(f.gcount())==b.size());
 }
 bool extractData(const std::vector<std::uint8_t>&b,const Entry&e,std::size_t&off){
  if(e.local>b.size()||b.size()-e.local<30||u32(b,e.local)!=0x04034b50u)return false;
