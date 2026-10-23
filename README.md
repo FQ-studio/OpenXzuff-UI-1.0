@@ -29,7 +29,7 @@ app merely by copying its APK. See
 
 - `kernel/`: RV64 early entry and draft Gravity syscall ABI.
 - `src/openxzuff/`: host-agnostic Lua UI and desktop shell.
-- `runtime/lua/apps/`: early Settings and AI Assistant app modules.
+- `runtime/lua/apps/`: early Settings, AI Assistant, and graphical LAP/LUAP installer app modules.
 - `services/sql-ai/`: SQLite-backed Rust document store and lexical retrieval.
 - `ai/runtime/`: C++ ABI boundary; no inference backend is linked yet.
 - `docs/implementation-status.md`: implemented versus planned features.
@@ -39,6 +39,7 @@ app merely by copying its APK. See
 
 ```sh
 make check-lua
+lua tests/package_installer_spec.lua
 make check-rust
 make check-ai-cpp
 make kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
