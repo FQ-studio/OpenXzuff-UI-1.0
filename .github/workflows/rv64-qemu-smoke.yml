@@ -3,9 +3,13 @@ name: RV64 QEMU boot smoke test
 on:
   push:
     branches: [main, "feat/lua-native-gui-foundation"]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   qemu-rv64-smoke:
@@ -47,3 +51,34 @@ jobs:
           grep -F "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
           grep -F "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
           grep -F "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
+
+      - name: Assemble verified RV64 package
+        run: |
+          mkdir -p dist/openxzuff-rv64
+          cp build/openxzuff-rv64.elf dist/openxzuff-rv64/
+          cp docs/GAPP-FORMAT.md dist/openxzuff-rv64/
+          cat > dist/openxzuff-rv64/BUILD-STATUS.txt <<'EOF'
+          OpenXzuff UI / Gravity Kernel RV64 bring-up package
+          Build target: RV64 QEMU/OpenSBI payload
+          Included: early boot kernel, FDT RAM discovery, bounded boot allocator,
+          physical memory map, syscall dispatcher self-test, GAPP metadata validator.
+          Not a complete operating system. User-mode process execution, scheduler,
+          framebuffer compositor, Lua VM integration, ART Minimal and Win32 Basic
+          are not implemented by this package.
+          EOF
+          tar -czf dist/openxzuff-rv64.tar.gz -C dist openxzuff-rv64
+      - name: Upload verified package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openxzuff-rv64-${{ github.sha }}
+          path: dist/openxzuff-rv64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish GitHub Release for version tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpenXzuff UI ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/openxzuff-rv64.tar.gz
+          fail_on_unmatched_files: true
