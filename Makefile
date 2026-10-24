@@ -4,13 +4,16 @@ RV_CFLAGS := -march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding -fno-stack
 RV_ASFLAGS := $(RV_CFLAGS)
 RV_LDFLAGS := -nostdlib -Wl,-T,kernel/linker-riscv.ld -Wl,--build-id=none
 
-.PHONY: help check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app check-installer check-app-hub clean kernel-rv64
+.PHONY: help check-all check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app check-installer check-app-hub clean kernel-rv64
 help:
+	@echo 'check-all runs all host-side checks and the RV64 cross-build.'
 	@echo 'Targets: check-lua, check-rust, check-ai-cpp, check-boot-alloc, check-memory-map, check-fdt, check-app, check-installer, check-app-hub, kernel-rv64, clean'
 	@echo 'check-boot-alloc tests the bounded early-boot allocator on the host.'
 	@echo 'check-memory-map tests RAM range tracking and reservation logic.'
 	@echo 'check-fdt tests parsing a bootloader-provided Flattened Device Tree.'
 	@echo 'kernel-rv64 builds an RV64 early payload; it is not a complete OS.'
+
+check-all: check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app check-installer check-app-hub kernel-rv64
 
 check-app-hub:
 	cargo test --manifest-path services/app-hub/Cargo.toml
