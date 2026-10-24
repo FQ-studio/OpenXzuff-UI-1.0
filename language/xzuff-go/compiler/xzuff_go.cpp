@@ -220,6 +220,7 @@ int main(int argc, char** argv) {
         Parser parser(Lexer(source).scan());
         const auto returnValue = parser.parseMainReturn();
         const auto code = generateRv64(returnValue);
+        const auto executable = makeRiscvLinuxElf(code);
         std::ofstream output(argv[2], std::ios::binary);
         if (!output) throw std::runtime_error("cannot create output file");
         output.write(reinterpret_cast<const char*>(executable.data()), static_cast<std::streamsize>(executable.size()));
