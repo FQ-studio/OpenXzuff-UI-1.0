@@ -22,6 +22,10 @@ cmake --build build --parallel 2
 
 Exit status is 0 when the source passes, 1 when diagnostics are reported, and 2 for command-line or I/O errors.
 
+## CLI integration
+
+The user-facing command is `xgo check` from a project directory containing `xgo.project` and `src/main.xgo`. The CLI calls the sibling `xzuff-check` executable. `xgo build` runs the checker before compiling; `xgo run` is reserved for test runs and does not build.
+
 ## Current limitation
 
-This checker shares the compiler's narrow parser rules, not a full language grammar. It is a first validation tool; the next step is to factor the lexer/parser into a shared frontend so the compiler and checker cannot drift apart.
+This checker currently shares the compiler's narrow parser rules, not a full language grammar. It does **not** yet implement ownership, borrow-conflict, lifetime, or general type analysis. Do not describe it as Rust-equivalent until those analyses and regression tests are implemented. The next step is to expand a shared frontend/AST and add semantic checks without making the compiler and checker grammar drift apart.
