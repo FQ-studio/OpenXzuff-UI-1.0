@@ -10,7 +10,7 @@ function main() returns i32 {
 }
 ```
 
-Only one `main` function returning a signed integer literal is supported. The literal must fit the RV64 `addi` signed 12-bit immediate range (-2048 through 2047). The lexer handles identifiers, decimal integer literals, punctuation, whitespace and `//` comments. Unsupported statements and trailing tokens are rejected.
+Only one `main` function returning a signed integer literal is supported. The literal must fit signed 32-bit range (-2147483648 through 2147483647). The compiler splits larger immediates into RV64 `lui` and `addi` instructions. The lexer handles identifiers, decimal integer literals, punctuation, whitespace and `//` comments. Unsupported statements and trailing tokens are rejected.
 
 ## Output: OpenXzuff `.xexe`
 
@@ -18,7 +18,7 @@ The compiler emits a 32-byte `.xexe` v1 header followed by RV64 machine code. It
 
 The generated entry stub does three things:
 
-1. `addi a0, zero, value` sets the process exit status.
+1. `addi` sets small exit values directly; `lui` plus `addi` builds larger signed 32-bit exit values in `a0`.
 2. `addi a7, zero, 0` selects Gravity Kernel `Exit` (syscall ID 0).
 3. `ecall` requests the kernel service.
 
@@ -35,7 +35,7 @@ ctest --test-dir build --output-on-failure
 ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.xexe
 ```
 
-The built-in self-test compares RV64 instruction encodings for return values 0 and 42. CI checks that output is larger than the 32-byte header and begins with the `.xexe` magic. These tests validate the compiler's current narrow subset, not a physical boot or execution on Gravity Kernel.
+The built-in self-test compares RV64 instruction encodings for return values 0, 42, 65536 and INT32_MIN. CI checks that output is larger than the 32-byte header and begins with the `.xexe` magic. These tests validate the compiler's current narrow subset, not a physical boot or execution on Gravity Kernel.
 
 ## Not implemented yet
 
