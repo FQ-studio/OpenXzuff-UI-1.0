@@ -43,10 +43,12 @@ jobs:
           ./build/xexe-loader-test build/return_42.xexe
           test "$(wc -c < build/return_42.xexe)" -gt 32
           test "$(od -An -tx1 -N8 build/return_42.xexe | awk '{ $1=$1; gsub(/ /, ""); print }')" = "585a584558453100"
-      - name: Install Android NDK for ARM64
+      - name: Install Android SDK and NDK for ARM64
         uses: android-actions/setup-android@v3
-      - name: Install Android NDK package
-        run: sdkmanager "ndk;27.2.12479018"
+        with:
+          accept-android-sdk-licenses: true
+          packages: |
+            ndk;27.2.12479018
       - name: Cross-compile Xzuff Go / xgo for Android ARM64
         run: |
           set -eu
