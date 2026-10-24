@@ -67,9 +67,9 @@ The terminal-facing command dispatcher is built as `xgo`. Build all targets with
 ```sh
 ./build/xgo create HelloWorld
 cd HelloWorld
-../xgo check
-../xgo run
-../xgo build
+../build/xgo check
+../build/xgo run
+../build/xgo build
 ```
 
 - `xgo create <name>` creates `xgo.project`, `src/main.xgo`, and `tests/smoke_test.xgo`.
