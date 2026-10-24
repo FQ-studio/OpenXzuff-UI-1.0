@@ -232,7 +232,9 @@ std::string jsonEscape(std::string_view value) {
 #endif // XZUFF_CHECKER_MODE
 
 int main(int argc, char** argv) {
+#ifdef XZUFF_CHECKER_MODE
     bool json = false;
+#endif
 #ifdef XZUFF_CHECKER_MODE
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
         std::cout << "Usage: xzuff-check [--json] <input.xgo>\n";
