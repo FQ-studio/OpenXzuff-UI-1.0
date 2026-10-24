@@ -119,23 +119,26 @@ private:
 };
 
 std::array<std::uint8_t, 12> generateRv64(std::int32_t returnValue) {
-    // Gravity Kernel ABI v1: a0 carries the exit status; a7 = SyscallId::Exit (0).
-    // The kernel ABI defines ecall as the syscall trap. Explicitly set a7 so entry register state is irrelevant.
+    // Gravity Kernel ABI v1: a0 carries the exit status; a7 carries syscall ID 0 for Exit.
     const auto immediate = static_cast<std::uint32_t>(returnValue) & 0xFFFU;
     const std::uint32_t addiA0 = (immediate << 20U) | (10U << 7U) | 0x13U; // addi a0, zero, imm
-    const std::uint32_t addiA7 = (17U << 7U) | 0x13U; // addi a7, zero, 0 (Gravity Exit = 0)\n    const std::uint32_t ecall = 0x00000073U;
+    const std::uint32_t addiA7 = (17U << 7U) | 0x13U; // addi a7, zero, 0
+    const std::uint32_t ecall = 0x00000073U;
     return {
         static_cast<std::uint8_t>(addiA0 & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 8U) & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 16U) & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 24U) & 0xFFU),
+        static_cast<std::uint8_t>(addiA7 & 0xFFU),
+        static_cast<std::uint8_t>((addiA7 >> 8U) & 0xFFU),
+        static_cast<std::uint8_t>((addiA7 >> 16U) & 0xFFU),
+        static_cast<std::uint8_t>((addiA7 >> 24U) & 0xFFU),
         static_cast<std::uint8_t>(ecall & 0xFFU),
         static_cast<std::uint8_t>((ecall >> 8U) & 0xFFU),
         static_cast<std::uint8_t>((ecall >> 16U) & 0xFFU),
         static_cast<std::uint8_t>((ecall >> 24U) & 0xFFU)
     };
 }
-
 void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t value, std::size_t width) {
     if (offset + width > bytes.size()) throw std::runtime_error("internal .xexe layout overflow");
     for (std::size_t i = 0; i < width; ++i) {
