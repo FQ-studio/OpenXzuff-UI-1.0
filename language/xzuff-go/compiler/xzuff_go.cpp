@@ -118,6 +118,7 @@ private:
     std::size_t index_ = 0;
 };
 
+#ifndef XZUFF_CHECKER_MODE
 std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
     // Gravity Kernel ABI v1: a0 carries the exit status; a7 carries syscall ID 0 for Exit.
     // Build any signed i32 using LUI+ADDI, then issue Exit. This avoids silently
@@ -202,8 +203,10 @@ int selfTest() {
     return 0;
 }
 
+#endif // XZUFF_CHECKER_MODE
 } // namespace
 
+#ifdef XZUFF_CHECKER_MODE
 std::string jsonEscape(std::string_view value) {
     std::string escaped;
     for (unsigned char ch : value) {
@@ -226,6 +229,7 @@ std::string jsonEscape(std::string_view value) {
     }
     return escaped;
 }
+#endif // XZUFF_CHECKER_MODE
 
 int main(int argc, char** argv) {
     bool json = false;
