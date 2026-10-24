@@ -20,7 +20,7 @@ std::string quote(const fs::path& p) {
     std::string s = p.string();
     std::string out = "\"";
     for (char c : s) {
-        if (c == '\"' || c == '\\' || c == '
+        if (c == '\"' || c == '\\' || c == '$' || c == static_cast<char>(96)) out.push_back('\\');
         out.push_back(c);
     }
     out.push_back('\"');
