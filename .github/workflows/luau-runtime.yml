@@ -63,3 +63,22 @@ jobs:
         run: graphics3d/build/xzuff3d-cube graphics3d/build/scene.ppm
       - name: Verify rendered image
         run: test -s graphics3d/build/scene.ppm
+      - name: Upload OpenXzuff UI smoke-test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openxzuff-ui-1.0-smoke-artifacts
+          path: |
+            build/xgo
+            build/xzuff-go
+            build/xzuff-check
+            build/openxzuff-os-smoke
+            build/xexe-loader-test
+            build/return_42.xexe
+            build/CliSmoke/build/CliSmoke.xexe
+            runtime/build/xzuff-luau
+            runtime/build/hello.luap
+            graphics3d/build/xzuff3d-cube
+            graphics3d/build/scene.ppm
+          if-no-files-found: warn
+          retention-days: 14
