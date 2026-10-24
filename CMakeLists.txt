@@ -7,6 +7,7 @@ enable_testing()
 
 add_library(xzuff_os_base
     Kernel/src/boot_contract.cpp
+    Kernel/src/xexe_loader.cpp
     sys/src/service_registry.cpp
     gui/src/framebuffer.cpp
 )
@@ -22,3 +23,8 @@ add_test(NAME openxzuff-os-smoke COMMAND openxzuff-os-smoke)
 add_executable(xzuff-go language/xzuff-go/compiler/xzuff_go.cpp)
 target_compile_options(xzuff-go PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME xzuff-go-codegen-self-test COMMAND xzuff-go --self-test)
+
+add_executable(xexe-loader-test tests/xexe_loader_test.cpp)
+target_link_libraries(xexe-loader-test PRIVATE xzuff_os_base)
+target_compile_options(xexe-loader-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME gravity-xexe-validation COMMAND xexe-loader-test)
