@@ -28,6 +28,13 @@ add_test(NAME xzuff-go-codegen-self-test COMMAND xzuff-go --self-test)
 add_executable(xgo language/xzuff-go/cli/xgo.cpp)
 target_compile_options(xgo PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME xgo-cli-help COMMAND xgo --help)
+add_test(NAME xgo-cli-command-smoke
+    COMMAND ${CMAKE_COMMAND}
+        -DXGO=$<TARGET_FILE:xgo>
+        -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/xgo-cli-smoke
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/xgo_cli_smoke.cmake
+)
+set_tests_properties(xgo-cli-command-smoke PROPERTIES DEPENDS xgo-cli-help)
 
 # Coder Checker is built from the same lexer/parser as the compiler to prevent grammar drift.
 add_executable(xzuff-check language/xzuff-go/compiler/xzuff_go.cpp)
