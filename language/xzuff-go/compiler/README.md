@@ -47,3 +47,15 @@ The built-in self-test compares RV64 instruction encodings for return values 0, 
 - Standard library, memory model, stack/heap setup and broad conformance tests.
 
 Do not advertise this compiler as 100% complete until the language spec, code generation, `.xexe` loader, ABI implementation and tests are complete.
+
+
+## Coder Checker
+
+A separate `xzuff-check` executable is built from the same lexer and parser source as the compiler, so syntax validation uses the same grammar instead of a separately maintained parser.
+
+```sh
+./build/xzuff-check language/xzuff-go/tests/return_42.xgo
+./build/xzuff-check --json language/xzuff-go/tests/return_42.xgo
+```
+
+The checker returns exit code 0 for accepted source, 1 for source or file-read errors, and 2 for command-line usage errors. JSON mode emits an `ok` flag and diagnostic message(s). The supported grammar is still only the current `main() returns i32 { return INTEGER; }` subset; it is not yet a full Xzuff Go linter or type checker.
