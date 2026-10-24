@@ -1,7 +1,9 @@
 #include "openxzuff/kernel/xexe_loader.hpp"
 #include <array>
 #include <cstdint>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <vector>
 
 namespace {
@@ -23,15 +25,30 @@ bool check(bool condition, const char* label) {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
     using openxzuff::kernel::XexeValidationError;
     using openxzuff::kernel::XexeView;
     using openxzuff::kernel::validate_xexe;
     bool ok = true;
     auto file = validFile();
+    if (argc == 2) {
+        std::ifstream input(argv[1], std::ios::binary);
+        if (!input) {
+            std::cerr << "FAIL: cannot open .xexe input file\n";
+            return 1;
+        }
+        file.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    } else if (argc != 1) {
+        std::cerr << "Usage: xexe-loader-test [program.xexe]\n";
+        return 2;
+    }
     XexeView view{};
     ok &= check(validate_xexe(file, view) == XexeValidationError::None, "valid image accepted");
-    ok &= check(view.code.size() == 4 && view.entry_offset == 32, "code view and entry offset");
+    ok &= check(!view.code.empty() && view.entry_offset == 32, "code view and entry offset");
+    if (argc == 2) {
+        if (ok) std::cout << "Compiler-produced .xexe accepted by Gravity validator: PASS\n";
+        return ok ? 0 : 1;
+    }
     auto shortFile = std::vector<std::uint8_t>(10, 0);
     ok &= check(validate_xexe(shortFile, view) == XexeValidationError::TooSmall, "truncated header rejected");
     auto badMagic = file; badMagic[0] = 'Q';
