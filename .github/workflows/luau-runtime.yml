@@ -40,6 +40,7 @@ jobs:
       - name: Compile Xzuff Go Gravity Kernel .xexe fixture
         run: |
           ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.xexe
+          ./build/xexe-loader-test build/return_42.xexe
           test "$(wc -c < build/return_42.xexe)" -gt 32
           test "$(od -An -tx1 -N8 build/return_42.xexe | tr -d ' \\n')" = "585a585845583100"
       - name: Configure Luau runtime
