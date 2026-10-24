@@ -24,6 +24,11 @@ add_executable(xzuff-go language/xzuff-go/compiler/xzuff_go.cpp)
 target_compile_options(xzuff-go PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME xzuff-go-codegen-self-test COMMAND xzuff-go --self-test)
 
+# User-facing Xzuff Go CLI. It dispatches check/run/build/create/delete commands.
+add_executable(xgo language/xzuff-go/cli/xgo.cpp)
+target_compile_options(xgo PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME xgo-cli-help COMMAND xgo --help)
+
 # Coder Checker is built from the same lexer/parser as the compiler to prevent grammar drift.
 add_executable(xzuff-check language/xzuff-go/compiler/xzuff_go.cpp)
 target_compile_definitions(xzuff-check PRIVATE XZUFF_CHECKER_MODE=1)
