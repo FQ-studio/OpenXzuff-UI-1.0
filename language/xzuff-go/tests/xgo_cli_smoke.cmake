@@ -1,9 +1,9 @@
-if(NOT DEFINED XGO OR NOT DEFINED WORK_DIR)
+if(NOT DEFINED XGO OR NOT DEFINED WORK_DIR OR NOT DEFINED PROJECT_PARENT)
   message(FATAL_ERROR "XGO and WORK_DIR are required")
 endif()
 
 file(REMOVE_RECURSE "${WORK_DIR}")
-execute_process(COMMAND "${XGO}" create CliSmoke WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+execute_process(COMMAND "${XGO}" create CliSmoke WORKING_DIRECTORY "${PROJECT_PARENT}"
   RESULT_VARIABLE create_result OUTPUT_VARIABLE create_out ERROR_VARIABLE create_err)
 if(NOT create_result EQUAL 0)
   message(FATAL_ERROR "xgo create failed (${create_result})\n${create_out}\n${create_err}")
