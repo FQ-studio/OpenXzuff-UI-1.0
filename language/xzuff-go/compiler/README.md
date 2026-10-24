@@ -59,3 +59,23 @@ A separate `xzuff-check` executable is built from the same lexer and parser sour
 ```
 
 The checker returns exit code 0 for accepted source, 1 for source or file-read errors, and 2 for command-line usage errors. JSON mode emits an `ok` flag and diagnostic message(s). The supported grammar is still only the current `main() returns i32 { return INTEGER; }` subset; it is not yet a full Xzuff Go linter or type checker.
+
+## User-facing `xgo` CLI
+
+The terminal-facing command dispatcher is built as `xgo`. Build all targets with CMake, then keep `xgo`, `xzuff-check`, and `xzuff-go` in the same output directory.
+
+```sh
+./build/xgo create HelloWorld
+cd HelloWorld
+../xgo check
+../xgo run
+../xgo build
+```
+
+- `xgo create <name>` creates `xgo.project`, `src/main.xgo`, and `tests/smoke_test.xgo`.
+- `xgo check` runs Coder Checker against `src/main.xgo`.
+- `xgo run` is the project test command. It checks each `.xgo` file under `tests/`; it does **not** invoke the compiler or create a build artifact. At this milestone, these are source smoke tests because test assertions and runtime execution are not implemented yet.
+- `xgo build` runs Coder Checker first, then invokes the compiler to write `build/<project-name>.xexe`.
+- `xgo delete <name>` only targets a project directly under the current directory and requires typing `DELETE` before recursive removal.
+
+The current `xgo` CLI is an initial command dispatcher, not a complete package manager or runtime. It relies on the sibling `xzuff-check` and `xzuff-go` executables.
