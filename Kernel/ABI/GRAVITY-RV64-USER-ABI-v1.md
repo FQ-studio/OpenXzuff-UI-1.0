@@ -41,9 +41,10 @@ For this minimal compiler subset, the file is the header followed by a single ex
 For `function main() returns i32 { return N; }`, where N is -2048..2047:
 
 1. `addi a0, zero, N` sets the process exit status.
-2. `ecall` invokes syscall ID 0 because `a7` is initially zero on the process-entry contract.
+2. `addi a7, zero, 0` explicitly selects Gravity Kernel `Exit` (syscall ID 0).
+3. `ecall` requests the kernel service.
 
-The loader must guarantee all general registers are zero at entry for this minimal stub to be valid, or the compiler must emit an explicit `addi a7, zero, 0` before `ecall`. Future versions should not rely on unspecified register contents. For robustness, the compiler will emit the explicit syscall-ID setup when the instruction sequence grows beyond this subset.
+The compiler does not depend on the initial value of `a7`.
 
 ## Not implemented
 
