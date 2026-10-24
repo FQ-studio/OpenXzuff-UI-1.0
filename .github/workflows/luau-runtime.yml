@@ -7,6 +7,7 @@ on:
       - "user/**"
       - "gui/**"
       - "tests/**"
+      - "language/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -18,6 +19,7 @@ on:
       - "user/**"
       - "gui/**"
       - "tests/**"
+      - "language/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -31,10 +33,14 @@ jobs:
       - uses: lukka/get-cmake@latest
       - name: Configure OS contract smoke tests
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-      - name: Build OS contract smoke tests
+      - name: Build OS contract smoke tests and Xzuff Go compiler
         run: cmake --build build --parallel 2
-      - name: Run OS contract smoke tests
+      - name: Run OS contract and compiler unit tests
         run: ctest --test-dir build --output-on-failure
+      - name: Compile Xzuff Go RV64 fixture
+        run: |
+          ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.rv64.bin
+          test "$(wc -c < build/return_42.rv64.bin)" -eq 8
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
