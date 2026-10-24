@@ -28,3 +28,14 @@ add_executable(xexe-loader-test tests/xexe_loader_test.cpp)
 target_link_libraries(xexe-loader-test PRIVATE xzuff_os_base)
 target_compile_options(xexe-loader-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-xexe-validation COMMAND xexe-loader-test)
+
+# End-to-end check: compile the return_42 fixture, then validate its emitted .xexe.
+add_test(NAME xzuff-go-compile-fixture
+    COMMAND xzuff-go
+        ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/return_42.xgo
+        ${CMAKE_CURRENT_BINARY_DIR}/return_42.xexe
+)
+add_test(NAME xzuff-go-xexe-validation
+    COMMAND xexe-loader-test ${CMAKE_CURRENT_BINARY_DIR}/return_42.xexe
+)
+set_tests_properties(xzuff-go-xexe-validation PROPERTIES DEPENDS xzuff-go-compile-fixture)
