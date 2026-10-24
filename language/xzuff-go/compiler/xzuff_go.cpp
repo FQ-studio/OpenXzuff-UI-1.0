@@ -118,12 +118,12 @@ private:
     std::size_t index_ = 0;
 };
 
-std::array<std::uint8_t, 8> generateRv64(std::int32_t returnValue) {
+std::array<std::uint8_t, 12> generateRv64(std::int32_t returnValue) {
     // Gravity Kernel ABI v1: a0 carries the exit status; a7 = SyscallId::Exit (0).
-    // The kernel ABI defines ecall as the syscall trap. a7 is already zeroed by x0.
+    // The kernel ABI defines ecall as the syscall trap. Explicitly set a7 so entry register state is irrelevant.
     const auto immediate = static_cast<std::uint32_t>(returnValue) & 0xFFFU;
     const std::uint32_t addiA0 = (immediate << 20U) | (10U << 7U) | 0x13U; // addi a0, zero, imm
-    const std::uint32_t ecall = 0x00000073U;
+    const std::uint32_t addiA7 = (17U << 7U) | 0x13U; // addi a7, zero, 0 (Gravity Exit = 0)\n    const std::uint32_t ecall = 0x00000073U;
     return {
         static_cast<std::uint8_t>(addiA0 & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 8U) & 0xFFU),
@@ -143,7 +143,7 @@ void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t
     }
 }
 
-std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 8>& code) {
+std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 12>& code) {
     // OpenXzuff .xexe v1 header: magic[8], version:u16, header_size:u16,
     // architecture:u16 (1 = RV64), ABI version:u16, entry_offset:u64,
     // code_size:u32, flags:u32. All integer fields are little-endian.
@@ -164,13 +164,13 @@ std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 8>& cod
 
 int selfTest() {
     const auto zero = generateRv64(0);
-    const std::array<std::uint8_t, 8> expectedZero{0x13, 0x05, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::array<std::uint8_t, 12> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (zero != expectedZero) {
         std::cerr << "FAIL: RV64 instruction encoding for return 0\n";
         return 1;
     }
     const auto fortyTwo = generateRv64(42);
-    const std::array<std::uint8_t, 8> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x73, 0x00, 0x00, 0x00};
+    const std::array<std::uint8_t, 12> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (fortyTwo != expectedFortyTwo) {
         std::cerr << "FAIL: RV64 instruction encoding for return 42\n";
         return 1;
