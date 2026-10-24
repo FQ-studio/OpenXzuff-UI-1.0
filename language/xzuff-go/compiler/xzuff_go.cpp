@@ -187,7 +187,7 @@ int selfTest() {
         return 1;
     }
     const auto large = generateRv64(65536);
-    const std::vector<std::uint8_t> expectedLarge{0x37, 0x01, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedLarge{0x37, 0x05, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (large != expectedLarge) {
         std::cerr << "FAIL: RV64 instruction encoding for return 65536\\n";
         return 1;
