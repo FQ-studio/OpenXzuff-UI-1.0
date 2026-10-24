@@ -118,20 +118,17 @@ private:
     std::size_t index_ = 0;
 };
 
-std::array<std::uint8_t, 12> generateRv64(std::int32_t returnValue) {
+std::array<std::uint8_t, 8> generateRv64(std::int32_t returnValue) {
+    // Gravity Kernel ABI v1: a0 carries the exit status; a7 = SyscallId::Exit (0).
+    // The kernel ABI defines ecall as the syscall trap. a7 is already zeroed by x0.
     const auto immediate = static_cast<std::uint32_t>(returnValue) & 0xFFFU;
     const std::uint32_t addiA0 = (immediate << 20U) | (10U << 7U) | 0x13U; // addi a0, zero, imm
-    const std::uint32_t addiA7 = (93U << 20U) | (17U << 7U) | 0x13U; // Linux RISC-V exit syscall number
     const std::uint32_t ecall = 0x00000073U;
     return {
         static_cast<std::uint8_t>(addiA0 & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 8U) & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 16U) & 0xFFU),
         static_cast<std::uint8_t>((addiA0 >> 24U) & 0xFFU),
-        static_cast<std::uint8_t>(addiA7 & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 8U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 16U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 24U) & 0xFFU),
         static_cast<std::uint8_t>(ecall & 0xFFU),
         static_cast<std::uint8_t>((ecall >> 8U) & 0xFFU),
         static_cast<std::uint8_t>((ecall >> 16U) & 0xFFU),
@@ -140,62 +137,40 @@ std::array<std::uint8_t, 12> generateRv64(std::int32_t returnValue) {
 }
 
 void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t value, std::size_t width) {
-    if (offset + width > bytes.size()) throw std::runtime_error("internal ELF layout overflow");
+    if (offset + width > bytes.size()) throw std::runtime_error("internal .xexe layout overflow");
     for (std::size_t i = 0; i < width; ++i) {
         bytes[offset + i] = static_cast<std::uint8_t>((value >> (8U * i)) & 0xFFU);
     }
 }
 
-std::vector<std::uint8_t> makeRiscvLinuxElf(const std::array<std::uint8_t, 12>& code) {
-    constexpr std::size_t elfHeaderSize = 64;
-    constexpr std::size_t programHeaderSize = 56;
-    constexpr std::size_t codeOffset = 0x1000;
-    constexpr std::uint64_t segmentBase = 0x10000;
-    constexpr std::uint64_t entryAddress = segmentBase + codeOffset;
-    std::vector<std::uint8_t> elf(codeOffset + code.size(), 0);
-
-    elf[0] = 0x7F; elf[1] = 'E'; elf[2] = 'L'; elf[3] = 'F';
-    elf[4] = 2; // ELFCLASS64
-    elf[5] = 1; // little endian
-    elf[6] = 1; // ELF version
-    elf[7] = 0; // System V ABI
-    writeLe(elf, 16, 2, 2); // ET_EXEC
-    writeLe(elf, 18, 243, 2); // EM_RISCV
-    writeLe(elf, 20, 1, 4); // EV_CURRENT
-    writeLe(elf, 24, entryAddress, 8);
-    writeLe(elf, 32, elfHeaderSize, 8); // e_phoff
-    writeLe(elf, 40, 0, 8); // no section table in this minimal executable
-    writeLe(elf, 48, 0, 4); // e_flags
-    writeLe(elf, 52, elfHeaderSize, 2);
-    writeLe(elf, 54, programHeaderSize, 2);
-    writeLe(elf, 56, 1, 2); // one program header
-    writeLe(elf, 58, 64, 2);
-    writeLe(elf, 60, 0, 2);
-    writeLe(elf, 62, 0, 2);
-
-    const std::size_t ph = elfHeaderSize;
-    writeLe(elf, ph, 1, 4); // PT_LOAD
-    writeLe(elf, ph + 4, 5, 4); // PF_R | PF_X
-    writeLe(elf, ph + 8, 0, 8);
-    writeLe(elf, ph + 16, segmentBase, 8);
-    writeLe(elf, ph + 24, segmentBase, 8);
-    writeLe(elf, ph + 32, elf.size(), 8);
-    writeLe(elf, ph + 40, elf.size(), 8);
-    writeLe(elf, ph + 48, 0x1000, 8);
-
-    for (std::size_t i = 0; i < code.size(); ++i) elf[codeOffset + i] = code[i];
-    return elf;
+std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 8>& code) {
+    // OpenXzuff .xexe v1 header: magic[8], version:u16, header_size:u16,
+    // architecture:u16 (1 = RV64), ABI version:u16, entry_offset:u64,
+    // code_size:u32, flags:u32. All integer fields are little-endian.
+    constexpr std::size_t headerSize = 32;
+    std::vector<std::uint8_t> executable(headerSize + code.size(), 0);
+    const std::array<std::uint8_t, 8> magic{'X','Z','X','E','X','E','1',0};
+    for (std::size_t i = 0; i < magic.size(); ++i) executable[i] = magic[i];
+    writeLe(executable, 8, 1, 2); // format version
+    writeLe(executable, 10, headerSize, 2);
+    writeLe(executable, 12, 1, 2); // RV64
+    writeLe(executable, 14, 1, 2); // Gravity Kernel ABI v1
+    writeLe(executable, 16, headerSize, 8); // entry offset from start of file
+    writeLe(executable, 24, code.size(), 4);
+    writeLe(executable, 28, 0, 4); // flags reserved; must be zero in v1
+    for (std::size_t i = 0; i < code.size(); ++i) executable[headerSize + i] = code[i];
+    return executable;
 }
 
 int selfTest() {
     const auto zero = generateRv64(0);
-    const std::array<std::uint8_t, 12> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0xD0, 0x05, 0x73, 0x00, 0x00, 0x00};
+    const std::array<std::uint8_t, 8> expectedZero{0x13, 0x05, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (zero != expectedZero) {
         std::cerr << "FAIL: RV64 instruction encoding for return 0\n";
         return 1;
     }
     const auto fortyTwo = generateRv64(42);
-    const std::array<std::uint8_t, 12> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0xD0, 0x05, 0x73, 0x00, 0x00, 0x00};
+    const std::array<std::uint8_t, 8> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x73, 0x00, 0x00, 0x00};
     if (fortyTwo != expectedFortyTwo) {
         std::cerr << "FAIL: RV64 instruction encoding for return 42\n";
         return 1;
@@ -210,7 +185,7 @@ int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string_view(argv[1]) == "--self-test") return selfTest();
         if (argc != 3) {
-            std::cerr << "Usage: xzuff-go <input.xgo> <output.elf>\n"
+            std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\n"
                       << "Supported subset: function main() returns i32 { return INTEGER; }\n";
             return 2;
         }
@@ -220,13 +195,13 @@ int main(int argc, char** argv) {
         Parser parser(Lexer(source).scan());
         const auto returnValue = parser.parseMainReturn();
         const auto code = generateRv64(returnValue);
-        const auto executable = makeRiscvLinuxElf(code);
+        const auto executable = makeGravityXexe(code);
         std::ofstream output(argv[2], std::ios::binary);
         if (!output) throw std::runtime_error("cannot create output file");
         output.write(reinterpret_cast<const char*>(executable.data()), static_cast<std::streamsize>(executable.size()));
         if (!output) throw std::runtime_error("failed while writing output file");
-        std::cout << "Generated ELF64 RISC-V executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\n";
-        std::cout << "Target ABI is Linux RISC-V (exit syscall 93); this ELF is not yet a Gravity Kernel .xexe executable.\n";
+        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\n";
+        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\n";
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Xzuff Go compiler error: " << error.what() << '\n';
