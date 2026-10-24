@@ -32,6 +32,7 @@ add_test(NAME xgo-cli-command-smoke
     COMMAND ${CMAKE_COMMAND}
         -DXGO=$<TARGET_FILE:xgo>
         -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/CliSmoke
+        -DPROJECT_PARENT=${CMAKE_CURRENT_BINARY_DIR}
         -P ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/xgo_cli_smoke.cmake
 )
 set_tests_properties(xgo-cli-command-smoke PROPERTIES DEPENDS xgo-cli-help)
