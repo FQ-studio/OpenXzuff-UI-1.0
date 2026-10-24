@@ -124,7 +124,7 @@ std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
     // restricting the source language's i32 return value to a 12-bit immediate.
     const std::int64_t value = returnValue;
     const std::int64_t upper = (value + 0x800) >> 12;
-    const std::int64_t lower = value - (upper << 12);
+    const std::int64_t lower = value - (upper * 4096);
     std::vector<std::uint8_t> code;
     const auto emit = [&code](std::uint32_t instruction) {
         code.push_back(static_cast<std::uint8_t>(instruction & 0xFFU));
