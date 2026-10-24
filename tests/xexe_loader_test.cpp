@@ -46,7 +46,18 @@ int main(int argc, char** argv) {
     ok &= check(validate_xexe(file, view) == XexeValidationError::None, "valid image accepted");
     ok &= check(!view.code.empty() && view.entry_offset == 32, "code view and entry offset");
     if (argc == 2) {
-        if (ok) std::cout << "Compiler-produced .xexe accepted by Gravity validator: PASS\n";
+        const std::array<std::uint8_t, 12> expectedReturn42{
+            0x13, 0x05, 0xA0, 0x02, // addi a0, zero, 42
+            0x93, 0x08, 0x00, 0x00, // addi a7, zero, Exit syscall 0
+            0x73, 0x00, 0x00, 0x00  // ecall
+        };
+        ok &= check(view.code.size() == expectedReturn42.size(), "return_42 machine-code size");
+        if (view.code.size() == expectedReturn42.size()) {
+            for (std::size_t i = 0; i < expectedReturn42.size(); ++i) {
+                ok &= check(view.code[i] == expectedReturn42[i], "return_42 RV64 instruction bytes");
+            }
+        }
+        if (ok) std::cout << "Compiler-produced return_42.xexe validation and machine-code test: PASS\n";
         return ok ? 0 : 1;
     }
     auto shortFile = std::vector<std::uint8_t>(10, 0);
