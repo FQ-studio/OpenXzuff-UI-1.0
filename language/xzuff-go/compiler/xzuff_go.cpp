@@ -178,28 +178,28 @@ int selfTest() {
     const auto zero = generateRv64(0);
     const std::vector<std::uint8_t> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (zero != expectedZero) {
-        std::cerr << "FAIL: RV64 instruction encoding for return 0\\n";
+        std::cerr << "FAIL: RV64 instruction encoding for return 0\n";
         return 1;
     }
     const auto fortyTwo = generateRv64(42);
     const std::vector<std::uint8_t> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (fortyTwo != expectedFortyTwo) {
-        std::cerr << "FAIL: RV64 instruction encoding for return 42\\n";
+        std::cerr << "FAIL: RV64 instruction encoding for return 42\n";
         return 1;
     }
     const auto large = generateRv64(65536);
     const std::vector<std::uint8_t> expectedLarge{0x37, 0x05, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (large != expectedLarge) {
-        std::cerr << "FAIL: RV64 instruction encoding for return 65536\\n";
+        std::cerr << "FAIL: RV64 instruction encoding for return 65536\n";
         return 1;
     }
     const auto negative = generateRv64(-2147483647 - 1);
     const std::vector<std::uint8_t> expectedNegative{0x37, 0x05, 0x00, 0x80, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (negative != expectedNegative) {
-        std::cerr << "FAIL: RV64 instruction encoding for INT32_MIN\\n";
+        std::cerr << "FAIL: RV64 instruction encoding for INT32_MIN\n";
         return 1;
     }
-    std::cout << "Xzuff Go compiler unit self-test: PASS\\n";
+    std::cout << "Xzuff Go compiler unit self-test: PASS\n";
     return 0;
 }
 
