@@ -35,7 +35,7 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build OS contract smoke tests and Xzuff Go compiler
         run: cmake --build build --parallel 2
-      - name: Run OS contract and compiler unit tests
+      - name: Run OS contracts, Xzuff Go compiler and Coder Checker tests
         run: ctest --test-dir build --output-on-failure
       - name: Compile Xzuff Go Gravity Kernel .xexe fixture
         run: |
