@@ -69,30 +69,39 @@ jobs:
           install -m 0644 language/xzuff-go/tests/return_42.xgo "$DIST/examples/return_42.xgo"
           install -m 0644 build/return_42.xexe "$DIST/examples/return_42.xexe"
           cat > "$DIST/README.txt" <<'EOF'
-          OpenXzuff UI 1.0 - Xzuff Go / xgo Android ARM64 toolchain
+          OpenXzuff UI 1.0 - Xzuff Go / xgo Android ARM64 toolchain for Termux
 
           Target: Android ARM64 (arm64-v8a), Android API 24+.
-          These binaries are Android host tools, not Linux x86_64 binaries.
+          This is a native Android command-line toolchain, not an APK and not x86_64.
           xgo is the project CLI; xzuff-go is the compiler; xzuff-check is the source checker.
           Keep all three executables together in bin/ because xgo invokes its sibling tools.
 
-          Run in an Android environment that permits native executable execution, such as a
-          compatible terminal environment. Android device policy and filesystem permissions
-          may affect execution; this package is not an APK and does not install like an app.
-
-          Commands:
+          Termux usage:
+            pkg update
+            pkg install unzip
+            unzip xzuff-go-toolchain-android-arm64.zip
+            cd xzuff-go-toolchain-android-arm64
+            chmod +x bin/xgo bin/xzuff-go bin/xzuff-check
             ./bin/xgo --help
-            ./bin/xgo create MyProject
-            ./bin/xgo check
-            ./bin/xgo run
-            ./bin/xgo build
 
+          To create and build a project:
+            mkdir -p ~/xzuff-projects
+            cd ~/xzuff-projects
+            /path/to/xzuff-go-toolchain-android-arm64/bin/xgo create Hello
+            cd Hello
+            /path/to/xzuff-go-toolchain-android-arm64/bin/xgo check
+            /path/to/xzuff-go-toolchain-android-arm64/bin/xgo run
+            /path/to/xzuff-go-toolchain-android-arm64/bin/xgo build
+
+          Keep the toolchain bin/ directory intact. Use ./bin/xgo when running from
+          the extracted folder so xgo can find its sibling tools.
           Example source: examples/return_42.xgo
           Example .xexe: examples/return_42.xexe
           Note: .xexe is a Gravity Kernel RV64 output format, not an Android executable.
           EOF
           file "$DIST/bin/xgo" "$DIST/bin/xzuff-go" "$DIST/bin/xzuff-check"
-          zip -qr dist/xzuff-go-toolchain-android-arm64.zip "$DIST"
+          cd dist
+          zip -qr xzuff-go-toolchain-android-arm64.zip xzuff-go-toolchain-android-arm64
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
