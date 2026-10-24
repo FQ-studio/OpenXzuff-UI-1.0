@@ -39,8 +39,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Compile Xzuff Go RV64 fixture
         run: |
-          ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.rv64.bin
-          test "$(wc -c < build/return_42.rv64.bin)" -eq 8
+          ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.elf
+          test "$(wc -c < build/return_42.elf)" -gt 4096
+          file build/return_42.elf | grep -E "ELF 64-bit.*RISC-V"
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
