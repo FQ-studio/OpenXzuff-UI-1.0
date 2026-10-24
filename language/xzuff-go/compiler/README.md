@@ -22,7 +22,7 @@ The generated entry stub does three things:
 2. `addi a7, zero, 0` selects Gravity Kernel `Exit` (syscall ID 0).
 3. `ecall` requests the kernel service.
 
-The syscall ID matches `SyscallId::Exit` in `Kernel/include/openxzuff/kernel/contracts.hpp`. The executable format and syscall ABI are now defined as a draft contract, but the kernel's actual user-mode loader and trap handler still need implementation and integration tests. A `.xexe` file therefore must not yet be described as runnable on the current kernel scaffold.
+The syscall ID matches `SyscallId::Exit` in `Kernel/include/openxzuff/kernel/contracts.hpp`. The kernel now has a host-testable `.xexe` image validator that checks magic, format version, header size, architecture, ABI version, reserved flags, code length and entry bounds. This validator does not map memory or start a process. The actual user-mode loader, trap handler and syscall dispatcher still need implementation and integration tests. A `.xexe` file therefore must not yet be described as runnable on the current kernel scaffold.
 
 ## Build and test
 
@@ -42,7 +42,7 @@ The built-in self-test compares RV64 instruction encodings for return values 0 a
 - General expressions, variables, function calls, multiple functions and modules.
 - Full grammar, AST, semantic/type checking and complete diagnostics.
 - Branches, loops, strings, records, generics, ownership and GUI syntax.
-- Relocations, symbol tables, linker and executable loader integration.
+- Relocations, symbol tables, linker and process-start integration.
 - Actual Gravity Kernel trap entry, syscall dispatch and process setup.
 - Standard library, memory model, stack/heap setup and broad conformance tests.
 
