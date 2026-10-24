@@ -205,29 +205,102 @@ int selfTest() {
 } // namespace
 
 int main(int argc, char** argv) {
-    try {
-        if (argc == 2 && std::string_view(argv[1]) == "--self-test") return selfTest();
-        if (argc != 3) {
-            std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\n"
-                      << "Supported subset: function main() returns i32 { return INTEGER; }\n";
-            return 2;
+    bool json = false;
+#ifdef XZUFF_CHECKER_MODE
+    if (argc == 2 && std::string_view(argv[1]) == "--help") {
+        std::cout << "Usage: xzuff-check [--json] <input.xgo>\\n";
+        return 0;
+    }
+    int sourceArg = 1;
+    if (argc > 1 && std::string_view(argv[1]) == "--json") {
+        json = true;
+        sourceArg = 2;
+    }
+    if (argc != sourceArg + 1) {
+        std::cerr << "Usage: xzuff-check [--json] <input.xgo>\\n";
+        return 2;
+    }
+    const std::string inputPath = argv[sourceArg];
+#else
+    if (argc == 2 && std::string_view(argv[1]) == "--self-test") return selfTest();
+    if (argc == 3 && std::string_view(argv[1]) == "--check") {
+        const std::string inputPath = argv[2];
+        try {
+            std::ifstream input(inputPath, std::ios::binary);
+            if (!input) throw std::runtime_error("cannot open input source file");
+            const std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+            Parser parser(Lexer(source).scan());
+            (void)parser.parseMainReturn();
+            std::cout << "Xzuff Go check: PASS (" << inputPath << ")\\n";
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\\n';
+            return 1;
         }
-        std::ifstream input(argv[1], std::ios::binary);
+    }
+    if (argc != 3) {
+        std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\\n"
+                  << "       xzuff-go --check <input.xgo>\\n"
+                  << "Supported subset: function main() returns i32 { return INTEGER; }\\n";
+        return 2;
+    }
+    const std::string inputPath = argv[1];
+#endif
+    try {
+        std::ifstream input(inputPath, std::ios::binary);
         if (!input) throw std::runtime_error("cannot open input source file");
         const std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
         Parser parser(Lexer(source).scan());
         const auto returnValue = parser.parseMainReturn();
+#ifdef XZUFF_CHECKER_MODE
+        if (json) {
+            std::cout << "{\\"ok\\":true,\\"file\\":\\"";
+            for (char ch : inputPath) {
+                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
+                if (ch == '\\n') { std::cout << "\\n"; continue; }
+                if (ch == '\\r') { std::cout << "\\r"; continue; }
+                std::cout << ch;
+            }
+            std::cout << "\\",\\"return_value\\":" << returnValue << ",\\"diagnostics\\":[]}\\n";
+        } else {
+            std::cout << "Xzuff Go check: PASS (" << inputPath << ", return " << returnValue << ")\\n";
+        }
+        return 0;
+#else
         const auto code = generateRv64(returnValue);
         const auto executable = makeGravityXexe(code);
         std::ofstream output(argv[2], std::ios::binary);
         if (!output) throw std::runtime_error("cannot create output file");
         output.write(reinterpret_cast<const char*>(executable.data()), static_cast<std::streamsize>(executable.size()));
         if (!output) throw std::runtime_error("failed while writing output file");
-        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\n";
-        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\n";
+        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\\n";
+        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\\n";
         return 0;
+#endif
     } catch (const std::exception& error) {
-        std::cerr << "Xzuff Go compiler error: " << error.what() << '\n';
+#ifdef XZUFF_CHECKER_MODE
+        if (json) {
+            std::cout << "{\\"ok\\":false,\\"file\\":\\"";
+            for (char ch : inputPath) {
+                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
+                if (ch == '\\n') { std::cout << "\\n"; continue; }
+                if (ch == '\\r') { std::cout << "\\r"; continue; }
+                std::cout << ch;
+            }
+            std::cout << "\\",\\"diagnostics\\":[{\\"message\\":\\"";
+            for (char ch : std::string(error.what())) {
+                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
+                if (ch == '\\n') { std::cout << "\\n"; continue; }
+                if (ch == '\\r') { std::cout << "\\r"; continue; }
+                std::cout << ch;
+            }
+            std::cout << "\\"}]}\\n";
+        } else {
+            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\\n';
+        }
+#else
+        std::cerr << "Xzuff Go compiler error: " << error.what() << '\\n';
+#endif
         return 1;
     }
 }
