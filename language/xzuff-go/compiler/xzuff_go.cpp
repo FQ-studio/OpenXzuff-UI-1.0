@@ -97,7 +97,7 @@ public:
         } catch (const std::exception&) {
             fail("expected an integer return value");
         }
-        if (parsed < -2048 || parsed > 2047) fail("return constant must fit the RV64 addi signed 12-bit immediate (-2048..2047)");
+        if (parsed < -2147483648LL || parsed > 2147483647LL) fail("return constant must fit signed i32 (-2147483648..2147483647)");
         ++index_;
         expect(";");
         expect("}");
@@ -118,27 +118,35 @@ private:
     std::size_t index_ = 0;
 };
 
-std::array<std::uint8_t, 12> generateRv64(std::int32_t returnValue) {
+std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
     // Gravity Kernel ABI v1: a0 carries the exit status; a7 carries syscall ID 0 for Exit.
-    const auto immediate = static_cast<std::uint32_t>(returnValue) & 0xFFFU;
-    const std::uint32_t addiA0 = (immediate << 20U) | (10U << 7U) | 0x13U; // addi a0, zero, imm
-    const std::uint32_t addiA7 = (17U << 7U) | 0x13U; // addi a7, zero, 0
-    const std::uint32_t ecall = 0x00000073U;
-    return {
-        static_cast<std::uint8_t>(addiA0 & 0xFFU),
-        static_cast<std::uint8_t>((addiA0 >> 8U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA0 >> 16U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA0 >> 24U) & 0xFFU),
-        static_cast<std::uint8_t>(addiA7 & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 8U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 16U) & 0xFFU),
-        static_cast<std::uint8_t>((addiA7 >> 24U) & 0xFFU),
-        static_cast<std::uint8_t>(ecall & 0xFFU),
-        static_cast<std::uint8_t>((ecall >> 8U) & 0xFFU),
-        static_cast<std::uint8_t>((ecall >> 16U) & 0xFFU),
-        static_cast<std::uint8_t>((ecall >> 24U) & 0xFFU)
+    // Build any signed i32 using LUI+ADDI, then issue Exit. This avoids silently
+    // restricting the source language's i32 return value to a 12-bit immediate.
+    const std::int64_t value = returnValue;
+    const std::int64_t upper = (value + 0x800) >> 12;
+    const std::int64_t lower = value - (upper << 12);
+    std::vector<std::uint8_t> code;
+    const auto emit = [&code](std::uint32_t instruction) {
+        code.push_back(static_cast<std::uint8_t>(instruction & 0xFFU));
+        code.push_back(static_cast<std::uint8_t>((instruction >> 8U) & 0xFFU));
+        code.push_back(static_cast<std::uint8_t>((instruction >> 16U) & 0xFFU));
+        code.push_back(static_cast<std::uint8_t>((instruction >> 24U) & 0xFFU));
     };
+    if (upper == 0) {
+        emit((static_cast<std::uint32_t>(lower) & 0xFFFU) << 20U | (10U << 7U) | 0x13U); // addi a0, zero, lower
+    } else {
+        const auto upper20 = static_cast<std::uint32_t>(upper) & 0xFFFFFU;
+        emit((upper20 << 12U) | (10U << 7U) | 0x37U); // lui a0, upper20
+        if (lower != 0) {
+            const auto lower12 = static_cast<std::uint32_t>(lower) & 0xFFFU;
+            emit((lower12 << 20U) | (10U << 15U) | (10U << 7U) | 0x13U); // addi a0, a0, lower
+        }
+    }
+    emit((17U << 7U) | 0x13U); // addi a7, zero, Exit syscall 0
+    emit(0x00000073U); // ecall
+    return code;
 }
+
 void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t value, std::size_t width) {
     if (offset + width > bytes.size()) throw std::runtime_error("internal .xexe layout overflow");
     for (std::size_t i = 0; i < width; ++i) {
@@ -146,7 +154,7 @@ void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t
     }
 }
 
-std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 12>& code) {
+std::vector<std::uint8_t> makeGravityXexe(const std::vector<std::uint8_t>& code) {
     // OpenXzuff .xexe v1 header: magic[8], version:u16, header_size:u16,
     // architecture:u16 (1 = RV64), ABI version:u16, entry_offset:u64,
     // code_size:u32, flags:u32. All integer fields are little-endian.
@@ -167,18 +175,30 @@ std::vector<std::uint8_t> makeGravityXexe(const std::array<std::uint8_t, 12>& co
 
 int selfTest() {
     const auto zero = generateRv64(0);
-    const std::array<std::uint8_t, 12> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (zero != expectedZero) {
-        std::cerr << "FAIL: RV64 instruction encoding for return 0\n";
+        std::cerr << "FAIL: RV64 instruction encoding for return 0\\n";
         return 1;
     }
     const auto fortyTwo = generateRv64(42);
-    const std::array<std::uint8_t, 12> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (fortyTwo != expectedFortyTwo) {
-        std::cerr << "FAIL: RV64 instruction encoding for return 42\n";
+        std::cerr << "FAIL: RV64 instruction encoding for return 42\\n";
         return 1;
     }
-    std::cout << "Xzuff Go compiler unit self-test: PASS\n";
+    const auto large = generateRv64(65536);
+    const std::vector<std::uint8_t> expectedLarge{0x37, 0x01, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    if (large != expectedLarge) {
+        std::cerr << "FAIL: RV64 instruction encoding for return 65536\\n";
+        return 1;
+    }
+    const auto negative = generateRv64(-2147483647 - 1);
+    const std::vector<std::uint8_t> expectedNegative{0x37, 0x05, 0x00, 0x80, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    if (negative != expectedNegative) {
+        std::cerr << "FAIL: RV64 instruction encoding for INT32_MIN\\n";
+        return 1;
+    }
+    std::cout << "Xzuff Go compiler unit self-test: PASS\\n";
     return 0;
 }
 
