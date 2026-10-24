@@ -204,11 +204,34 @@ int selfTest() {
 
 } // namespace
 
+std::string jsonEscape(std::string_view value) {
+    std::string escaped;
+    for (unsigned char ch : value) {
+        switch (ch) {
+        case '"': escaped += "\\\""; break;
+        case '\\': escaped += "\\\\"; break;
+        case '\n': escaped += "\\n"; break;
+        case '\r': escaped += "\\r"; break;
+        case '\t': escaped += "\\t"; break;
+        default:
+            if (ch < 0x20U) {
+                constexpr char hex[] = "0123456789abcdef";
+                escaped += "\\u00";
+                escaped.push_back(hex[(ch >> 4U) & 0xFU]);
+                escaped.push_back(hex[ch & 0xFU]);
+            } else {
+                escaped.push_back(static_cast<char>(ch));
+            }
+        }
+    }
+    return escaped;
+}
+
 int main(int argc, char** argv) {
     bool json = false;
 #ifdef XZUFF_CHECKER_MODE
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
-        std::cout << "Usage: xzuff-check [--json] <input.xgo>\\n";
+        std::cout << "Usage: xzuff-check [--json] <input.xgo>\n";
         return 0;
     }
     int sourceArg = 1;
@@ -217,7 +240,7 @@ int main(int argc, char** argv) {
         sourceArg = 2;
     }
     if (argc != sourceArg + 1) {
-        std::cerr << "Usage: xzuff-check [--json] <input.xgo>\\n";
+        std::cerr << "Usage: xzuff-check [--json] <input.xgo>\n";
         return 2;
     }
     const std::string inputPath = argv[sourceArg];
@@ -231,17 +254,17 @@ int main(int argc, char** argv) {
             const std::string source((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
             Parser parser(Lexer(source).scan());
             (void)parser.parseMainReturn();
-            std::cout << "Xzuff Go check: PASS (" << inputPath << ")\\n";
+            std::cout << "Xzuff Go check: PASS (" << inputPath << ")\n";
             return 0;
         } catch (const std::exception& error) {
-            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\\n';
+            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\n';
             return 1;
         }
     }
     if (argc != 3) {
-        std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\\n"
-                  << "       xzuff-go --check <input.xgo>\\n"
-                  << "Supported subset: function main() returns i32 { return INTEGER; }\\n";
+        std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\n"
+                  << "       xzuff-go --check <input.xgo>\n"
+                  << "Supported subset: function main() returns i32 { return INTEGER; }\n";
         return 2;
     }
     const std::string inputPath = argv[1];
@@ -254,16 +277,10 @@ int main(int argc, char** argv) {
         const auto returnValue = parser.parseMainReturn();
 #ifdef XZUFF_CHECKER_MODE
         if (json) {
-            std::cout << "{\\"ok\\":true,\\"file\\":\\"";
-            for (char ch : inputPath) {
-                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
-                if (ch == '\\n') { std::cout << "\\n"; continue; }
-                if (ch == '\\r') { std::cout << "\\r"; continue; }
-                std::cout << ch;
-            }
-            std::cout << "\\",\\"return_value\\":" << returnValue << ",\\"diagnostics\\":[]}\\n";
+            std::cout << "{\"ok\":true,\"file\":\"" << jsonEscape(inputPath)
+                      << "\",\"return_value\":" << returnValue << ",\"diagnostics\":[]}\n";
         } else {
-            std::cout << "Xzuff Go check: PASS (" << inputPath << ", return " << returnValue << ")\\n";
+            std::cout << "Xzuff Go check: PASS (" << inputPath << ", return " << returnValue << ")\n";
         }
         return 0;
 #else
@@ -273,33 +290,20 @@ int main(int argc, char** argv) {
         if (!output) throw std::runtime_error("cannot create output file");
         output.write(reinterpret_cast<const char*>(executable.data()), static_cast<std::streamsize>(executable.size()));
         if (!output) throw std::runtime_error("failed while writing output file");
-        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\\n";
-        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\\n";
+        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\n";
+        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\n";
         return 0;
 #endif
     } catch (const std::exception& error) {
 #ifdef XZUFF_CHECKER_MODE
         if (json) {
-            std::cout << "{\\"ok\\":false,\\"file\\":\\"";
-            for (char ch : inputPath) {
-                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
-                if (ch == '\\n') { std::cout << "\\n"; continue; }
-                if (ch == '\\r') { std::cout << "\\r"; continue; }
-                std::cout << ch;
-            }
-            std::cout << "\\",\\"diagnostics\\":[{\\"message\\":\\"";
-            for (char ch : std::string(error.what())) {
-                if (ch == '\\\\' || ch == '\\"') std::cout << '\\\\';
-                if (ch == '\\n') { std::cout << "\\n"; continue; }
-                if (ch == '\\r') { std::cout << "\\r"; continue; }
-                std::cout << ch;
-            }
-            std::cout << "\\"}]}\\n";
+            std::cout << "{\"ok\":false,\"file\":\"" << jsonEscape(inputPath)
+                      << "\",\"diagnostics\":[{\"message\":\"" << jsonEscape(error.what()) << "\"}]}\n";
         } else {
-            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\\n';
+            std::cerr << "Xzuff Go check: FAIL (" << inputPath << "): " << error.what() << '\n';
         }
 #else
-        std::cerr << "Xzuff Go compiler error: " << error.what() << '\\n';
+        std::cerr << "Xzuff Go compiler error: " << error.what() << '\n';
 #endif
         return 1;
     }
