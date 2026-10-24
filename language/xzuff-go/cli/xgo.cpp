@@ -1,5 +1,6 @@
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -60,6 +61,7 @@ int usage() {
 }
 
 int main(int argc, char** argv) {
+    if (argc == 2 && (std::string_view(argv[1]) == "--help" || std::string_view(argv[1]) == "help")) { usage(); return 0; }
     if (argc < 2) return usage();
     const std::string_view command(argv[1]);
     const fs::path tools = executableDir(argv[0]);
