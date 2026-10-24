@@ -24,6 +24,21 @@ add_executable(xzuff-go language/xzuff-go/compiler/xzuff_go.cpp)
 target_compile_options(xzuff-go PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME xzuff-go-codegen-self-test COMMAND xzuff-go --self-test)
 
+# Coder Checker is built from the same lexer/parser as the compiler to prevent grammar drift.
+add_executable(xzuff-check language/xzuff-go/compiler/xzuff_go.cpp)
+target_compile_definitions(xzuff-check PRIVATE XZUFF_CHECKER_MODE=1)
+target_compile_options(xzuff-check PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME xzuff-check-valid-source
+    COMMAND xzuff-check ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/return_42.xgo
+)
+add_test(NAME xzuff-check-json-output
+    COMMAND xzuff-check --json ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/return_42.xgo
+)
+add_test(NAME xzuff-check-rejects-out-of-range-i32
+    COMMAND xzuff-check ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/checker_invalid_i32.xgo
+)
+set_tests_properties(xzuff-check-rejects-out-of-range-i32 PROPERTIES WILL_FAIL TRUE)
+
 add_executable(xexe-loader-test tests/xexe_loader_test.cpp)
 target_link_libraries(xexe-loader-test PRIVATE xzuff_os_base)
 target_compile_options(xexe-loader-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
