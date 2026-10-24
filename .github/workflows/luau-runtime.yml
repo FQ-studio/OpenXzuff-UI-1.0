@@ -43,22 +43,42 @@ jobs:
           ./build/xexe-loader-test build/return_42.xexe
           test "$(wc -c < build/return_42.xexe)" -gt 32
           test "$(od -An -tx1 -N8 build/return_42.xexe | awk '{ $1=$1; gsub(/ /, ""); print }')" = "585a584558453100"
-      - name: Package Xzuff Go / xgo toolchain artifact
+      - name: Install Android NDK for ARM64
+        uses: android-actions/setup-android@v3
+      - name: Install Android NDK package
+        run: sdkmanager "ndk;27.2.12479018"
+      - name: Cross-compile Xzuff Go / xgo for Android ARM64
         run: |
           set -eu
-          DIST="dist/xzuff-go-toolchain-linux-x86_64"
+          NDK="$ANDROID_HOME/ndk/27.2.12479018"
+          cmake -S . -B build-android-arm64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static
+          cmake --build build-android-arm64 --parallel 2 --target xgo xzuff-go xzuff-check
+      - name: Package Android ARM64 Xzuff Go toolchain
+        run: |
+          set -eu
+          DIST="dist/xzuff-go-toolchain-android-arm64"
           mkdir -p "$DIST/bin" "$DIST/examples"
-          install -m 0755 build/xgo "$DIST/bin/xgo"
-          install -m 0755 build/xzuff-go "$DIST/bin/xzuff-go"
-          install -m 0755 build/xzuff-check "$DIST/bin/xzuff-check"
+          install -m 0755 build-android-arm64/xgo "$DIST/bin/xgo"
+          install -m 0755 build-android-arm64/xzuff-go "$DIST/bin/xzuff-go"
+          install -m 0755 build-android-arm64/xzuff-check "$DIST/bin/xzuff-check"
           install -m 0644 language/xzuff-go/tests/return_42.xgo "$DIST/examples/return_42.xgo"
           install -m 0644 build/return_42.xexe "$DIST/examples/return_42.xexe"
           cat > "$DIST/README.txt" <<'EOF'
-          OpenXzuff UI 1.0 - Xzuff Go / xgo toolchain artifact
+          OpenXzuff UI 1.0 - Xzuff Go / xgo Android ARM64 toolchain
 
-          Host binaries in bin/ are built for Linux x86_64.
+          Target: Android ARM64 (arm64-v8a), Android API 24+.
+          These binaries are Android host tools, not Linux x86_64 binaries.
           xgo is the project CLI; xzuff-go is the compiler; xzuff-check is the source checker.
           Keep all three executables together in bin/ because xgo invokes its sibling tools.
+
+          Run in an Android environment that permits native executable execution, such as a
+          compatible terminal environment. Android device policy and filesystem permissions
+          may affect execution; this package is not an APK and does not install like an app.
 
           Commands:
             ./bin/xgo --help
@@ -68,13 +88,11 @@ jobs:
             ./bin/xgo build
 
           Example source: examples/return_42.xgo
-          Example Gravity Kernel RV64 .xexe output: examples/return_42.xexe
-
-          Note: .xexe is a Gravity Kernel ABI artifact, not a Linux executable.
-          This package contains a Linux x86_64 host toolchain and an RV64-format output fixture.
+          Example .xexe: examples/return_42.xexe
+          Note: .xexe is a Gravity Kernel RV64 output format, not an Android executable.
           EOF
-          cd dist
-          zip -qr xzuff-go-toolchain-linux-x86_64.zip xzuff-go-toolchain-linux-x86_64
+          file "$DIST/bin/xgo" "$DIST/bin/xzuff-go" "$DIST/bin/xzuff-check"
+          zip -qr dist/xzuff-go-toolchain-android-arm64.zip "$DIST"
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
@@ -102,7 +120,7 @@ jobs:
           name: openxzuff-ui-1.0-smoke-artifacts
           path: |
             build/xgo
-            dist/xzuff-go-toolchain-linux-x86_64.zip
+            dist/xzuff-go-toolchain-android-arm64.zip
             build/xzuff-go
             build/xzuff-check
             build/openxzuff-os-smoke
