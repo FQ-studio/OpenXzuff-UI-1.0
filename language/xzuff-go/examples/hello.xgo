@@ -1,0 +1,14 @@
+module Hello;
+
+import System.Console;
+
+function main() returns i32 {
+    constant version: i32 = 1;
+    constant title: string = "OpenXzuff UI";
+
+    Console.write("Hello from Xzuff Go!");
+    Console.write(title);
+    Console.writeNumber(version);
+
+    return 0;
+}
