@@ -1,0 +1,7 @@
+[target.riscv64gc-unknown-none-elf]
+linker = "riscv64-unknown-elf-gcc"
+rustflags = [
+  "-C", "link-arg=-nostartfiles",
+  "-C", "link-arg=-Wl,-T,kernel/linker-riscv.ld",
+  "-C", "link-arg=-Wl,--build-id=none"
+]
