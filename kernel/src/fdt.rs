@@ -203,6 +203,69 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn put32(b: &mut [u8], p: &mut usize, v: u32) {
+        b[*p..*p + 4].copy_from_slice(&v.to_be_bytes());
+        *p += 4;
+    }
+    fn put_prop(b: &mut [u8], p: &mut usize, len: u32, nameoff: u32) {
+        put32(b, p, PROP);
+        put32(b, p, len);
+        put32(b, p, nameoff);
+    }
+    fn fixture_reserved_before_ram() -> (Vec<u8>, usize) {
+        let mut b = vec![0u8; 512];
+        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0";
+        let off_strings = 80usize;
+        b[off_strings..off_strings + strings.len()].copy_from_slice(strings);
+        let off_struct = (off_strings + strings.len() + 3) & !3;
+        // FDT reservation map: reserve [0x80000000, 0x80001000), then terminator.
+        b[40..48].copy_from_slice(&0x80000000u64.to_be_bytes());
+        b[48..56].copy_from_slice(&0x1000u64.to_be_bytes());
+        let mut p = off_struct;
+        put32(&mut b, &mut p, BEGIN_NODE);
+        b[p] = 0; p += 1; while p % 4 != 0 { p += 1; }
+        put_prop(&mut b, &mut p, 4, 0); put32(&mut b, &mut p, 2); while p % 4 != 0 { p += 1; }
+        put_prop(&mut b, &mut p, 4, 15); put32(&mut b, &mut p, 2); while p % 4 != 0 { p += 1; }
+
+        // Deliberately put reserved-memory before the RAM node to test order independence.
+        put32(&mut b, &mut p, BEGIN_NODE); b[p..p+16].copy_from_slice(b"reserved-memory\0"); p += 16;
+        put32(&mut b, &mut p, BEGIN_NODE); b[p..p+16].copy_from_slice(b"secure@87000000\0"); p += 16;
+        put_prop(&mut b, &mut p, 16, 39);
+        b[p..p+8].copy_from_slice(&0x87000000u64.to_be_bytes());
+        b[p+8..p+16].copy_from_slice(&0x1000u64.to_be_bytes()); p += 16;
+        put32(&mut b, &mut p, END_NODE); put32(&mut b, &mut p, END_NODE);
+
+        put32(&mut b, &mut p, BEGIN_NODE); b[p..p+16].copy_from_slice(b"memory@80000000\0"); p += 16;
+        put_prop(&mut b, &mut p, 7, 27); b[p..p+7].copy_from_slice(b"memory\0"); p += 7; while p % 4 != 0 { p += 1; }
+        put_prop(&mut b, &mut p, 16, 39);
+        b[p..p+8].copy_from_slice(&0x80000000u64.to_be_bytes());
+        b[p+8..p+16].copy_from_slice(&0x08000000u64.to_be_bytes()); p += 16;
+        put32(&mut b, &mut p, END_NODE); put32(&mut b, &mut p, END_NODE); put32(&mut b, &mut p, END);
+
+        b[0..4].copy_from_slice(&MAGIC.to_be_bytes());
+        b[4..8].copy_from_slice(&(p as u32).to_be_bytes());
+        b[8..12].copy_from_slice(&(off_struct as u32).to_be_bytes());
+        b[12..16].copy_from_slice(&(off_strings as u32).to_be_bytes());
+        b[16..20].copy_from_slice(&40u32.to_be_bytes());
+        b[20..24].copy_from_slice(&17u32.to_be_bytes());
+        b[24..28].copy_from_slice(&16u32.to_be_bytes());
+        b[28..32].copy_from_slice(&0u32.to_be_bytes());
+        b[32..36].copy_from_slice(&(strings.len() as u32).to_be_bytes());
+        b[36..40].copy_from_slice(&((p - off_struct) as u32).to_be_bytes());
+        (b, p)
+    }
+
+    #[test]
+    fn parses_ram_and_excludes_reservations_even_when_reserved_node_comes_first() {
+        let (b, expected_total) = fixture_reserved_before_ram();
+        let mut map = MemoryMap::new();
+        assert_eq!(parse_memory(&b, &mut map), Ok(expected_total));
+        assert_eq!(map.count, 2);
+        assert_eq!(map.regions[0], crate::memory::Region { start: 0x80001000, end: 0x87000000 });
+        assert_eq!(map.regions[1], crate::memory::Region { start: 0x87001000, end: 0x88000000 });
+    }
+
     #[test]
     fn rejects_truncated_and_bad_magic_blobs() {
         let mut map = MemoryMap::new();
