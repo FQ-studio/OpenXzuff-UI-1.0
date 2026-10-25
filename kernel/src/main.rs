@@ -4,6 +4,7 @@
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
 
+mod app;
 mod fdt;
 mod memory;
 mod syscall;
