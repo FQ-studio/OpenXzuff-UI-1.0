@@ -225,7 +225,7 @@ async fn download_app(State(state): State<AppState>, Path(id): Path<String>) -> 
     };
     if !safe_component(&filename, 220) { return error(StatusCode::INTERNAL_SERVER_ERROR, "Unsafe stored filename"); }
     let path = state.storage.join(&filename);
-    let bytes = match tokio::fs::read(path).await {
+    let bytes: Vec<u8> = match tokio::fs::read(path).await {
         Ok(v) => v,
         Err(_) => return error(StatusCode::NOT_FOUND, "Package file is missing from storage"),
     };
