@@ -29,9 +29,15 @@ bool jsonString(const std::string&j,const std::string&key,std::string&out){
  if(p==j.npos||j.find(needle,p+needle.size())!=j.npos)return false;
  p=j.find(':',p+needle.size());if(p==j.npos)return false;++p;
  while(p<j.size()&&std::isspace(static_cast<unsigned char>(j[p])))++p;
- if(p==j.size()||j[p++]!='"')return false;auto end=p;
- while(end<j.size()&&j[end]!='"'){if(j[end]=='\\'||static_cast<unsigned char>(j[end])<0x20)return false;++end;}
- if(end==j.size())return false;out=j.substr(p,end-p);return true;
+ if(p==j.size()||j[p++]!='"') return false;
+ auto end=p;
+ while(end<j.size()&&j[end]!='"'){
+  if(j[end]=='\\'||static_cast<unsigned char>(j[end])<0x20) return false;
+  ++end;
+ }
+ if(end==j.size()) return false;
+ out=j.substr(p,end-p);
+ return true;
 }
 bool validManifest(const std::vector<std::uint8_t>&b,std::size_t off,std::size_t n,const std::string&ext,std::string&id){
  if(n==0||n>65536||off>b.size()||n>b.size()-off)return false;
@@ -61,7 +67,9 @@ bool install(const fs::path&package,const fs::path&root){
  std::size_t eocd=std::string::npos;const std::size_t begin=b.size()>65557?b.size()-65557:0;
  for(std::size_t p=b.size()-22;;--p){if(u32(b,p)==0x06054b50u){eocd=p;break;}if(p==begin)break;}
  if(eocd==std::string::npos||u16(b,eocd+4)||u16(b,eocd+6)||u16(b,eocd+8)!=u16(b,eocd+10)){std::cerr<<"ERROR: malformed/multi-disk ZIP\n";return false;}
- const auto count=u16(b,eocd+10),cdSize=u32(b,eocd+12),cdOff=u32(b,eocd+16);
+ const std::uint16_t count=u16(b,eocd+10);
+ const std::uint32_t cdSize=u32(b,eocd+12);
+ const std::uint32_t cdOff=u32(b,eocd+16);
  if(!count||count>kMaxFiles||std::uint64_t(cdOff)+cdSize>b.size()){std::cerr<<"ERROR: invalid ZIP directory\n";return false;}
  std::vector<Entry> entries;entries.reserve(count);std::size_t p=cdOff,total=0,manifestIndex=std::numeric_limits<std::size_t>::max();
  for(std::size_t i=0;i<count;i++){
