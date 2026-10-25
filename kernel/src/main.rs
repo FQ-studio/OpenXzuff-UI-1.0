@@ -4,6 +4,7 @@
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
 
+mod fdt;
 mod memory;
 mod syscall;
 
@@ -36,7 +37,6 @@ fn console_hex(mut n: usize) {
     for b in buf { console_putc(b); }
 }
 
-#[cfg(not(test))]
 #[repr(C)]
 pub struct TrapFrame { pub x: [usize; 32], pub sepc: usize, pub sstatus: usize }
 
@@ -65,16 +65,48 @@ fn halt() -> ! { loop { unsafe { asm!("wfi", options(nomem, nostack)); } } }
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
-    console_write("\r\nOpenXzuff UI native kernel: RV64 entry reached.\r\n");
+    use memory::{BootAllocator, MemoryMap};
 
-    // FDT parsing is intentionally not claimed as migrated until the Rust
-    // parser passes equivalent hostile-input and QEMU fixtures. Do not create
-    // an allocator from guessed RAM bounds.
+    console_write("\r\nOpenXzuff UI native kernel: RV64 entry reached.\r\n");
+    let mut map = MemoryMap::new();
+    let mut allocator = BootAllocator::default();
+    let mut allocator_ready = false;
+
     if fdt_blob.is_null() {
         console_write("Gravity FDT RAM discovery: FAIL; allocator disabled.\r\n");
     } else {
-        console_write("Gravity FDT RAM discovery: FAIL; Rust FDT parser migration pending.\r\n");
+        // Firmware supplies a physical FDT pointer; cap reads to the boot contract
+        // and validate the header's total size before trusting any parsed offsets.
+        let parsed = unsafe { fdt::parse_memory(core::slice::from_raw_parts(fdt_blob, 16 * 1024 * 1024), &mut map) };
+        match parsed {
+            Ok(fdt_size) => {
+                let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
+                let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
+                let fdt_start = fdt_blob as usize;
+                let fdt_end = fdt_start.checked_add(fdt_size);
+                let reserve_kernel = map.reserve(kernel_start, kernel_end);
+                let reserve_fdt = match fdt_end { Some(end) => map.reserve(fdt_start, end), None => Err(()) };
+                if reserve_kernel.is_err() || reserve_fdt.is_err() {
+                    console_write("Gravity FDT RAM discovery: FAIL; reservation error.\r\n");
+                } else if map.count == 0 {
+                    console_write("Gravity FDT RAM discovery: FAIL; no usable RAM.\r\n");
+                } else {
+                    console_write("Gravity FDT RAM discovery: PASS; usable bytes=");
+                    console_hex(map.usable_bytes());
+                    console_write(".\r\n");
+                    let first = map.regions[0];
+                    if allocator.init(first.start, first.end).is_ok() {
+                        allocator_ready = true;
+                        console_write("Gravity boot allocator: initialized from reserved-safe RAM range.\r\n");
+                    } else {
+                        console_write("Gravity boot allocator: no usable RAM range.\r\n");
+                    }
+                }
+            }
+            Err(_) => console_write("Gravity FDT RAM discovery: FAIL; malformed FDT or unsupported layout.\r\n"),
+        }
     }
+
     let trap_addr = gravity_trap_entry as usize;
     unsafe { asm!("csrw stvec, {0}", in(reg) trap_addr, options(nostack)); }
     if syscall::dispatch(0x7fff, [0; 6]) == -(syscall::ENOSYS as isize) {
@@ -82,7 +114,11 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     } else {
         console_write("Gravity syscall dispatcher self-test: FAIL.\r\n");
     }
-    console_write("Gravity user-mode trap entry installed; user tasks are not implemented yet.\r\n");
+    if allocator_ready {
+        console_write("Gravity user-mode trap entry installed; user tasks are not implemented yet.\r\n");
+    } else {
+        console_write("Gravity user-mode trap entry installed; boot allocator disabled pending memory validation.\r\n");
+    }
     halt()
 }
 
