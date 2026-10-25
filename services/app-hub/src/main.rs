@@ -225,7 +225,7 @@ async fn download_app(State(state): State<AppState>, Path(id): Path<String>) -> 
     };
     if !safe_component(&filename, 220) { return error(StatusCode::INTERNAL_SERVER_ERROR, "Unsafe stored filename"); }
     let path = state.storage.join(&filename);
-    let bytes = match tokio::fs::read(path).await {
+    let bytes: Vec<u8> = match tokio::fs::read(path).await {
         Ok(v) => v,
         Err(_) => return error(StatusCode::NOT_FOUND, "Package file is missing from storage"),
     };
@@ -254,7 +254,7 @@ async fn main() {
         .route("/api/apps", get(list_apps).post(upload_app))
         .route("/api/apps/:id/download", get(download_app))
         .layer(DefaultBodyLimit::max(MAX_PACKAGE_BYTES + 1024 * 1024))
-        .with_state(state);
+        .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind(bind).await.expect("bind App Hub listener");
     println!("Xzuff App Hub listening on http://{}", bind);
     println!("SQLite: {}; package storage: {}", db_path.display(), state.storage.display());

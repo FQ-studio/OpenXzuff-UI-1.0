@@ -5,7 +5,7 @@ on:
     branches: [main, "feat/lua-native-gui-foundation"]
     tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, "feat/lua-native-gui-foundation"]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install RV64 cross compiler and QEMU
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-none-elf
+      - name: Install RV64 cross linker and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
@@ -30,8 +33,6 @@ jobs:
         run: make check-app
       - name: Test native C++ LAP and LUAP installer
         run: make check-installer
-      - name: Test SQLite-backed Xzuff App Hub service
-        run: cargo test --manifest-path services/app-hub/Cargo.toml
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
       - name: Boot through OpenSBI in QEMU
@@ -56,6 +57,7 @@ jobs:
           grep -F "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
           grep -F "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
 
+
       - name: Assemble verified RV64 package
         run: |
           mkdir -p dist/openxzuff-rv64
@@ -78,6 +80,8 @@ jobs:
           path: dist/openxzuff-rv64.tar.gz
           if-no-files-found: error
           retention-days: 30
+      - name: Test SQLite-backed Xzuff App Hub service
+        run: cargo test --manifest-path services/app-hub/Cargo.toml
       - name: Publish GitHub Release for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

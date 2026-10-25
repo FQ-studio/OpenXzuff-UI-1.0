@@ -1,19 +1,39 @@
-# OpenXzuff native kernel
+# Gravity Kernel — Rust / RV64
 
-This directory begins the native-kernel implementation. The first supported development architecture is RV64; ARM64/AArch64 is a separate port. No Linux kernel or Flutter dependency is used.
+Gravity Kernel is the native kernel foundation for OpenXzuff UI. The current build target is **RV64 only**. AArch64 and x86_64 are not supported targets in this project milestone. No Linux kernel or Flutter dependency is used.
 
-## Current implementation status
+## Language boundary
 
-- `kernel.c`: freestanding kernel entry and architecture-independent halt loop.
-- `arch/riscv/entry.S`: minimal RV64 entry for an SBI/OpenSBI-style environment.
-- `arch/arm64/entry.S`: minimal AArch64 entry stub for a future firmware-specific boot path.
-- `linker-riscv.ld`: RV64 linker layout for a controlled test environment; the load address must match the chosen firmware/board setup.
+- Kernel logic: Rust `no_std`
+- Firmware entry and CPU trap entry: RV64 Assembly
+- Lua Native OS: planned user-space runtime, not yet integrated into the kernel build
 
-These are bring-up foundations, not yet a complete bootable desktop OS. There is no memory manager, scheduler, interrupt controller, framebuffer driver, device tree parser, or Lua VM integration yet. Board boot must be verified with a real cross-toolchain and emulator/hardware before calling it bootable.
+## Rust migration status
 
-## Build tools
+- `src/main.rs`: freestanding kernel entry, SBI console output, trap dispatch boundary and panic halt.
+- `src/memory.rs`: bounded boot allocator and physical memory-region bookkeeping.
+- `src/fdt.rs`: FDT RAM discovery, FDT memreserve handling and reserved-memory child handling.
+- `src/syscall.rs`: draft Gravity syscall ABI, deliberately fail-closed until implementations and capability checks exist.
+- `src/app.rs`: GAPP v1 metadata validation.
+- `arch/riscv/entry.S` and `arch/riscv/trap.S`: assembly entry/trap boundary.
 
-RV64: `riscv64-unknown-elf-gcc` and `riscv64-unknown-elf-ld`.
-AArch64: `aarch64-none-elf-gcc` and a firmware/UEFI-compatible loader path.
+## Build and test
 
-The two architectures use separate entry code and must not share machine-code binaries.
+Host-side Rust module tests:
+
+```sh
+cargo test --manifest-path kernel/Cargo.toml
+```
+
+RV64 payload build (requires Rust stable with `riscv64gc-unknown-none-elf` and `riscv64-unknown-elf-gcc`):
+
+```sh
+rustup target add riscv64gc-unknown-none-elf
+make clean kernel-rv64
+```
+
+## Important limitations
+
+This is still an early bring-up payload, **not a complete microkernel or bootable desktop OS**. Task creation, scheduler/context switching, Sv39 address-space isolation, validated user-memory access, functional IPC/capabilities, real driver services, framebuffer/input services, and Lua VM integration are not implemented yet. The current syscall IDs are reserved ABI values and return `-ENOSYS`.
+
+The trap assembly still requires a dedicated, trusted kernel-stack transition before enabling user tasks. Do not treat installation of `stvec` as proof that U-mode traps are safe. QEMU smoke tests validate only the checks they explicitly execute.
