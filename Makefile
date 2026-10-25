@@ -6,7 +6,7 @@ help:
 	@echo 'check-all runs all host-side checks and the RV64 cross-build.'
 	@echo 'Targets: check-lua, check-rust, check-gravity-rust, check-app, check-installer, check-app-hub, kernel-rv64, clean'
 	@echo 'check-gravity-rust tests the Rust Gravity Kernel modules on the host.'
-		@echo 'kernel-rv64 builds an RV64 early payload; it is not a complete OS.'
+	@echo 'kernel-rv64 builds an RV64 early payload; it is not a complete OS.'
 
 check-all: check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app check-installer check-app-hub kernel-rv64
 
