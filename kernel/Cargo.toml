@@ -1,0 +1,21 @@
+[package]
+name = "gravity-kernel"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "gravity-kernel"
+path = "src/main.rs"
+test = true
+bench = false
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true
+codegen-units = 1
