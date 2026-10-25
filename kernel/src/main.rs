@@ -124,7 +124,9 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     } else {
         // Firmware supplies a physical FDT pointer; cap reads to the boot contract
         // and validate the header's total size before trusting any parsed offsets.
-        let parsed = unsafe { fdt::parse_memory(core::slice::from_raw_parts(fdt_blob, 16 * 1024 * 1024), &mut map) };
+        let header = unsafe { core::slice::from_raw_parts(fdt_blob, 40) };
+        let parsed = fdt::declared_size(header, 16 * 1024 * 1024)
+            .and_then(|size| unsafe { fdt::parse_memory(core::slice::from_raw_parts(fdt_blob, size), &mut map) });
         match parsed {
             Ok(fdt_size) => {
                 let kernel_start = unsafe { core::ptr::addr_of!(__kernel_start) as usize };
