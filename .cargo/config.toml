@@ -2,6 +2,6 @@
 linker = "riscv64-unknown-elf-gcc"
 rustflags = [
   "-C", "link-arg=-nostartfiles",
-  "-C", "link-arg=-Wl,-T,kernel/linker-riscv.ld",
+  "-C", "link-arg=-Wl,-T,linker-riscv.ld",
   "-C", "link-arg=-Wl,--build-id=none"
 ]
