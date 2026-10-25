@@ -1,8 +1,5 @@
 # Cross-build foundations. Requires Lua, Rust/Cargo and a bare-metal RV64 toolchain.
 RISCV_PREFIX ?= riscv64-unknown-elf-
-RV_CFLAGS := -march=rv64gc -mabi=lp64d -mcmodel=medany -ffreestanding -fno-stack-protector -fno-pic -O2 -Wall -Wextra -Ikernel/include
-RV_ASFLAGS := $(RV_CFLAGS)
-RV_LDFLAGS := -nostdlib -Wl,-T,kernel/linker-riscv.ld -Wl,--build-id=none
 
 .PHONY: help check-all check-lua check-rust check-ai-cpp check-boot-alloc check-memory-map check-fdt check-app check-installer check-app-hub check-gravity-rust clean kernel-rv64
 help:
@@ -39,14 +36,11 @@ check-gravity-rust:
 
 check-boot-alloc check-memory-map check-fdt: check-gravity-rust
 
-check-app:
-	mkdir -p build
-	$(CC) -std=c11 -Wall -Wextra -Werror -Ikernel/include kernel/app.c tests/app_format_test.c -o build/app_format_test
-	./build/app_format_test
+check-app: check-gravity-rust
 
 kernel-rv64: build/openxzuff-rv64.elf
 
-build/openxzuff-rv64.elf: kernel/Cargo.toml kernel/.cargo/config.toml kernel/src/main.rs kernel/src/memory.rs kernel/src/fdt.rs kernel/src/syscall.rs kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
+build/openxzuff-rv64.elf: kernel/Cargo.toml kernel/.cargo/config.toml kernel/src/main.rs kernel/src/memory.rs kernel/src/fdt.rs kernel/src/syscall.rs kernel/src/app.rs kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
 	mkdir -p build
 	rustup target add riscv64gc-unknown-none-elf
 	cargo build --manifest-path kernel/Cargo.toml --release --target riscv64gc-unknown-none-elf
