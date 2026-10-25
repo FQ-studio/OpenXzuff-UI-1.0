@@ -102,6 +102,9 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     let mut regs: [Option<(usize, usize)>; 32] = [None; 32];
     p = off_struct; depth = 0;
     let mut found_memory = false;
+    let mut reserved_starts = [0usize; 32];
+    let mut reserved_ends = [0usize; 32];
+    let mut reserved_count = 0usize;
     while p + 4 <= struct_end {
         let token = be32(blob, p)?; p += 4;
         match token {
@@ -131,9 +134,10 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                             let size = cells(blob, rp + off + address_cells as usize * 4, size_cells)?;
                             let end = base.checked_add(size).ok_or(FdtError::Bounds)?;
                             if size == 0 { return Err(FdtError::Reservation); }
-                            map.reserve(usize::try_from(base).map_err(|_| FdtError::Bounds)?,
-                                        usize::try_from(end).map_err(|_| FdtError::Bounds)?)
-                                .map_err(|_| FdtError::Reservation)?;
+                            if reserved_count >= reserved_starts.len() { return Err(FdtError::Reservation); }
+                            reserved_starts[reserved_count] = usize::try_from(base).map_err(|_| FdtError::Bounds)?;
+                            reserved_ends[reserved_count] = usize::try_from(end).map_err(|_| FdtError::Bounds)?;
+                            reserved_count += 1;
                             off += tuple;
                         }
                     }
@@ -175,6 +179,11 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
         if p > struct_end { return Err(FdtError::Bounds); }
     }
     if !found_memory { return Err(FdtError::Memory); }
+    // Apply reserved-memory ranges only after all RAM ranges are known; FDT node
+    // order must not change whether a reservation is excluded from allocatable RAM.
+    for i in 0..reserved_count {
+        map.reserve(reserved_starts[i], reserved_ends[i]).map_err(|_| FdtError::Reservation)?;
+    }
 
     p = off_reserve;
     loop {
