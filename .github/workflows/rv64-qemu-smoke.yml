@@ -33,8 +33,6 @@ jobs:
         run: make check-app
       - name: Test native C++ LAP and LUAP installer
         run: make check-installer
-      - name: Test SQLite-backed Xzuff App Hub service
-        run: cargo test --manifest-path services/app-hub/Cargo.toml
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
       - name: Boot through OpenSBI in QEMU
@@ -58,6 +56,9 @@ jobs:
           grep -F "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
           grep -F "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
           grep -F "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
+
+      - name: Test SQLite-backed Xzuff App Hub service
+        run: cargo test --manifest-path services/app-hub/Cargo.toml
 
       - name: Assemble verified RV64 package
         run: |
