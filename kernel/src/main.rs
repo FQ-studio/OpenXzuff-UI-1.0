@@ -63,6 +63,10 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
 fn halt() -> ! { loop { unsafe { asm!("wfi", options(nomem, nostack)); } } }
 
 #[cfg(not(test))]
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! { halt() }
+
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     use memory::{BootAllocator, MemoryMap};
