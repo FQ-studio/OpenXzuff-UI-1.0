@@ -36,6 +36,14 @@ impl MemoryMap {
 
     pub fn reserve(&mut self, start: usize, end: usize) -> Result<(), ()> {
         if start == 0 || end <= start { return Err(()); }
+        // Mutate a copy first so capacity failures never partially change the map.
+        let mut candidate = *self;
+        candidate.reserve_inner(start, end)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    fn reserve_inner(&mut self, start: usize, end: usize) -> Result<(), ()> {
         let mut i = 0;
         while i < self.count {
             let r = self.regions[i];
@@ -121,6 +129,19 @@ mod tests {
         assert!(m.reserve(0x3800, 0x4000).is_ok());
         assert_eq!(m.regions[1], Region { start: 0x3000, end: 0x3800 });
         assert_eq!(m.regions[2], Region { start: 0x4000, end: 0x5000 });
+    }
+
+    #[test]
+    fn failed_split_does_not_partially_mutate_full_map() {
+        let mut m = MemoryMap::new();
+        for i in 0..MAX_REGIONS {
+            let start = 0x1000 + i * 0x2000;
+            assert!(m.add(start, start + 0x1000).is_ok());
+        }
+        let before = m;
+        assert!(m.reserve(0x1800, 0x1900).is_err());
+        assert_eq!(m.count, before.count);
+        assert_eq!(m.regions[0], before.regions[0]);
     }
 
     #[test]
