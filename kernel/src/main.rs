@@ -127,8 +127,8 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
         let parsed = unsafe { fdt::parse_memory(core::slice::from_raw_parts(fdt_blob, 16 * 1024 * 1024), &mut map) };
         match parsed {
             Ok(fdt_size) => {
-                let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
-                let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
+                let kernel_start = unsafe { core::ptr::addr_of!(__kernel_start) as usize };
+                let kernel_end = unsafe { core::ptr::addr_of!(__kernel_end) as usize };
                 let fdt_start = fdt_blob as usize;
                 let fdt_end = fdt_start.checked_add(fdt_size);
                 let reserve_kernel = map.reserve(kernel_start, kernel_end);
