@@ -64,40 +64,47 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
 fn halt() -> ! { loop { unsafe { asm!("wfi", options(nomem, nostack)); } } }
 #[cfg(not(test))]
 #[no_mangle]
-pub unsafe extern "C" fn memset(dst: *mut u8, value: i32, count: usize) -> *mut u8 {
+pub unsafe extern "C" fn memset(dst: *mut core::ffi::c_void, value: i32, count: usize) -> *mut core::ffi::c_void {
+    let out = dst.cast::<u8>();
     let mut i = 0;
-    while i < count { core::ptr::write_volatile(dst.add(i), value as u8); i += 1; }
+    while i < count { core::ptr::write_volatile(out.add(i), value as u8); i += 1; }
     dst
 }
 
 #[cfg(not(test))]
 #[no_mangle]
-pub unsafe extern "C" fn memcpy(dst: *mut u8, src: *const u8, count: usize) -> *mut u8 {
+pub unsafe extern "C" fn memcpy(dst: *mut core::ffi::c_void, src: *const core::ffi::c_void, count: usize) -> *mut core::ffi::c_void {
+    let out = dst.cast::<u8>();
+    let input = src.cast::<u8>();
     let mut i = 0;
-    while i < count { core::ptr::write_volatile(dst.add(i), core::ptr::read_volatile(src.add(i))); i += 1; }
+    while i < count { core::ptr::write_volatile(out.add(i), core::ptr::read_volatile(input.add(i))); i += 1; }
     dst
 }
 
 #[cfg(not(test))]
 #[no_mangle]
-pub unsafe extern "C" fn memmove(dst: *mut u8, src: *const u8, count: usize) -> *mut u8 {
-    if (dst as usize) <= (src as usize) {
+pub unsafe extern "C" fn memmove(dst: *mut core::ffi::c_void, src: *const core::ffi::c_void, count: usize) -> *mut core::ffi::c_void {
+    let out = dst.cast::<u8>();
+    let input = src.cast::<u8>();
+    if (out as usize) <= (input as usize) {
         let mut i = 0;
-        while i < count { core::ptr::write_volatile(dst.add(i), core::ptr::read_volatile(src.add(i))); i += 1; }
+        while i < count { core::ptr::write_volatile(out.add(i), core::ptr::read_volatile(input.add(i))); i += 1; }
     } else {
         let mut i = count;
-        while i > 0 { i -= 1; core::ptr::write_volatile(dst.add(i), core::ptr::read_volatile(src.add(i))); }
+        while i > 0 { i -= 1; core::ptr::write_volatile(out.add(i), core::ptr::read_volatile(input.add(i))); }
     }
     dst
 }
 
 #[cfg(not(test))]
 #[no_mangle]
-pub unsafe extern "C" fn memcmp(a: *const u8, b: *const u8, count: usize) -> i32 {
+pub unsafe extern "C" fn memcmp(a: *const core::ffi::c_void, b: *const core::ffi::c_void, count: usize) -> i32 {
+    let left = a.cast::<u8>();
+    let right = b.cast::<u8>();
     let mut i = 0;
     while i < count {
-        let av = core::ptr::read_volatile(a.add(i));
-        let bv = core::ptr::read_volatile(b.add(i));
+        let av = core::ptr::read_volatile(left.add(i));
+        let bv = core::ptr::read_volatile(right.add(i));
         if av != bv { return av as i32 - bv as i32; }
         i += 1;
     }
@@ -156,7 +163,7 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
         }
     }
 
-    let trap_addr = gravity_trap_entry as usize;
+    let trap_addr = gravity_trap_entry as *const () as usize;
     unsafe { asm!("csrw stvec, {0}", in(reg) trap_addr, options(nostack)); }
     if syscall::dispatch(0x7fff, [0; 6]) == -(syscall::ENOSYS as isize) {
         console_write("Gravity syscall dispatcher self-test: PASS.\r\n");
