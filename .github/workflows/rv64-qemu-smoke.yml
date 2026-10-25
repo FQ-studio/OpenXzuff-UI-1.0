@@ -16,7 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install RV64 cross compiler and QEMU
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-none-elf
+      - name: Install RV64 cross linker and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
