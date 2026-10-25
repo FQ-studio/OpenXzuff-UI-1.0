@@ -34,6 +34,13 @@ fn is_memory(name: &[u8]) -> bool {
 }
 fn is_named(bytes: &[u8], name: &[u8]) -> bool { bytes.strip_suffix(&[0]).unwrap_or(bytes) == name }
 
+pub fn declared_size(header: &[u8], maximum: usize) -> Result<usize, FdtError> {
+    if header.len() < 40 || be32(header, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(header, 4)? as usize;
+    if total < 40 || total > maximum { return Err(FdtError::Bounds); }
+    Ok(total)
+}
+
 pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError> {
     if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
     let total = be32(blob, 4)? as usize;
