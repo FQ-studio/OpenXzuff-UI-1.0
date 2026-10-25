@@ -5,7 +5,7 @@ on:
     branches: [main, "feat/lua-native-gui-foundation"]
     tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, "feat/lua-native-gui-foundation"]
   workflow_dispatch:
 
 permissions:
