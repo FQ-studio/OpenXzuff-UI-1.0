@@ -5,6 +5,8 @@
 use core::arch::{asm, global_asm};
 
 mod app;
+#[cfg(not(test))]
+mod context;
 mod fdt;
 mod memory;
 mod syscall;
@@ -14,6 +16,8 @@ mod task;
 global_asm!(include_str!("../arch/riscv/entry.S"));
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/trap.S"));
+#[cfg(not(test))]
+global_asm!(include_str!("../arch/riscv/context.S"));
 
 #[cfg(not(test))]
 extern "C" {
