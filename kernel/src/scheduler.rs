@@ -11,8 +11,8 @@ type Entry = extern "C" fn() -> !;
 struct TaskStack([u8; STACK_SIZE]);
 
 static mut STACKS: [TaskStack; TASKS] = [
-    TaskStack([0; STACK_SIZE],
-    TaskStack([0; STACK_SIZE],
+    TaskStack([0; STACK_SIZE]),
+    TaskStack([0; STACK_SIZE]),
 ];
 static mut CONTEXTS: [SavedContext; TASKS] = [SavedContext {
     ra: 0, sp: 0, s0: 0, s1: 0, s2: 0, s3: 0, s4: 0, s5: 0,
