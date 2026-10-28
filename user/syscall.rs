@@ -13,6 +13,8 @@ pub const TASK_OPEN: usize = 0x0100;
 pub const TASK_EXIT: usize = 0x0101;
 pub const TASK_YIELD: usize = 0x0102;
 pub const SYSTEM_SHUTDOWN: usize = 0x0103;
+pub const SYSTEM_ON: usize = 0x0104;
+pub const SYSTEM_REBOOT: usize = 0x0105;
 
 /// Invoke a Gravity syscall. Only build this implementation for RV64.
 #[cfg(target_arch = "riscv64")]
@@ -71,7 +73,7 @@ pub fn task_open(entry: usize, argument: usize) -> isize {
     unsafe { syscall6(TASK_OPEN, entry, argument, 0, 0, 0, 0) }
 }
 
-/// Request a whole-system shutdown. This must be restricted by kernel policy\n/// before general user applications are allowed to invoke it.\n#[inline]\npub fn system_shutdown() -> isize {\n    unsafe { syscall6(SYSTEM_SHUTDOWN, 0, 0, 0, 0, 0, 0) }\n}\n\n/// Request termination of the calling task with an exit status.
+/// Request platform power-on. This returns -ENOSYS until a supported power controller exists.\n#[inline]\npub fn system_on() -> isize {\n    unsafe { syscall6(SYSTEM_ON, 0, 0, 0, 0, 0, 0) }\n}\n\n/// Request a whole-system reboot. Kernel/firmware support is platform-dependent.\n#[inline]\npub fn system_reboot() -> isize {\n    unsafe { syscall6(SYSTEM_REBOOT, 0, 0, 0, 0, 0, 0) }\n}\n\n/// Request a whole-system shutdown. This must be restricted by kernel policy\n/// before general user applications are allowed to invoke it.\n#[inline]\npub fn system_shutdown() -> isize {\n    unsafe { syscall6(SYSTEM_SHUTDOWN, 0, 0, 0, 0, 0, 0) }\n}\n\n/// Request termination of the calling task with an exit status.
 /// Current kernel behavior is a safe halt fallback, not per-task cleanup.
 #[inline]
 pub fn task_exit(status: isize) -> isize {
@@ -86,7 +88,7 @@ mod tests {
     fn syscall_numbers_match_kernel_abi() {
         assert_eq!(TASK_OPEN, 0x0100);
         assert_eq!(TASK_EXIT, 0x0101);
-        assert_eq!(TASK_YIELD, 0x0102);\n        assert_eq!(SYSTEM_SHUTDOWN, 0x0103);
+        assert_eq!(TASK_YIELD, 0x0102);\n        assert_eq!(SYSTEM_SHUTDOWN, 0x0103);\n        assert_eq!(SYSTEM_ON, 0x0104);\n        assert_eq!(SYSTEM_REBOOT, 0x0105);
     }
 
     #[cfg(not(target_arch = "riscv64"))]
