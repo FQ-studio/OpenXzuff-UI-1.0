@@ -4,7 +4,7 @@ pub const EINVAL: isize = 22;
 #[repr(usize)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Syscall {
-    TaskCreate = 0x0100, TaskExit = 0x0101, TaskYield = 0x0102,
+    TaskOpen = 0x0100, TaskExit = 0x0101, TaskYield = 0x0102,
     MemAlloc = 0x0200, MemMap = 0x0201, MemUnmap = 0x0202,
     IpcSend = 0x0300, IpcReceive = 0x0301, IpcCall = 0x0302,
     FbInfo = 0x0400, FbMap = 0x0401, FbPresent = 0x0402,
@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn declared_ids_are_stable() {
-        assert_eq!(Syscall::TaskCreate as usize, 0x0100);
+        assert_eq!(Syscall::TaskOpen as usize, 0x0100);
         assert_eq!(Syscall::TaskExit as usize, 0x0101);
         assert_eq!(Syscall::IpcCall as usize, 0x0302);
         assert_eq!(Syscall::CapRevoke as usize, 0x0701);
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn unimplemented_services_return_enosys() {
         for number in [
-            Syscall::TaskCreate as usize, Syscall::TaskYield as usize,
+            Syscall::TaskOpen as usize, Syscall::TaskYield as usize,
             Syscall::MemAlloc as usize, Syscall::MemMap as usize,
             Syscall::MemUnmap as usize, Syscall::IpcSend as usize,
             Syscall::IpcReceive as usize, Syscall::IpcCall as usize,
