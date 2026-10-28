@@ -5,14 +5,19 @@
 use core::arch::{asm, global_asm};
 
 mod app;
+#[cfg(not(test))]
+mod context;
 mod fdt;
 mod memory;
 mod syscall;
+mod task;
 
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/entry.S"));
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/trap.S"));
+#[cfg(not(test))]
+global_asm!(include_str!("../arch/riscv/context.S"));
 
 #[cfg(not(test))]
 extern "C" {
@@ -48,9 +53,22 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     unsafe { asm!("csrr {0}, scause", out(reg) cause, options(nomem, nostack)); }
     if cause == 8 {
         let args = [frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]];
-        frame.x[10] = syscall::dispatch(frame.x[17], args) as usize;
-        frame.sepc = frame.sepc.wrapping_add(4);
-        return;
+        match syscall::dispatch(frame.x[17], args) {
+            syscall::SyscallOutcome::Return(value) => {
+                frame.x[10] = value as usize;
+                // ECALL is a 32-bit instruction in this RV64 ABI.
+                frame.sepc = frame.sepc.wrapping_add(4);
+                return;
+            }
+            syscall::SyscallOutcome::ExitRequested { status } => {
+                // Safe fallback until the process manager/scheduler exists.
+                // Do not return to the task that explicitly requested exit.
+                console_write("\\r\\nGravity TaskExit requested; no scheduler is available yet, halting. status=");
+                console_hex(status as usize);
+                console_write("\\r\\n");
+                halt();
+            }
+        }
     }
     console_write("\r\nGravity Kernel: fatal trap scause=");
     console_hex(cause);
@@ -165,7 +183,10 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
 
     let trap_addr = gravity_trap_entry as *const () as usize;
     unsafe { asm!("csrw stvec, {0}", in(reg) trap_addr, options(nostack)); }
-    if syscall::dispatch(0x7fff, [0; 6]) == -(syscall::ENOSYS as isize) {
+    if syscall::dispatch(0x7fff, [0; 6])
+        == syscall::SyscallOutcome::Return(-syscall::ENOSYS)
+        && syscall::dispatch(syscall::Syscall::TaskExit as usize, [0; 6])
+            == (syscall::SyscallOutcome::ExitRequested { status: 0 }) {
         console_write("Gravity syscall dispatcher self-test: PASS.\r\n");
     } else {
         console_write("Gravity syscall dispatcher self-test: FAIL.\r\n");

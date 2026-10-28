@@ -2,10 +2,10 @@ name: RV64 QEMU boot smoke test
 
 on:
   push:
-    branches: [main, "feat/lua-native-gui-foundation"]
+    branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
     tags: ["v*"]
   pull_request:
-    branches: [main, "feat/lua-native-gui-foundation"]
+    branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +23,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
+      - name: Test Rust task lifecycle and scheduler core
+        run: cargo test --manifest-path kernel/Cargo.toml
       - name: Test bounded boot allocator
         run: make check-boot-alloc
       - name: Test physical memory map
@@ -44,21 +46,25 @@ jobs:
             -kernel build/openxzuff-rv64.elf > qemu-boot.log 2>&1
           status=$?
           set -e
-          # The kernel deliberately waits forever after printing its boot status.
+
+          # The kernel intentionally remains in its idle loop; timeout (124) is expected.
           if [ "$status" -ne 124 ]; then
             cat qemu-boot.log
             echo "QEMU did not remain in the expected kernel idle loop (exit $status)."
             exit 1
           fi
+
           cat qemu-boot.log
-          grep -F "OpenXzuff UI native kernel: RV64 entry reached." qemu-boot.log
-          grep -F "Gravity FDT RAM discovery: PASS; usable bytes=" qemu-boot.log
-          grep -F "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
-          grep -F "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
-          grep -F "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
+          grep -aF "OpenXzuff UI native kernel: RV64 entry reached." qemu-boot.log
+          grep -aF "Gravity FDT RAM discovery: PASS; usable bytes=" qemu-boot.log
+          grep -aF "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
+          grep -aF "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
 
+          # Task lifecycle tests currently run as host-side Rust unit tests.
+          # Do not claim a boot-time scheduler self-test until the kernel runs one.
+          grep -aF "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
 
-      - name: Assemble verified RV64 package
+      - name: Assemble RV64 package
         run: |
           mkdir -p dist/openxzuff-rv64
           cp build/openxzuff-rv64.elf dist/openxzuff-rv64/
@@ -67,13 +73,12 @@ jobs:
           OpenXzuff UI / Gravity Kernel RV64 bring-up package
           Build target: RV64 QEMU/OpenSBI payload
           Included: early boot kernel, FDT RAM discovery, bounded boot allocator,
-          physical memory map, syscall dispatcher self-test, GAPP metadata validator.
-          Not a complete operating system. User-mode process execution, scheduler,
-          framebuffer compositor, Lua VM integration, ART Minimal and Win32 Basic
-          are not implemented by this package.
+          physical memory map, syscall dispatcher self-test, task lifecycle/scheduler bookkeeping tests, GAPP metadata validator.
+          Not a complete operating system. User-mode process execution, functional CPU context switching,
+          framebuffer compositor, Lua VM integration, ART Minimal and Win32 Basic are not implemented.
           EOF
           tar -czf dist/openxzuff-rv64.tar.gz -C dist openxzuff-rv64
-      - name: Upload verified package artifact
+      - name: Upload RV64 package artifact
         uses: actions/upload-artifact@v4
         with:
           name: openxzuff-rv64-${{ github.sha }}
