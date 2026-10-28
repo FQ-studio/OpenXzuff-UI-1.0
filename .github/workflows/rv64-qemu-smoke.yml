@@ -63,6 +63,8 @@ jobs:
           # Task lifecycle tests currently run as host-side Rust unit tests.
           # Do not claim a boot-time scheduler self-test until the kernel runs one.
           grep -aF "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
+          grep -aF "Gravity cooperative scheduler: starting two RV64 kernel threads." qemu-boot.log
+          grep -aF "[A] [B]" qemu-boot.log
 
       - name: Assemble RV64 package
         run: |
