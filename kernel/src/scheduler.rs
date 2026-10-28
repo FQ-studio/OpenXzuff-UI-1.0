@@ -27,13 +27,13 @@ static mut INITIALIZED: bool = false;
 
 extern "C" fn task_a() -> ! {
     loop {
-        crate::scheduler_log(b"A");
+        crate::scheduler_log(b'A');
         yield_now();
     }
 }
 extern "C" fn task_b() -> ! {
     loop {
-        crate::scheduler_log(b"B");
+        crate::scheduler_log(b'B');
         yield_now();
     }
 }
