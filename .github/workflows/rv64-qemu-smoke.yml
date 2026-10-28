@@ -94,4 +94,4 @@ jobs:
           name: OpenXzuff UI ${{ github.ref_name }}
           generate_release_notes: true
           files: dist/openxzuff-rv64.tar.gz
-          fail_on_unmatched_files: error
+          fail_on_unmatched_files: true
