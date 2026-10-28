@@ -8,6 +8,7 @@ mod app;
 mod fdt;
 mod memory;
 mod syscall;
+mod task;
 
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/entry.S"));
