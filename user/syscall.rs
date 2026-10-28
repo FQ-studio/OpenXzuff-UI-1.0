@@ -12,6 +12,7 @@
 pub const TASK_OPEN: usize = 0x0100;
 pub const TASK_EXIT: usize = 0x0101;
 pub const TASK_YIELD: usize = 0x0102;
+pub const SYSTEM_SHUTDOWN: usize = 0x0103;
 
 /// Invoke a Gravity syscall. Only build this implementation for RV64.
 #[cfg(target_arch = "riscv64")]
@@ -70,7 +71,7 @@ pub fn task_open(entry: usize, argument: usize) -> isize {
     unsafe { syscall6(TASK_OPEN, entry, argument, 0, 0, 0, 0) }
 }
 
-/// Request termination of the calling task with an exit status.
+/// Request a whole-system shutdown. This must be restricted by kernel policy\n/// before general user applications are allowed to invoke it.\n#[inline]\npub fn system_shutdown() -> isize {\n    unsafe { syscall6(SYSTEM_SHUTDOWN, 0, 0, 0, 0, 0, 0) }\n}\n\n/// Request termination of the calling task with an exit status.
 /// Current kernel behavior is a safe halt fallback, not per-task cleanup.
 #[inline]
 pub fn task_exit(status: isize) -> isize {
@@ -85,7 +86,7 @@ mod tests {
     fn syscall_numbers_match_kernel_abi() {
         assert_eq!(TASK_OPEN, 0x0100);
         assert_eq!(TASK_EXIT, 0x0101);
-        assert_eq!(TASK_YIELD, 0x0102);
+        assert_eq!(TASK_YIELD, 0x0102);\n        assert_eq!(SYSTEM_SHUTDOWN, 0x0103);
     }
 
     #[cfg(not(target_arch = "riscv64"))]
