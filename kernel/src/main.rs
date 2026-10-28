@@ -70,6 +70,10 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
                 frame.sepc = frame.sepc.wrapping_add(4);
                 return;
             }
+            syscall::SyscallOutcome::RebootRequested => {
+                console_write("\r\nGravity system reboot requested.\r\n");
+                system_reboot();
+            }
             syscall::SyscallOutcome::ShutdownRequested => {
                 console_write("\r\nGravity system shutdown requested.\r\n");
                 system_shutdown();
@@ -90,6 +94,24 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     console_hex(frame.sepc);
     console_write("\r\n");
     halt();
+}
+
+#[cfg(not(test))]
+fn system_reboot() -> ! {
+    // SBI SRST extension: reset_type=1 means cold reboot.
+    unsafe {
+        let error: usize;
+        asm!(
+            "ecall",
+            inlateout("a0") 1usize => error,
+            inlateout("a1") 0usize => _,
+            in("a6") 0usize,
+            in("a7") 0x5352_5354usize,
+            options(nostack)
+        );
+        let _ = error;
+    }
+    halt()
 }
 
 #[cfg(not(test))]
