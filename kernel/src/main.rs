@@ -97,7 +97,7 @@ fn system_shutdown() -> ! {
     // SBI SRST extension: reset_type=0 means shutdown.
     // If firmware rejects SRST, fall back to a safe halted state.
     unsafe {
-        let error: isize;
+        let error: usize;
         asm!(
             "ecall",
             inlateout("a0") 0usize => error,
