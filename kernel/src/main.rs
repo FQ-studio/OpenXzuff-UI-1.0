@@ -181,7 +181,7 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     if syscall::dispatch(0x7fff, [0; 6])
         == syscall::SyscallOutcome::Return(-syscall::ENOSYS)
         && syscall::dispatch(syscall::Syscall::TaskExit as usize, [0; 6])
-            == syscall::SyscallOutcome::ExitRequested { status: 0 } {
+            == (syscall::SyscallOutcome::ExitRequested { status: 0 }) {
         console_write("Gravity syscall dispatcher self-test: PASS.\r\n");
     } else {
         console_write("Gravity syscall dispatcher self-test: FAIL.\r\n");
