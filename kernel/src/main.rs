@@ -70,6 +70,10 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
                 frame.sepc = frame.sepc.wrapping_add(4);
                 return;
             }
+            syscall::SyscallOutcome::ShutdownRequested => {
+                console_write("\r\nGravity system shutdown requested.\r\n");
+                system_shutdown();
+            }
             syscall::SyscallOutcome::ExitRequested { status } => {
                 // Safe fallback until the process manager/scheduler exists.
                 // Do not return to the task that explicitly requested exit.
@@ -86,6 +90,25 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     console_hex(frame.sepc);
     console_write("\r\n");
     halt();
+}
+
+#[cfg(not(test))]
+fn system_shutdown() -> ! {
+    // SBI SRST extension: reset_type=0 means shutdown.
+    // If firmware rejects SRST, fall back to a safe halted state.
+    unsafe {
+        let error: isize;
+        asm!(
+            "ecall",
+            inlateout("a0") 0usize => error,
+            inlateout("a1") 0usize => _,
+            in("a6") 0usize,
+            in("a7") 0x5352_5354usize,
+            options(nostack)
+        );
+        let _ = error;
+    }
+    halt()
 }
 
 #[cfg(not(test))]
