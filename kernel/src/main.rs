@@ -11,6 +11,8 @@ mod fdt;
 mod memory;
 mod syscall;
 mod task;
+#[cfg(not(test))]
+mod scheduler;
 
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/entry.S"));
@@ -33,6 +35,14 @@ fn console_putc(ch: u8) {
 
 #[cfg(not(test))]
 fn console_write(s: &str) { for b in s.bytes() { console_putc(b); } }
+
+#[cfg(not(test))]
+pub(crate) fn scheduler_log(task: u8) {
+    console_putc(b'[');
+    console_putc(task);
+    console_putc(b']');
+    console_putc(b' ');
+}
 
 #[cfg(not(test))]
 fn console_hex(mut n: usize) {
@@ -196,7 +206,8 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     } else {
         console_write("Gravity user-mode trap entry installed; boot allocator disabled pending memory validation.\r\n");
     }
-    halt()
+    console_write("Gravity cooperative scheduler: starting two RV64 kernel threads.\\r\\n");
+    unsafe { scheduler::start() }
 }
 
 #[cfg(test)]
