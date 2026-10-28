@@ -5,7 +5,7 @@ on:
     branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
     tags: ["v*"]
   pull_request:
-    branches: [main, "feat/lua-native-gui-foundation"]
+    branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
   workflow_dispatch:
 
 permissions:
