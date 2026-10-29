@@ -11,7 +11,16 @@ command -v rustup >/dev/null 2>&1 || { echo "ERROR: rustup is required" >&2; exi
 
 rustup target add "$TARGET"
 mkdir -p "$OUT_DIR"
-cargo build --manifest-path "$KERNEL_DIR/Cargo.toml" --target "$TARGET" --release
+
+# Cargo discovers .cargo/config.toml from the current working directory, not
+# from --manifest-path. Pass an absolute linker-script path explicitly so the
+# build works regardless of the caller's working directory.
+(
+  cd "$ROOT"
+  RUSTFLAGS="-C link-arg=-T$KERNEL_DIR/linker.ld -C relocation-model=static -C code-model=medium" \
+    cargo build --manifest-path "$KERNEL_DIR/Cargo.toml" --target "$TARGET" --release
+)
+
 install -m 0644 "$KERNEL_DIR/target/$TARGET/release/openxzuff-kernel" "$OUT_DIR/openxzuff-kernel.elf"
 
 if command -v llvm-objcopy >/dev/null 2>&1; then
