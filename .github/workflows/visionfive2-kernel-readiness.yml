@@ -1,0 +1,52 @@
+name: VisionFive 2 Kernel Readiness
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'kernel/src/fdt.rs'
+      - 'Kernel/**'
+      - 'drivers/**'
+      - 'sys/**'
+      - 'gui/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'boards/riscv64/visionfive2/**'
+      - '.github/workflows/visionfive2-kernel-readiness.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-contract-tests:
+    name: Host smoke tests and VisionFive 2 contract checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout OpenXzuff UI
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++
+
+      - name: Build OS contract and smoke-test binaries
+        run: cmake -S . -B build/visionfive2-host -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Compile with strict warnings
+        run: cmake --build build/visionfive2-host --parallel 2
+
+      - name: Run registered host tests
+        run: ctest --test-dir build/visionfive2-host --output-on-failure
+
+      - name: Check documented RV64 boot contract and board readiness gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'boot hart ID in `a0`' boards/riscv64/visionfive2/README.md
+          grep -q 'FDT address in `a1`' boards/riscv64/visionfive2/README.md
+          grep -q 'board boot is not yet verified' boards/riscv64/visionfive2/README.md
+          grep -q 'pub fn parse_memory' kernel/src/fdt.rs
+          grep -q 'FdtError::Bounds' kernel/src/fdt.rs
+          grep -q 'FdtError::Reservation' kernel/src/fdt.rs
+          echo 'Contract source checks passed. These checks do not prove hardware boot or full FDT correctness.'
