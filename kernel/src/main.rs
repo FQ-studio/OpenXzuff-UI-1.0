@@ -96,9 +96,33 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     halt();
 }
 
+// SBI BASE extension (EID 0x10), probe_extension (FID 3).
+// SBI returns error in a0 and the extension-available flag in a1.
+#[cfg(not(test))]
+fn sbi_has_srst() -> bool {
+    unsafe {
+        let error: usize;
+        let available: usize;
+        asm!(
+            "ecall",
+            inlateout("a0") 0x5352_5354usize => error,
+            lateout("a1") available,
+            in("a6") 3usize,
+            in("a7") 0x10usize,
+            options(nostack)
+        );
+        (error as isize) == 0 && available != 0
+    }
+}
+
 #[cfg(not(test))]
 fn system_reboot() -> ! {
-    // SBI SRST extension: reset_type=1 means cold reboot.
+    if !sbi_has_srst() {
+        console_write("\r\nGravity Kernel: SBI SRST is not supported; reboot refused. Halting safely.\r\n");
+        halt();
+    }
+
+    // SBI SRST: reset_type=1 (cold reboot), reset_reason=0 (none).
     unsafe {
         let error: usize;
         asm!(
@@ -109,15 +133,25 @@ fn system_reboot() -> ! {
             in("a7") 0x5352_5354usize,
             options(nostack)
         );
-        let _ = error;
+        if (error as isize) != 0 {
+            console_write("\r\nGravity Kernel: SBI SRST reboot failed; error=");
+            console_hex(error);
+            console_write("\r\nHalting safely.\r\n");
+        }
     }
+    // SBI reset calls should not return on success. If firmware returns,
+    // do not continue running after a requested system reset.
     halt()
 }
 
 #[cfg(not(test))]
 fn system_shutdown() -> ! {
-    // SBI SRST extension: reset_type=0 means shutdown.
-    // If firmware rejects SRST, fall back to a safe halted state.
+    if !sbi_has_srst() {
+        console_write("\r\nGravity Kernel: SBI SRST is not supported; shutdown unavailable. Halting safely.\r\n");
+        halt();
+    }
+
+    // SBI SRST: reset_type=0 (shutdown), reset_reason=0 (none).
     unsafe {
         let error: usize;
         asm!(
@@ -128,8 +162,14 @@ fn system_shutdown() -> ! {
             in("a7") 0x5352_5354usize,
             options(nostack)
         );
-        let _ = error;
+        if (error as isize) != 0 {
+            console_write("\r\nGravity Kernel: SBI SRST shutdown failed; error=");
+            console_hex(error);
+            console_write("\r\nHalting safely.\r\n");
+        }
     }
+    // If firmware returns (including an error), remain halted rather than
+    // returning to the caller after a system power-control request.
     halt()
 }
 
