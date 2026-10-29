@@ -7,6 +7,7 @@ enable_testing()
 
 add_library(xzuff_os_base
     Kernel/src/boot_contract.cpp
+    Kernel/src/sbi.cpp
     Kernel/src/xexe_loader.cpp
     sys/src/service_registry.cpp
     gui/src/framebuffer.cpp
@@ -68,3 +69,10 @@ add_test(NAME xzuff-go-xexe-validation
     COMMAND xexe-loader-test ${CMAKE_CURRENT_BINARY_DIR}/return_42.xexe
 )
 set_tests_properties(xzuff-go-xexe-validation PROPERTIES DEPENDS xzuff-go-compile-fixture)
+
+
+# SBI wrapper can be host-smoke-tested without executing privileged ecalls.
+add_executable(sbi-smoke tests/sbi_smoke.cpp)
+target_link_libraries(sbi-smoke PRIVATE xzuff_os_base)
+target_compile_options(sbi-smoke PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME gravity-sbi-wrapper-smoke COMMAND sbi-smoke)
