@@ -11,13 +11,12 @@ const SBI_LEGACY_CONSOLE_PUTCHAR: usize = 1;
 #[inline]
 fn console_putchar(byte: u8) {
     // SBI legacy console_putchar: a0 = character, a7 = extension ID 1.
-    // Kept intentionally tiny for the first S-mode bring-up milestone.
+    // The legacy call has no return value; a0 is input-only.
     unsafe {
         asm!(
             "ecall",
             in("a0") byte as usize,
             in("a7") SBI_LEGACY_CONSOLE_PUTCHAR,
-            lateout("a0") _,
             options(nostack)
         );
     }
