@@ -10,8 +10,9 @@ add_library(xzuff_os_base
     Kernel/src/xexe_loader.cpp
     sys/src/service_registry.cpp
     gui/src/framebuffer.cpp
+    drivers/serial/uart.cpp
 )
-target_include_directories(xzuff_os_base PUBLIC Kernel/include sys/include user/app/include gui/include)
+target_include_directories(xzuff_os_base PUBLIC Kernel/include sys/include user/app/include gui/include drivers/serial)
 target_compile_options(xzuff_os_base PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 
 add_executable(openxzuff-os-smoke tests/os_smoke.cpp)
