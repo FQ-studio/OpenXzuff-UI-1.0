@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'scripts/build-opensbi.sh'
+      - 'scripts/build-opensbi-visionfive2.sh'
+      - 'boards/riscv64/visionfive2/**'
       - 'third_party/opensbi/**'
       - '.github/workflows/opensbi-firmware.yml'
 
@@ -40,5 +42,32 @@ jobs:
         with:
           name: opensbi-v1.9-rv64-generic
           path: build/firmware/opensbi/
+          if-no-files-found: error
+          retention-days: 30
+
+  build-visionfive2-opensbi:
+    name: Build OpenSBI v1.9 for VisionFive 2 boot address
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout OpenXzuff UI
+        uses: actions/checkout@v4
+      - name: Install firmware build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git device-tree-compiler gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu
+      - name: Build VisionFive 2 OpenSBI
+        run: bash scripts/build-opensbi-visionfive2.sh
+      - name: Verify generated firmware files
+        run: |
+          test -s build/firmware/visionfive2/fw_dynamic.bin
+          test -s build/firmware/visionfive2/fw_dynamic.elf
+          grep -q 'FW_TEXT_START=0x40000000' build/firmware/visionfive2/BUILD-INFO.txt
+          file build/firmware/visionfive2/fw_dynamic.bin
+          file build/firmware/visionfive2/fw_dynamic.elf
+      - name: Upload VisionFive 2 OpenSBI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensbi-v1.9-visionfive2-fw-dynamic
+          path: build/firmware/visionfive2/
           if-no-files-found: error
           retention-days: 30
