@@ -1,0 +1,58 @@
+name: RV64 S-Mode Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'kernel/**'
+      - 'scripts/build-kernel-rv64-s-mode.sh'
+      - '.github/workflows/rv64-s-mode-kernel.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-qemu-boot:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust target and QEMU
+        run: |
+          rustup target add riscv64imac-unknown-none-elf
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf
+
+      - name: Build kernel ELF
+        run: bash scripts/build-kernel-rv64-s-mode.sh
+
+      - name: Boot with OpenSBI in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 15s qemu-system-riscv64 \
+            -machine virt -m 256M -smp 1 \
+            -nographic -bios default \
+            -kernel build/kernel/rv64-s-mode/openxzuff-kernel.elf \
+            > build/kernel/rv64-s-mode/qemu-serial.log 2>&1 || status=$?
+          status="${status:-0}"
+          cat build/kernel/rv64-s-mode/qemu-serial.log
+          if [[ "$status" -ne 124 && "$status" -ne 0 ]]; then
+            echo "QEMU exited unexpectedly with status $status" >&2
+            exit "$status"
+          fi
+          grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Kernel milestone: S-mode bring-up only' build/kernel/rv64-s-mode/qemu-serial.log
+
+      - name: Upload kernel and serial log
+        uses: actions/upload-artifact@v4
+        with:
+          name: openxzuff-gravity-kernel-rv64-s-mode
+          path: |
+            build/kernel/rv64-s-mode/openxzuff-kernel.elf
+            build/kernel/rv64-s-mode/openxzuff-kernel.bin
+            build/kernel/rv64-s-mode/qemu-serial.log
+          if-no-files-found: warn
+          retention-days: 30
