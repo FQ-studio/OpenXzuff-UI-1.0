@@ -6,7 +6,7 @@ constexpr std::uint64_t ext_base = 0x10;
 constexpr std::uint64_t ext_time = 0x54494D45;
 constexpr std::uint64_t ext_hsm = 0x48534D;
 constexpr std::uint64_t ext_srst = 0x53525354;
-constexpr std::int64_t not_supported = -2;
+[[maybe_unused]] constexpr std::int64_t not_supported = -2;
 }
 
 Result call(std::uint64_t extension, std::uint64_t function,
@@ -14,15 +14,15 @@ Result call(std::uint64_t extension, std::uint64_t function,
             std::uint64_t arg2, std::uint64_t arg3,
             std::uint64_t arg4, std::uint64_t arg5) noexcept {
 #if defined(__riscv) && __riscv_xlen == 64
-    register std::uint64_t a0 asm("a0") = arg0;
-    register std::uint64_t a1 asm("a1") = arg1;
-    register std::uint64_t a2 asm("a2") = arg2;
-    register std::uint64_t a3 asm("a3") = arg3;
-    register std::uint64_t a4 asm("a4") = arg4;
-    register std::uint64_t a5 asm("a5") = arg5;
-    register std::uint64_t a6 asm("a6") = function;
-    register std::uint64_t a7 asm("a7") = extension;
-    asm volatile("ecall"
+    register std::uint64_t a0 __asm__("a0") = arg0;
+    register std::uint64_t a1 __asm__("a1") = arg1;
+    register std::uint64_t a2 __asm__("a2") = arg2;
+    register std::uint64_t a3 __asm__("a3") = arg3;
+    register std::uint64_t a4 __asm__("a4") = arg4;
+    register std::uint64_t a5 __asm__("a5") = arg5;
+    register std::uint64_t a6 __asm__("a6") = function;
+    register std::uint64_t a7 __asm__("a7") = extension;
+    __asm__ volatile("ecall"
                  : "+r"(a0), "+r"(a1)
                  : "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6), "r"(a7)
                  : "memory");
