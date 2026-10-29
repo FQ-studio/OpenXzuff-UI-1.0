@@ -1,0 +1,44 @@
+name: OpenSBI RV64 Firmware
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/build-opensbi.sh'
+      - 'third_party/opensbi/**'
+      - '.github/workflows/opensbi-firmware.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-opensbi:
+    name: Build OpenSBI v1.9 generic firmware
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout OpenXzuff UI
+        uses: actions/checkout@v4
+
+      - name: Install firmware build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential git device-tree-compiler gcc-riscv64-linux-gnu binutils-riscv64-linux-gnu
+
+      - name: Build OpenSBI
+        run: bash scripts/build-opensbi.sh
+
+      - name: Verify generated firmware files
+        run: |
+          test -s build/firmware/opensbi/fw_dynamic.bin
+          test -s build/firmware/opensbi/fw_dynamic.elf
+          test -s build/firmware/opensbi/COPYING.BSD
+          file build/firmware/opensbi/fw_dynamic.bin
+          file build/firmware/opensbi/fw_dynamic.elf
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opensbi-v1.9-rv64-generic
+          path: build/firmware/opensbi/
+          if-no-files-found: error
+          retention-days: 30
