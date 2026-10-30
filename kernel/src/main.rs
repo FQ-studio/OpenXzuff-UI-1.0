@@ -132,7 +132,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                             console_write("Kernel heap allocator: FAIL (init)\n");
                             halt();
                         }
-                        console_write("Kernel heap allocator: OK; arena bytes: 10000\n");
+                        console_write("Kernel heap allocator: OK; arena bytes: 65536\n");
                         match unsafe { (*heap).alloc(256) } {
                             Some(ptr) => {
                                 let passed = unsafe { (*heap).free(ptr) }.is_ok()
