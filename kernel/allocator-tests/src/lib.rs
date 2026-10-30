@@ -1,14 +1,8 @@
 //! Host-side tests for the exact allocator modules used by the RV64 kernel.
-pub mod memory {
-    #[path = "../../src/memory.rs"]
-    mod source;
-    pub use source::*;
-}
-pub mod page_alloc {
-    #[path = "../../src/page_alloc.rs"]
-    mod source;
-    pub use source::*;
-}
+#[path = "../../src/memory.rs"]
+pub mod memory;
+#[path = "../../src/page_alloc.rs"]
+pub mod page_alloc;
 
 #[cfg(test)]
 mod tests {
