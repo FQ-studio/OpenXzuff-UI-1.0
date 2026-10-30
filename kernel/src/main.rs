@@ -7,8 +7,13 @@ use core::panic::PanicInfo;
 mod fdt;
 mod memory;
 mod page_alloc;
+mod heap_alloc;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
+static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
+#[repr(align(16))]
+struct HeapArena([u8; 64 * 1024]);
+static mut HEAP_ARENA: HeapArena = HeapArena([0; 64 * 1024]);
 
 global_asm!(include_str!("entry.S"));
 
@@ -120,6 +125,30 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                                 halt();
                             }
                         }
+                        // Use a dedicated static arena: do not cast physical page addresses to pointers.
+                        let heap = core::ptr::addr_of_mut!(HEAP_ALLOCATOR);
+                        let arena = core::ptr::addr_of_mut!(HEAP_ARENA.0).cast::<u8>();
+                        if unsafe { (*heap).init(arena, 64 * 1024) }.is_err() {
+                            console_write("Kernel heap allocator: FAIL (init)\n");
+                            halt();
+                        }
+                        console_write("Kernel heap allocator: OK; arena bytes: 10000\n");
+                        match unsafe { (*heap).alloc(256) } {
+                            Some(ptr) => {
+                                let passed = unsafe { (*heap).free(ptr) }.is_ok()
+                                    && unsafe { (*heap).available_bytes() } == 64 * 1024;
+                                if passed {
+                                    console_write("Heap alloc/free smoke test: PASS\n");
+                                } else {
+                                    console_write("Heap alloc/free smoke test: FAIL\n");
+                                    halt();
+                                }
+                            }
+                            None => {
+                                console_write("Heap alloc/free smoke test: FAIL (empty)\n");
+                                halt();
+                            }
+                        }
                     }
                     _ => {
                         console_write("Physical page allocator: FAIL\n");
@@ -137,7 +166,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         }
     }
 
-    console_write("Kernel milestone: FDT memory discovery integrated; allocator pending\n");
+    console_write("Kernel milestone: FDT + physical page allocator + kernel heap initialized\n");
     halt()
 }
 
