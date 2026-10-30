@@ -6,6 +6,9 @@ use core::panic::PanicInfo;
 
 mod fdt;
 mod memory;
+mod page_alloc;
+
+static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 
 global_asm!(include_str!("entry.S"));
 
@@ -94,7 +97,35 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                 print_hex(map.ram_count());
                 console_write("\nFDT blob bytes: ");
                 print_hex(parsed_size);
-                console_write("\nFDT memory map: parsed; allocator integration pending\n");
+                console_write("\nFDT memory map: parsed\n");
+                let allocator = core::ptr::addr_of_mut!(PAGE_ALLOCATOR);
+                let page_count = unsafe { (*allocator).init(&map) };
+                match page_count {
+                    Ok(count) if count > 0 => {
+                        console_write("Physical page allocator: OK; managed pages: ");
+                        print_hex(count);
+                        console_write("\n");
+                        match unsafe { (*allocator).alloc() } {
+                            Some(page) => {
+                                console_write("PPA alloc/free smoke test: ");
+                                if unsafe { (*allocator).free(page) }.is_ok() {
+                                    console_write("PASS\n");
+                                } else {
+                                    console_write("FAIL (free rejected)\n");
+                                    halt();
+                                }
+                            }
+                            None => {
+                                console_write("PPA alloc/free smoke test: FAIL (empty)\n");
+                                halt();
+                            }
+                        }
+                    }
+                    _ => {
+                        console_write("Physical page allocator: FAIL\n");
+                        halt();
+                    }
+                }
             } else {
                 console_write("FDT parser: FAIL (could not reserve kernel/FDT memory)\n");
                 halt();
