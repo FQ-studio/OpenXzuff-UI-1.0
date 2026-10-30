@@ -7,6 +7,11 @@ on:
       - 'kernel/**'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/rv64-s-mode-kernel.yml'
+  pull_request:
+    paths:
+      - 'kernel/**'
+      - 'scripts/build-kernel-rv64-s-mode.sh'
+      - '.github/workflows/rv64-s-mode-kernel.yml'
 
 permissions:
   contents: read
