@@ -51,6 +51,8 @@ jobs:
           grep -q 'FDT memory map: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Physical page allocator: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'PPA alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Kernel heap allocator: OK; arena bytes: 10000' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Heap alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
         uses: actions/upload-artifact@v4
