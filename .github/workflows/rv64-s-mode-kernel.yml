@@ -24,6 +24,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf
 
+      - name: Run host allocator tests
+        run: cargo test --manifest-path kernel/allocator-tests/Cargo.toml
+
       - name: Build kernel ELF
         run: bash scripts/build-kernel-rv64-s-mode.sh
 
