@@ -44,7 +44,8 @@ jobs:
           fi
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'Kernel milestone: S-mode bring-up only' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT parser: OK' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT memory map: parsed; allocator integration pending' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
         uses: actions/upload-artifact@v4
