@@ -54,8 +54,11 @@ impl HeapAllocator {
             let old_size = self.blocks[i].size;
             if old_size > rounded {
                 if self.count == MAX_BLOCKS { return None; }
+                // Copy the split offset before mutably indexing the block array.
+                // This keeps the borrow unambiguous for the Rust compiler.
+                let split_offset = self.blocks[i].offset + rounded;
                 self.blocks[self.count] = Block {
-                    offset: self.blocks[i].offset + rounded,
+                    offset: split_offset,
                     size: old_size - rounded,
                     used: false,
                 };
