@@ -82,8 +82,8 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     match fdt::parse_memory(blob, &mut map) {
         Ok(parsed_size) => {
             // Protect the linked kernel image and FDT blob from later allocators.
-            let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
-            let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
+            let kernel_start = unsafe { core::ptr::addr_of!(__kernel_start) as usize };
+            let kernel_end = unsafe { core::ptr::addr_of!(__kernel_end) as usize };
             let fdt_end = fdt_addr.checked_add(parsed_size);
             if kernel_start < kernel_end
                 && map.reserve(kernel_start, kernel_end).is_ok()
