@@ -45,7 +45,9 @@ jobs:
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT parser: OK' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'FDT memory map: parsed; allocator integration pending' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT memory map: parsed' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Physical page allocator: OK' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'PPA alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
         uses: actions/upload-artifact@v4
