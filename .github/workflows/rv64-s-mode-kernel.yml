@@ -58,7 +58,7 @@ jobs:
           grep -q 'PPA alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Kernel heap allocator: OK; arena bytes: 65536' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Heap alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'Scheduler: starting 0x10 cooperative tasks' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Scheduler: starting 10 cooperative tasks' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Scheduler task 0 tick 1' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Scheduler task f tick 1' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Scheduler context-switch smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
