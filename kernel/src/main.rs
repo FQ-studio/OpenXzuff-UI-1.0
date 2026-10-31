@@ -8,6 +8,7 @@ mod fdt;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
+mod scheduler;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
@@ -58,6 +59,22 @@ fn be32_raw(ptr: *const u8) -> u32 {
 }
 
 #[no_mangle]
+extern "C" fn gravity_scheduler_log_start(task_count: usize) {
+    console_write("Scheduler: starting ");
+    print_hex(task_count);
+    console_write(" cooperative tasks\n");
+}
+
+#[no_mangle]
+extern "C" fn gravity_scheduler_log_task(task: usize, tick: usize) {
+    console_write("Scheduler task ");
+    print_hex(task);
+    console_write(" tick ");
+    print_hex(tick);
+    console_write("\n");
+}
+
+#[no_mangle]
 pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     console_write("\nOpenXzuff UI 1.0 / Gravity Kernel\n");
     console_write("RV64 S-mode entry: OK\n");
@@ -73,8 +90,6 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         halt();
     }
 
-    // Firmware supplies the pointer. Validate the fixed header before creating
-    // a slice, then cap the blob size to avoid an unbounded early-boot read.
     let header = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, 8) };
     if be32_raw(header.as_ptr()) != FDT_MAGIC {
         console_write("FDT parser: FAIL (bad magic)\n");
@@ -89,7 +104,6 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     let mut map = memory::MemoryMap::new();
     match fdt::parse_memory(blob, &mut map) {
         Ok(parsed_size) => {
-            // Protect the linked kernel image and FDT blob from later allocators.
             let kernel_start = unsafe { core::ptr::addr_of!(__kernel_start) as usize };
             let kernel_end = unsafe { core::ptr::addr_of!(__kernel_end) as usize };
             let fdt_end = fdt_addr.checked_add(parsed_size);
@@ -125,7 +139,6 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                                 halt();
                             }
                         }
-                        // Use a dedicated static arena: do not cast physical page addresses to pointers.
                         let heap = core::ptr::addr_of_mut!(HEAP_ALLOCATOR);
                         let arena = unsafe { core::ptr::addr_of_mut!(HEAP_ARENA.0).cast::<u8>() };
                         if unsafe { (*heap).init(arena, 64 * 1024) }.is_err() {
@@ -166,7 +179,13 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         }
     }
 
-    console_write("Kernel milestone: FDT + physical page allocator + kernel heap initialized\n");
+    if scheduler::run_smoke() {
+        console_write("Scheduler context-switch smoke test: PASS\n");
+    } else {
+        console_write("Scheduler context-switch smoke test: FAIL\n");
+        halt();
+    }
+    console_write("Kernel milestone: FDT + allocators + cooperative scheduler initialized\n");
     halt()
 }
 
