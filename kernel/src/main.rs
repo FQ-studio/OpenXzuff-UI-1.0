@@ -127,7 +127,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                         }
                         // Use a dedicated static arena: do not cast physical page addresses to pointers.
                         let heap = core::ptr::addr_of_mut!(HEAP_ALLOCATOR);
-                        let arena = core::ptr::addr_of_mut!(HEAP_ARENA.0).cast::<u8>();
+                        let arena = unsafe { core::ptr::addr_of_mut!(HEAP_ARENA.0).cast::<u8>() };
                         if unsafe { (*heap).init(arena, 64 * 1024) }.is_err() {
                             console_write("Kernel heap allocator: FAIL (init)\n");
                             halt();
