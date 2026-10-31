@@ -62,7 +62,7 @@ fn be32_raw(ptr: *const u8) -> u32 {
 extern "C" fn gravity_scheduler_log_start(task_count: usize) {
     console_write("Scheduler: starting ");
     print_hex(task_count);
-    console_write(" cooperative tasks\\n");
+    console_write(" cooperative tasks\n");
 }
 
 #[no_mangle]
