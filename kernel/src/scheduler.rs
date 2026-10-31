@@ -3,7 +3,7 @@
 //! Context switching is cooperative: a running task yields explicitly.
 use core::arch::global_asm;
 
-const TASKS: usize = 16;
+const TASKS: usize = 32;
 const STACK_SIZE: usize = 4096;
 const TICKS_PER_TASK: usize = 3;
 
