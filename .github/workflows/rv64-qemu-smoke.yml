@@ -2,69 +2,83 @@ name: RV64 QEMU boot smoke test
 
 on:
   push:
-    branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
+    branches: ["gravity-real-rv64-scheduler"]
     tags: ["v*"]
   pull_request:
-    branches: [main, "feat/lua-native-gui-foundation", "feat/gravity-kernel-rust-migration"]
+    branches: ["gravity-real-rv64-scheduler", "feat/gravity-kernel-rust-migration"]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   qemu-rv64-smoke:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: riscv64gc-unknown-none-elf
+
       - name: Install RV64 cross linker and QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
+
       - name: Test Rust task lifecycle and scheduler core
         run: cargo test --manifest-path kernel/Cargo.toml
+
       - name: Test bounded boot allocator
         run: make check-boot-alloc
+
       - name: Test physical memory map
         run: make check-memory-map
+
       - name: Test FDT memory discovery
         run: make check-fdt
+
       - name: Test native application package validation
         run: make check-app
+
       - name: Test native C++ LAP and LUAP installer
         run: make check-installer
+
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
-      - name: Boot through OpenSBI in QEMU
+
+      - name: Repeat QEMU scheduler stability smoke test
         shell: bash
         run: |
-          set +e
-          timeout 8s qemu-system-riscv64 \
-            -machine virt -nographic -bios default \
-            -kernel build/openxzuff-rv64.elf > qemu-boot.log 2>&1
-          status=$?
-          set -e
+          set -euo pipefail
+          for iteration in 1 2 3; do
+            log="qemu-boot-${iteration}.log"
+            set +e
+            timeout 8s qemu-system-riscv64 \
+              -machine virt -nographic -bios default \
+              -kernel build/openxzuff-rv64.elf > "$log" 2>&1
+            status=$?
+            set -e
 
-          # The kernel intentionally remains in its idle loop; timeout (124) is expected.
-          if [ "$status" -ne 124 ]; then
-            cat qemu-boot.log
-            echo "QEMU did not remain in the expected kernel idle loop (exit $status)."
-            exit 1
-          fi
+            # This kernel intentionally stays in its scheduler idle loop.
+            if [ "$status" -ne 124 ]; then
+              cat "$log"
+              echo "QEMU iteration $iteration exited unexpectedly: $status" >&2
+              exit 1
+            fi
 
-          cat qemu-boot.log
-          grep -aF "OpenXzuff UI native kernel: RV64 entry reached." qemu-boot.log
-          grep -aF "Gravity FDT RAM discovery: PASS; usable bytes=" qemu-boot.log
-          grep -aF "Gravity boot allocator: initialized from reserved-safe RAM range." qemu-boot.log
-          grep -aF "Gravity syscall dispatcher self-test: PASS." qemu-boot.log
-
-          # Task lifecycle tests currently run as host-side Rust unit tests.
-          # Do not claim a boot-time scheduler self-test until the kernel runs one.
-          grep -aF "Gravity user-mode trap entry installed; user tasks are not implemented yet." qemu-boot.log
-          grep -aF "Gravity cooperative scheduler: starting two RV64 kernel threads." qemu-boot.log
-          grep -aF "[A] [B]" qemu-boot.log
+            cat "$log"
+            grep -aFq "OpenXzuff UI native kernel: RV64 entry reached." "$log"
+            grep -aFq "Gravity FDT RAM discovery: PASS; usable bytes=" "$log"
+            grep -aFq "Gravity boot allocator: initialized from reserved-safe RAM range." "$log"
+            grep -aFq "Gravity syscall dispatcher self-test: PASS." "$log"
+            grep -aFq "Gravity cooperative scheduler: starting two RV64 kernel threads." "$log"
+            grep -aFq "[A] [B]" "$log"
+            echo "QEMU scheduler stability iteration $iteration: PASS"
+          done
+          echo "QEMU scheduler stability repetitions: 3/3 PASS"
 
       - name: Assemble RV64 package
         run: |
@@ -76,10 +90,13 @@ jobs:
           Build target: RV64 QEMU/OpenSBI payload
           Included: early boot kernel, FDT RAM discovery, bounded boot allocator,
           physical memory map, syscall dispatcher self-test, task lifecycle/scheduler bookkeeping tests, GAPP metadata validator.
-          Not a complete operating system. User-mode process execution, functional CPU context switching,
-          framebuffer compositor, Lua VM integration, ART Minimal and Win32 Basic are not implemented.
+          QEMU boot/scheduler smoke test is repeated three times for basic repeatability.
+          Timing measurements and saved-register integrity stress tests are not yet implemented.
+          Not a complete operating system. User-mode process execution, framebuffer compositor,
+          Lua VM integration, ART Minimal and Win32 Basic are not implemented.
           EOF
           tar -czf dist/openxzuff-rv64.tar.gz -C dist openxzuff-rv64
+
       - name: Upload RV64 package artifact
         uses: actions/upload-artifact@v4
         with:
@@ -87,8 +104,10 @@ jobs:
           path: dist/openxzuff-rv64.tar.gz
           if-no-files-found: error
           retention-days: 30
+
       - name: Test SQLite-backed Xzuff App Hub service
         run: cargo test --manifest-path services/app-hub/Cargo.toml
+
       - name: Publish GitHub Release for version tags
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
