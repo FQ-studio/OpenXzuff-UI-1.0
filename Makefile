@@ -40,7 +40,7 @@ check-app: check-gravity-rust
 
 kernel-rv64: build/openxzuff-rv64.elf
 
-build/openxzuff-rv64.elf: kernel/Cargo.toml .cargo/config.toml kernel/src/main.rs kernel/src/memory.rs kernel/src/fdt.rs kernel/src/syscall.rs kernel/src/app.rs kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/linker-riscv.ld
+build/openxzuff-rv64.elf: kernel/Cargo.toml .cargo/config.toml kernel/src/main.rs kernel/src/memory.rs kernel/src/fdt.rs kernel/src/syscall.rs kernel/src/app.rs kernel/arch/riscv/entry.S kernel/arch/riscv/trap.S kernel/arch/riscv/context.S kernel/src/context.rs kernel/src/task.rs kernel/src/scheduler.rs kernel/linker-riscv.ld
 	mkdir -p build
 	rustup target add riscv64gc-unknown-none-elf
 	cargo build --manifest-path kernel/Cargo.toml --release --target riscv64gc-unknown-none-elf
