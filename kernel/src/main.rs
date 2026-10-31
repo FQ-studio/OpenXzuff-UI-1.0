@@ -59,6 +59,13 @@ fn be32_raw(ptr: *const u8) -> u32 {
 }
 
 #[no_mangle]
+extern "C" fn gravity_scheduler_log_start(task_count: usize) {
+    console_write("Scheduler: starting ");
+    print_hex(task_count);
+    console_write(" cooperative tasks\\n");
+}
+
+#[no_mangle]
 extern "C" fn gravity_scheduler_log_task(task: usize, tick: usize) {
     console_write("Scheduler task ");
     print_hex(task);
@@ -172,7 +179,6 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         }
     }
 
-    console_write("Scheduler: starting 2 cooperative tasks\n");
     if scheduler::run_smoke() {
         console_write("Scheduler context-switch smoke test: PASS\n");
     } else {
