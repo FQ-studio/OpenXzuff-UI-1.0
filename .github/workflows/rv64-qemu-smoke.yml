@@ -3,7 +3,6 @@ name: RV64 QEMU boot smoke test
 on:
   push:
     branches: ["gravity-real-rv64-scheduler"]
-    tags: ["v*"]
   pull_request:
     branches: ["gravity-real-rv64-scheduler", "feat/gravity-kernel-rust-migration"]
   workflow_dispatch:
@@ -108,11 +107,3 @@ jobs:
       - name: Test SQLite-backed Xzuff App Hub service
         run: cargo test --manifest-path services/app-hub/Cargo.toml
 
-      - name: Publish GitHub Release for version tags
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: OpenXzuff UI ${{ github.ref_name }}
-          generate_release_notes: true
-          files: dist/openxzuff-rv64.tar.gz
-          fail_on_unmatched_files: true
