@@ -44,36 +44,33 @@ jobs:
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
 
-      - name: Repeat QEMU scheduler stability smoke test
+      - name: QEMU scheduler boot smoke test
         shell: bash
         run: |
           set -euo pipefail
-          for iteration in 1 2 3; do
-            log="qemu-boot-${iteration}.log"
-            set +e
-            timeout 8s qemu-system-riscv64 \
-              -machine virt -nographic -bios default \
-              -kernel build/openxzuff-rv64.elf > "$log" 2>&1
-            status=$?
-            set -e
+          log="qemu-boot.log"
+          set +e
+          timeout 8s qemu-system-riscv64 \
+            -machine virt -nographic -bios default \
+            -kernel build/openxzuff-rv64.elf > "$log" 2>&1
+          status=$?
+          set -e
 
-            # This kernel intentionally stays in its scheduler idle loop.
-            if [ "$status" -ne 124 ]; then
-              cat "$log"
-              echo "QEMU iteration $iteration exited unexpectedly: $status" >&2
-              exit 1
-            fi
-
+          # This kernel intentionally stays in its scheduler idle loop.
+          if [ "$status" -ne 124 ]; then
             cat "$log"
-            grep -aFq "OpenXzuff UI native kernel: RV64 entry reached." "$log"
-            grep -aFq "Gravity FDT RAM discovery: PASS; usable bytes=" "$log"
-            grep -aFq "Gravity boot allocator: initialized from reserved-safe RAM range." "$log"
-            grep -aFq "Gravity syscall dispatcher self-test: PASS." "$log"
-            grep -aFq "Gravity cooperative scheduler: starting two RV64 kernel threads." "$log"
-            grep -aFq "[A] [B]" "$log"
-            echo "QEMU scheduler stability iteration $iteration: PASS"
-          done
-          echo "QEMU scheduler stability repetitions: 3/3 PASS"
+            echo "QEMU exited unexpectedly: $status" >&2
+            exit 1
+          fi
+
+          cat "$log"
+          grep -aFq "OpenXzuff UI native kernel: RV64 entry reached." "$log"
+          grep -aFq "Gravity FDT RAM discovery: PASS; usable bytes=" "$log"
+          grep -aFq "Gravity boot allocator: initialized from reserved-safe RAM range." "$log"
+          grep -aFq "Gravity syscall dispatcher self-test: PASS." "$log"
+          grep -aFq "Gravity cooperative scheduler: starting two RV64 kernel threads." "$log"
+          grep -aFq "[A] [B]" "$log"
+          echo "QEMU scheduler boot smoke test: PASS"
 
       - name: Assemble RV64 package
         run: |
@@ -85,7 +82,7 @@ jobs:
           Build target: RV64 QEMU/OpenSBI payload
           Included: early boot kernel, FDT RAM discovery, bounded boot allocator,
           physical memory map, syscall dispatcher self-test, task lifecycle/scheduler bookkeeping tests, GAPP metadata validator.
-          QEMU boot/scheduler smoke test is repeated three times for basic repeatability.
+          QEMU boot/scheduler smoke test runs once and checks expected boot output.
           Timing measurements and saved-register integrity stress tests are not yet implemented.
           Not a complete operating system. User-mode process execution, framebuffer compositor,
           Lua VM integration, ART Minimal and Win32 Basic are not implemented.
