@@ -25,7 +25,7 @@ jobs:
       - name: Install RV64 cross linker and QEMU
         run: |
           sudo apt-get update
-          sudo apt-get install -y make gcc-riscv64-unknown-elf qemu-system-misc
+          sudo apt-get install -y make g++ gcc-riscv64-unknown-elf qemu-system-misc
 
       - name: Test Rust task lifecycle and scheduler core
         run: cargo test --manifest-path kernel/Cargo.toml
@@ -39,38 +39,47 @@ jobs:
       - name: Test FDT memory discovery
         run: make check-fdt
 
+      - name: Test native application package validation
+        run: make check-app
 
+      - name: Test native C++ LAP and LUAP installer
+        run: make check-installer
+
+      - name: Test SQLite-backed Xzuff App Hub services
+        run: make check-app-hub
 
       - name: Build RV64 payload
         run: make clean kernel-rv64 RISCV_PREFIX=riscv64-unknown-elf-
 
-      - name: QEMU scheduler boot smoke test
+      - name: QEMU scheduler boot smoke test (3 runs)
         shell: bash
         run: |
           set -euo pipefail
-          log="qemu-boot.log"
-          set +e
-          timeout 8s qemu-system-riscv64 \
-            -machine virt -nographic -bios default \
-            -kernel build/openxzuff-rv64.elf > "$log" 2>&1
-          status=$?
-          set -e
+          for attempt in 1 2 3; do
+            log="qemu-boot-${attempt}.log"
+            set +e
+            timeout 8s qemu-system-riscv64 \
+              -machine virt -nographic -bios default \
+              -kernel build/openxzuff-rv64.elf > "$log" 2>&1
+            status=$?
+            set -e
 
-          # This kernel intentionally stays in its scheduler idle loop.
-          if [ "$status" -ne 124 ]; then
+            # This kernel intentionally stays in its scheduler idle loop.
+            if [ "$status" -ne 124 ]; then
+              cat "$log"
+              echo "QEMU run $attempt exited unexpectedly: $status" >&2
+              exit 1
+            fi
+
             cat "$log"
-            echo "QEMU exited unexpectedly: $status" >&2
-            exit 1
-          fi
-
-          cat "$log"
-          grep -aFq "OpenXzuff UI native kernel: RV64 entry reached." "$log"
-          grep -aFq "Gravity FDT RAM discovery: PASS; usable bytes=" "$log"
-          grep -aFq "Gravity boot allocator: initialized from reserved-safe RAM range." "$log"
-          grep -aFq "Gravity syscall dispatcher self-test: PASS." "$log"
-          grep -aFq "Gravity cooperative scheduler: starting two RV64 kernel threads." "$log"
-          grep -aFq "[A] [B]" "$log"
-          echo "QEMU scheduler boot smoke test: PASS"
+            grep -aFq "OpenXzuff UI native kernel: RV64 entry reached." "$log"
+            grep -aFq "Gravity FDT RAM discovery: PASS; usable bytes=" "$log"
+            grep -aFq "Gravity boot allocator: initialized from reserved-safe RAM range." "$log"
+            grep -aFq "Gravity syscall dispatcher self-test: PASS." "$log"
+            grep -aFq "Gravity cooperative scheduler: starting two RV64 kernel threads." "$log"
+            grep -aFq "[A] [B]" "$log"
+            echo "QEMU scheduler boot smoke test run $attempt: PASS"
+          done
 
       - name: Assemble RV64 package
         run: |
@@ -81,8 +90,9 @@ jobs:
           OpenXzuff UI / Gravity Kernel RV64 bring-up package
           Build target: RV64 QEMU/OpenSBI payload
           Included: early boot kernel, FDT RAM discovery, bounded boot allocator,
-          physical memory map, syscall dispatcher self-test, task lifecycle/scheduler bookkeeping tests, GAPP metadata validator.
-          QEMU boot/scheduler smoke test runs once and checks expected boot output.
+          physical memory map, syscall dispatcher self-test, task lifecycle/scheduler bookkeeping tests,
+          native application package validation, C++ LAP/LUAP installer tests, and SQLite-backed App Hub tests.
+          QEMU boot/scheduler smoke test runs three times and checks expected boot output on each run.
           Timing measurements and saved-register integrity stress tests are not yet implemented.
           Not a complete operating system. User-mode process execution, framebuffer compositor,
           Lua VM integration, ART Minimal and Win32 Basic are not implemented.
@@ -96,5 +106,3 @@ jobs:
           path: dist/openxzuff-rv64.tar.gz
           if-no-files-found: error
           retention-days: 30
-
-
