@@ -4,6 +4,7 @@
 #[cfg(not(test))]
 use core::arch::{asm, global_asm};
 
+mod abi;
 mod app;
 #[cfg(not(test))]
 mod context;
