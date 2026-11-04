@@ -1,6 +1,6 @@
-# Lua runtime integration
+# Lua runtime integration (legacy `.luap` path)
 
-OpenXzuff UI uses Lua for the native GUI and apps. The current Lua code is host-agnostic and runs under a system Lua interpreter for tests; it is not yet embedded in the kernel. Next steps: vendor or reproducibly fetch a pinned Lua 5.4 source release, define allocator/stdio/module-loading boundaries, build freestanding where practical, and implement a platform host for framebuffer drawing and input. Do not claim Lua is running on bare metal until the runtime is linked and executed there.
+OpenXzuff UI currently has Lua scripts used by host-side tests. This directory describes the separate standard-Lua `.luap` path; it is not the LuauX runtime for `.lap` applications. The current Lua code is host-agnostic and runs under a system Lua interpreter for tests; it is not yet embedded in the kernel. Next steps: vendor or reproducibly fetch a pinned Lua 5.4 source release, define allocator/stdio/module-loading boundaries, build freestanding where practical, and implement a platform host for framebuffer drawing and input. Do not claim Lua is running on bare metal until the runtime is linked and executed there.
 
 ## Application package formats
 
