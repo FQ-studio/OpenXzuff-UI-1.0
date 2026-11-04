@@ -5,14 +5,21 @@
 use core::arch::{asm, global_asm};
 
 mod app;
+#[cfg(not(test))]
+mod context;
 mod fdt;
 mod memory;
 mod syscall;
+mod task;
+#[cfg(not(test))]
+mod scheduler;
 
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/entry.S"));
 #[cfg(not(test))]
 global_asm!(include_str!("../arch/riscv/trap.S"));
+#[cfg(not(test))]
+global_asm!(include_str!("../arch/riscv/context.S"));
 
 #[cfg(not(test))]
 extern "C" {
@@ -28,6 +35,14 @@ fn console_putc(ch: u8) {
 
 #[cfg(not(test))]
 fn console_write(s: &str) { for b in s.bytes() { console_putc(b); } }
+
+#[cfg(not(test))]
+pub(crate) fn scheduler_log(task: u8) {
+    console_putc(b'[');
+    console_putc(task);
+    console_putc(b']');
+    console_putc(b' ');
+}
 
 #[cfg(not(test))]
 fn console_hex(mut n: usize) {
@@ -48,9 +63,30 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     unsafe { asm!("csrr {0}, scause", out(reg) cause, options(nomem, nostack)); }
     if cause == 8 {
         let args = [frame.x[10], frame.x[11], frame.x[12], frame.x[13], frame.x[14], frame.x[15]];
-        frame.x[10] = syscall::dispatch(frame.x[17], args) as usize;
-        frame.sepc = frame.sepc.wrapping_add(4);
-        return;
+        match syscall::dispatch(frame.x[17], args) {
+            syscall::SyscallOutcome::Return(value) => {
+                frame.x[10] = value as usize;
+                // ECALL is a 32-bit instruction in this RV64 ABI.
+                frame.sepc = frame.sepc.wrapping_add(4);
+                return;
+            }
+            syscall::SyscallOutcome::RebootRequested => {
+                console_write("\r\nGravity system reboot requested.\r\n");
+                system_reboot();
+            }
+            syscall::SyscallOutcome::ShutdownRequested => {
+                console_write("\r\nGravity system shutdown requested.\r\n");
+                system_shutdown();
+            }
+            syscall::SyscallOutcome::ExitRequested { status } => {
+                // Safe fallback until the process manager/scheduler exists.
+                // Do not return to the task that explicitly requested exit.
+                console_write("\\r\\nGravity TaskExit requested; no scheduler is available yet, halting. status=");
+                console_hex(status as usize);
+                console_write("\\r\\n");
+                halt();
+            }
+        }
     }
     console_write("\r\nGravity Kernel: fatal trap scause=");
     console_hex(cause);
@@ -58,6 +94,83 @@ pub extern "C" fn gravity_trap_handler(frame: &mut TrapFrame) {
     console_hex(frame.sepc);
     console_write("\r\n");
     halt();
+}
+
+// SBI BASE extension (EID 0x10), probe_extension (FID 3).
+// SBI returns error in a0 and the extension-available flag in a1.
+#[cfg(not(test))]
+fn sbi_has_srst() -> bool {
+    unsafe {
+        let error: usize;
+        let available: usize;
+        asm!(
+            "ecall",
+            inlateout("a0") 0x5352_5354usize => error,
+            lateout("a1") available,
+            in("a6") 3usize,
+            in("a7") 0x10usize,
+            options(nostack)
+        );
+        (error as isize) == 0 && available != 0
+    }
+}
+
+#[cfg(not(test))]
+fn system_reboot() -> ! {
+    if !sbi_has_srst() {
+        console_write("\r\nGravity Kernel: SBI SRST is not supported; reboot refused. Halting safely.\r\n");
+        halt();
+    }
+
+    // SBI SRST: reset_type=1 (cold reboot), reset_reason=0 (none).
+    unsafe {
+        let error: usize;
+        asm!(
+            "ecall",
+            inlateout("a0") 1usize => error,
+            inlateout("a1") 0usize => _,
+            in("a6") 0usize,
+            in("a7") 0x5352_5354usize,
+            options(nostack)
+        );
+        if (error as isize) != 0 {
+            console_write("\r\nGravity Kernel: SBI SRST reboot failed; error=");
+            console_hex(error);
+            console_write("\r\nHalting safely.\r\n");
+        }
+    }
+    // SBI reset calls should not return on success. If firmware returns,
+    // do not continue running after a requested system reset.
+    halt()
+}
+
+#[cfg(not(test))]
+fn system_shutdown() -> ! {
+    if !sbi_has_srst() {
+        console_write("\r\nGravity Kernel: SBI SRST is not supported; shutdown unavailable. Halting safely.\r\n");
+        halt();
+    }
+
+    // SBI SRST: reset_type=0 (shutdown), reset_reason=0 (none).
+    unsafe {
+        let error: usize;
+        asm!(
+            "ecall",
+            inlateout("a0") 0usize => error,
+            inlateout("a1") 0usize => _,
+            in("a6") 0usize,
+            in("a7") 0x5352_5354usize,
+            options(nostack)
+        );
+        if (error as isize) != 0 {
+            console_write("\r\nGravity Kernel: SBI SRST shutdown failed; error=");
+            console_hex(error);
+            console_write("\r\nHalting safely.\r\n");
+        }
+    }
+    // If firmware returns (including an error), remain halted rather than
+    // returning to the caller after a system power-control request.
+    halt()
 }
 
 #[cfg(not(test))]
@@ -165,7 +278,10 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
 
     let trap_addr = gravity_trap_entry as *const () as usize;
     unsafe { asm!("csrw stvec, {0}", in(reg) trap_addr, options(nostack)); }
-    if syscall::dispatch(0x7fff, [0; 6]) == -(syscall::ENOSYS as isize) {
+    if syscall::dispatch(0x7fff, [0; 6])
+        == syscall::SyscallOutcome::Return(-syscall::ENOSYS)
+        && syscall::dispatch(syscall::Syscall::TaskExit as usize, [0; 6])
+            == (syscall::SyscallOutcome::ExitRequested { status: 0 }) {
         console_write("Gravity syscall dispatcher self-test: PASS.\r\n");
     } else {
         console_write("Gravity syscall dispatcher self-test: FAIL.\r\n");
@@ -175,7 +291,8 @@ pub extern "C" fn kernel_main(_hart_id: usize, fdt_blob: *const u8) -> ! {
     } else {
         console_write("Gravity user-mode trap entry installed; boot allocator disabled pending memory validation.\r\n");
     }
-    halt()
+    console_write("Gravity cooperative scheduler: starting two RV64 kernel threads.\\r\\n");
+    unsafe { scheduler::start() }
 }
 
 #[cfg(test)]
