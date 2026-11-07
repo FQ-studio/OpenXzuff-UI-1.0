@@ -1,0 +1,7 @@
+local values = {2, 3, 5}
+local total = 0
+for _, value in ipairs(values) do
+    total = total + value
+end
+assert(total == 10)
+print("Xzuff Lua smoke: PASS", total)
