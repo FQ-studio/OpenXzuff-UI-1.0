@@ -120,6 +120,12 @@ jobs:
         run: cmake --build user/app/runtime/javascript/build --parallel 2 --target xzuff-js
       - name: Test JavaScript host prototype
         run: ctest --test-dir user/app/runtime/javascript/build --output-on-failure
+      - name: Configure standard Lua host prototype
+        run: cmake -S user/app/runtime/lua -B user/app/runtime/lua/build -DCMAKE_BUILD_TYPE=Release
+      - name: Build standard Lua host prototype
+        run: cmake --build user/app/runtime/lua/build --parallel 2
+      - name: Test standard Lua host prototype
+        run: ctest --test-dir user/app/runtime/lua/build --output-on-failure
       - name: Configure OpenXzuff3D
         run: cmake -S graphics3d -B graphics3d/build -DCMAKE_BUILD_TYPE=Release
       - name: Build OpenXzuff3D
