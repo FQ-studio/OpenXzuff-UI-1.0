@@ -30,7 +30,7 @@ On Windows, use the executable at the corresponding build output path, commonly 
 
 The current .lap format is a compact, single-entry binary container (not ZIP yet):
 
-1. 8-byte magic: XZLAP1 followed by a newline byte
+1. 7-byte magic: `XZLAP1` followed by a newline byte (`\n`)
 2. 4-byte little-endian unsigned manifest byte length
 3. 8-byte little-endian unsigned source byte length
 4. UTF-8 JSON manifest
