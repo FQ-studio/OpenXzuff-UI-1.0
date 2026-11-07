@@ -30,7 +30,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: lukka/get-cmake@latest
+      - name: Test Gravity Kernel Rust syscall dispatcher
+        run: |
+          mkdir -p build
+          rustc --edition=2021 --test Kernel/src/syscall.rs -o build/gravity-syscall-test
+          ./build/gravity-syscall-test
       - name: Configure OS contract smoke tests
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - name: Build OS contract smoke tests and Xzuff Go compiler
