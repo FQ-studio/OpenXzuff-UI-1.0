@@ -1,6 +1,6 @@
 # Xzuff Luau Runtime
 
-C++20 runtime host embedding the official upstream Luau VM/compiler. This milestone adds a versioned .luap game-package container and CLI pack/run flow.
+C++20 runtime host embedding the official upstream Luau VM/compiler. This milestone adds a versioned .lap game-package container and CLI pack/run flow.
 
 ## Build
 
@@ -20,17 +20,17 @@ runtime/build/xzuff-luau runtime/examples/hello.luau
 ## Create and run a game package
 
 ```sh
-runtime/build/xzuff-luau --pack runtime/examples/hello.luau hello.luap "Hello Game" 1.0.0
-runtime/build/xzuff-luau hello.luap
+runtime/build/xzuff-luau --pack runtime/examples/hello.luau hello.lap "Hello Game" 1.0.0
+runtime/build/xzuff-luau hello.lap
 ```
 
 On Windows, use the executable at the corresponding build output path, commonly runtime/build/Release/xzuff-luau.exe.
 
-## .luap v1 binary format
+## .lap v1 binary format
 
-The current .luap format is a compact, single-entry binary container (not ZIP yet):
+The current .lap format is a compact, single-entry binary container (not ZIP yet):
 
-1. 8-byte magic: XZLUAP1 followed by a newline byte
+1. 8-byte magic: XZLAP1 followed by a newline byte
 2. 4-byte little-endian unsigned manifest byte length
 3. 8-byte little-endian unsigned source byte length
 4. UTF-8 JSON manifest
@@ -42,14 +42,14 @@ The manifest includes format, numeric format version, package name, packageVersi
 
 - C++20 host embedding the official Luau VM/compiler
 - Run .luau / .lua source
-- Pack source into .luap and run that package
+- Pack source into .lap and run that package
 - Versioned manifest and size/truncation validation
 - Instruction-count budget and script error reporting
 - GitHub Actions configure/build/smoke test
 
 ## Still not implemented
 
-- Multi-file/ZIP .luap packages, signature verification and package capability permissions
+- Multi-file/ZIP .lap packages, signature verification and package capability permissions
 - Xzuff 2D/3D renderer, input, audio, and graphics/game APIs
 - App installer integration and mobile/Gravity Kernel integration
 
@@ -59,3 +59,8 @@ The manifest includes format, numeric format version, package name, packageVersi
 ## Repository placement
 
 This runtime and its GitHub Actions workflow live in `FQ-studio/OpenXzuff-UI-1.0`, alongside the OpenXzuff UI OS project. The App Hub repository is not the home of the OS runtime.
+
+
+## Extension ownership
+
+`.lap` is the Luau package extension. `.luap` is reserved for the separate standard Lua runtime and must not be emitted or parsed by this Luau runtime.
