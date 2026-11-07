@@ -21,7 +21,7 @@ struct ExecutionBudget {
     Clock::time_point deadline;
 };
 
-int interruptHandler(JSRuntime*, void* opaque) {
+int interruptHandler(JSContext*, void* opaque) {
     const auto* budget = static_cast<const ExecutionBudget*>(opaque);
     return budget == nullptr || Clock::now() >= budget->deadline;
 }
@@ -126,7 +126,13 @@ int main(int argc, char** argv) {
     }
 
     JSValue global = JS_GetGlobalObject(context);
-    JS_SetPropertyStr(context, global, "print", JS_NewCFunction(context, jsPrint, "print", 1));
+    if (JS_SetPropertyStr(context, global, "print", JS_NewCFunction(context, jsPrint, "print", 1)) < 0) {
+        printException(context);
+        JS_FreeValue(context, global);
+        JS_FreeContext(context);
+        JS_FreeRuntime(runtime);
+        return 1;
+    }
     JS_FreeValue(context, global);
 
     const JSValue result = JS_Eval(
