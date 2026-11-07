@@ -60,7 +60,7 @@ struct Package { std::string manifest; std::string source; };
 bool readPackage(const fs::path& path, Package& pkg, std::string& error) {
     std::ifstream in(path, std::ios::binary);
     if (!in) { error = "cannot open package"; return false; }
-    std::array<char, 8> magic{};
+    std::array<char, kMagic.size()> magic{};
     in.read(magic.data(), static_cast<std::streamsize>(magic.size()));
     if (!in || std::string_view(magic.data(), magic.size()) != kMagic) { error = "invalid .lap magic/version"; return false; }
     std::uint32_t manifestSize = 0;
