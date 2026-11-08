@@ -1,6 +1,6 @@
 # Gravity Kernel RV64 User ABI — Draft 1
 
-Status: initial compiler/loader contract draft. The kernel trap entry and user-mode loader are not yet implemented, so this document defines the intended contract, not proof that programs already execute on hardware.
+Status: ABI v1 contract specification. The kernel trap entry and user-mode loader are not yet implemented, so this document defines the intended contract, not proof that programs already execute on hardware.
 
 ## Target
 
@@ -15,7 +15,13 @@ Status: initial compiler/loader contract draft. The kernel trap entry and user-m
 - Execute `ecall` to request a kernel service.
 - `a7` contains the numeric syscall ID.
 - `a0` through `a5` carry up to six arguments.
-- For calls that return normally, `a0` carries the result; error encoding and preservation of other registers still need a formal kernel implementation.
+- For a returning call, `a0` carries either the non-negative result or a negative error number (`-errno`). Values from `-1` through `-4095` are reserved for errors.
+- ABI v1 preserves `a1` through `a5` across a returning system call. The caller must treat `a0` as clobbered.
+- The saved user PC advances by 4 bytes after the 32-bit `ecall` instruction before returning to user mode.
+- `-22` (`-EINVAL`) means an invalid argument; `-14` (`-EFAULT`) means an invalid user address; `-38` (`-ENOSYS`) means the call is unknown or not implemented.
+- `Exit = 0` is non-returning when a process-exit hook is installed. If process termination is unavailable, the dispatch boundary reports `-ENOSYS` rather than claiming the task exited.
+- `Yield = 4` returns 0 after a scheduler-yield hook is invoked; without that hook it reports `-ENOSYS`.
+- `SendMessage`, `ReceiveMessage`, and `MapMemory` are reserved ABI IDs and return `-ENOSYS` until their subsystems are implemented.
 - `Exit = 0`: `a0` is the process exit status. This call does not return.
 - `SendMessage = 1`, `ReceiveMessage = 2`, `MapMemory = 3`, `Yield = 4`, matching `Kernel/include/openxzuff/kernel/contracts.hpp`.
 
@@ -46,6 +52,8 @@ For `function main() returns i32 { return N; }`, where N is -2048..2047:
 
 The compiler does not depend on the initial value of `a7`.
 
-## Not implemented
+## Implementation boundary
 
-This ABI draft does not imply that trap handling, process isolation, `.xexe` loading, memory mapping, scheduler integration, syscall validation, or physical RV64 boot already works. Those are kernel milestones and need independent tests.
+The host-testable syscall dispatcher currently covers Exit and Yield through injected hooks and returns `-ENOSYS` for IPC, memory mapping, and unknown IDs. It does not install an RV64 trap vector or execute `ecall` on hardware.
+
+This ABI contract does not imply that trap handling, process isolation, `.xexe` loading, memory mapping, scheduler integration, syscall validation, or physical RV64 boot already works. Those are kernel milestones and need independent tests.
