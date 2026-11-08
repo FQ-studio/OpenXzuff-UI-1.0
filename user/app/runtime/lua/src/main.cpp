@@ -78,7 +78,8 @@ int run(const char* path) {
     }
 
     MemoryState memory;
-    lua_State* state = lua_newstate(limitedAllocator, &memory);
+    // Lua 5.5 requires an explicit hash/randomization seed.
+    lua_State* state = lua_newstate(limitedAllocator, &memory, 0);
     if (!state) {
         std::cerr << "Xzuff Lua: could not create VM within 16 MiB memory limit.\n";
         return 1;
