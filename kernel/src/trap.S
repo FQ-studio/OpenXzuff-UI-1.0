@@ -99,14 +99,14 @@ __gravity_s_trap_vector:
     .size __gravity_s_trap_vector, . - __gravity_s_trap_vector
 
 /* ABI-conforming test helper. It seeds x1 and x5-x31 with distinct sentinels,
- * executes one delegated breakpoint, checks every register after sret, then
- * restores the callee-saved registers and returns 0 (pass) or 1 (failure).
+ * executes one delegated breakpoint, snapshots every GPR after sret, checks
+ * the snapshots, then restores the callee-saved registers and returns 0/1.
  */
     .align  4
     .global __gravity_s_trap_roundtrip_test
     .type   __gravity_s_trap_roundtrip_test, @function
 __gravity_s_trap_roundtrip_test:
-    addi    sp, sp, -128
+    addi    sp, sp, -512
     sd      s0,   0(sp)
     sd      s1,   8(sp)
     sd      s2,  16(sp)
@@ -122,7 +122,7 @@ __gravity_s_trap_roundtrip_test:
     sd      ra,  96(sp)
     sd      gp, 104(sp)
     sd      tp, 112(sp)
-    addi    t0, sp, 128
+    addi    t0, sp, 512
     sd      t0, 120(sp)
 
     li      ra,  0x101
@@ -155,69 +155,130 @@ __gravity_s_trap_roundtrip_test:
     li      t6,  0x11f
     ebreak
 
-    /* t6 is checked first; it then becomes the comparison scratch register. */
+    /* Snapshot every register before using any register as a comparison temp. */
+    sd      ra, 128(sp)
+    sd      gp, 136(sp)
+    sd      tp, 144(sp)
+    sd      t0, 160(sp)
+    sd      t1, 168(sp)
+    sd      t2, 176(sp)
+    sd      s0, 184(sp)
+    sd      s1, 192(sp)
+    sd      a0, 200(sp)
+    sd      a1, 208(sp)
+    sd      a2, 216(sp)
+    sd      a3, 224(sp)
+    sd      a4, 232(sp)
+    sd      a5, 240(sp)
+    sd      a6, 248(sp)
+    sd      a7, 256(sp)
+    sd      s2, 264(sp)
+    sd      s3, 272(sp)
+    sd      s4, 280(sp)
+    sd      s5, 288(sp)
+    sd      s6, 296(sp)
+    sd      s7, 304(sp)
+    sd      s8, 312(sp)
+    sd      s9, 320(sp)
+    sd      s10, 328(sp)
+    sd      s11, 336(sp)
+    sd      t3, 344(sp)
+    sd      t4, 352(sp)
+    sd      t5, 360(sp)
+    sd      t6, 368(sp)
+
+    ld      t6, 128(sp)
+    li      t5, 0x101
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 136(sp)
+    ld      t5, 104(sp)
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 144(sp)
+    ld      t5, 112(sp)
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 160(sp)
+    li      t5, 0x105
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 168(sp)
+    li      t5, 0x106
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 176(sp)
+    li      t5, 0x107
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 184(sp)
+    li      t5, 0x108
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 192(sp)
+    li      t5, 0x109
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 200(sp)
+    li      t5, 0x10a
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 208(sp)
+    li      t5, 0x10b
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 216(sp)
+    li      t5, 0x10c
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 224(sp)
+    li      t5, 0x10d
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 232(sp)
+    li      t5, 0x10e
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 240(sp)
+    li      t5, 0x10f
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 248(sp)
+    li      t5, 0x110
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 256(sp)
+    li      t5, 0x111
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 264(sp)
+    li      t5, 0x112
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 272(sp)
+    li      t5, 0x113
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 280(sp)
+    li      t5, 0x114
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 288(sp)
+    li      t5, 0x115
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 296(sp)
+    li      t5, 0x116
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 304(sp)
+    li      t5, 0x117
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 312(sp)
+    li      t5, 0x118
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 320(sp)
+    li      t5, 0x119
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 328(sp)
+    li      t5, 0x11a
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 336(sp)
+    li      t5, 0x11b
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 344(sp)
+    li      t5, 0x11c
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 352(sp)
+    li      t5, 0x11d
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 360(sp)
+    li      t5, 0x11e
+    bne     t6, t5, .Lgravity_trap_fail
+    ld      t6, 368(sp)
     li      t5, 0x11f
     bne     t6, t5, .Lgravity_trap_fail
-    li      t6, 0x11e
-    bne     t5, t6, .Lgravity_trap_fail
-    li      t6, 0x11d
-    bne     t4, t6, .Lgravity_trap_fail
-    li      t6, 0x11c
-    bne     t3, t6, .Lgravity_trap_fail
-    li      t6, 0x11b
-    bne     s11, t6, .Lgravity_trap_fail
-    li      t6, 0x11a
-    bne     s10, t6, .Lgravity_trap_fail
-    li      t6, 0x119
-    bne     s9, t6, .Lgravity_trap_fail
-    li      t6, 0x118
-    bne     s8, t6, .Lgravity_trap_fail
-    li      t6, 0x117
-    bne     s7, t6, .Lgravity_trap_fail
-    li      t6, 0x116
-    bne     s6, t6, .Lgravity_trap_fail
-    li      t6, 0x115
-    bne     s5, t6, .Lgravity_trap_fail
-    li      t6, 0x114
-    bne     s4, t6, .Lgravity_trap_fail
-    li      t6, 0x113
-    bne     s3, t6, .Lgravity_trap_fail
-    li      t6, 0x112
-    bne     s2, t6, .Lgravity_trap_fail
-    li      t6, 0x111
-    bne     a7, t6, .Lgravity_trap_fail
-    li      t6, 0x110
-    bne     a6, t6, .Lgravity_trap_fail
-    li      t6, 0x10f
-    bne     a5, t6, .Lgravity_trap_fail
-    li      t6, 0x10e
-    bne     a4, t6, .Lgravity_trap_fail
-    li      t6, 0x10d
-    bne     a3, t6, .Lgravity_trap_fail
-    li      t6, 0x10c
-    bne     a2, t6, .Lgravity_trap_fail
-    li      t6, 0x10b
-    bne     a1, t6, .Lgravity_trap_fail
-    li      t6, 0x10a
-    bne     a0, t6, .Lgravity_trap_fail
-    li      t6, 0x109
-    bne     s1, t6, .Lgravity_trap_fail
-    li      t6, 0x108
-    bne     s0, t6, .Lgravity_trap_fail
-    li      t6, 0x107
-    bne     t2, t6, .Lgravity_trap_fail
-    li      t6, 0x106
-    bne     t1, t6, .Lgravity_trap_fail
-    li      t6, 0x105
-    bne     t0, t6, .Lgravity_trap_fail
-    li      t6, 0x101
-    bne     ra, t6, .Lgravity_trap_fail
 
-    ld      t6, 104(sp)
-    bne     gp, t6, .Lgravity_trap_fail
-    ld      t6, 112(sp)
-    bne     tp, t6, .Lgravity_trap_fail
-    addi    t6, sp, 128
+    addi    t6, sp, 512
     ld      t5, 120(sp)
     bne     t6, t5, .Lgravity_trap_fail
 
@@ -243,7 +304,7 @@ __gravity_s_trap_roundtrip_test:
     ld      ra,  96(sp)
     ld      gp, 104(sp)
     ld      tp, 112(sp)
-    addi    sp, sp, 128
+    addi    sp, sp, 512
     ret
 
     .size __gravity_s_trap_roundtrip_test, . - __gravity_s_trap_roundtrip_test
