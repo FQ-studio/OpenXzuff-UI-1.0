@@ -19,4 +19,12 @@ The root CMake build registers the syscall, trap-frame, and U-mode dispatch test
 - A scheduler, context switching, process lifecycle, page tables, or user-memory validation in the trap path.
 - Kernel IPC transport, physical device drivers, or a hardware boot path.
 
-The separate Rust image in `kernel/` currently boots in S-mode under OpenSBI/QEMU and initializes the FDT memory map, physical page allocator, and fixed kernel heap. That milestone does not mean the C++ U-mode trap contract is wired into the Rust boot image or that user processes can run.
+## Separate Rust RV64 S-mode bring-up image
+
+The executable Rust image in lowercase `kernel/` is separate from this C++ contract layer. Its current OpenSBI/QEMU milestone includes:
+
+- S-mode entry, FDT parsing, a physical-page allocator, and a fixed 64 KiB kernel heap.
+- A direct-mode `stvec` trap vector with a 288-byte, 16-byte-aligned frame. The assembly entry saves/restores the integer GPR set and preserves `sepc`/`sstatus` across a Rust handler call before returning with `sret`.
+- A delegated-breakpoint smoke test that checks the register round-trip (including `sp`, `gp`, and `tp`), the zero register, stack alignment, and SPP state. The handler advances the saved PC by the decoded 16-bit or 32-bit instruction length.
+
+The QEMU test covers only this S-mode breakpoint path. It is not a U-mode entry path: there is no `sscratch` supervisor-stack switch, user-process execution, or connection from this Rust handler to the C++ U-mode `ecall` dispatcher. Timer/interrupt handling, page faults, scheduler/context switching, page-table isolation, IPC, and physical-board boot remain unimplemented.
