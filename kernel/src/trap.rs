@@ -12,6 +12,11 @@ pub(crate) struct TrapFrame {
     stval: usize,
 }
 
+const _: [(); 0] = [(); core::mem::offset_of!(TrapFrame, x)];
+const _: [(); 256] = [(); core::mem::offset_of!(TrapFrame, sepc)];
+const _: [(); 264] = [(); core::mem::offset_of!(TrapFrame, sstatus)];
+const _: [(); 272] = [(); core::mem::offset_of!(TrapFrame, scause)];
+const _: [(); 280] = [(); core::mem::offset_of!(TrapFrame, stval)];
 const _: [(); 288] = [(); core::mem::size_of::<TrapFrame>()];
 const _: [(); 16] = [(); core::mem::align_of::<TrapFrame>()];
 
