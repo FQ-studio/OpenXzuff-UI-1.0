@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 global_asm!(include_str!("trap.S"));
 
 #[repr(C, align(16))]
-struct TrapFrame {
+pub(crate) struct TrapFrame {
     x: [usize; 32],
     sepc: usize,
     sstatus: usize,
@@ -26,7 +26,7 @@ extern "C" {
 /// Install the direct-mode S-mode trap vector. This early-boot image runs only
 /// in S-mode; U-mode entry will need a separate supervisor-stack switch.
 pub fn install() {
-    let vector = unsafe { core::ptr::addr_of!(__gravity_s_trap_vector) as usize };
+    let vector = core::ptr::addr_of!(__gravity_s_trap_vector) as usize;
     unsafe {
         asm!("csrw stvec, {vector}", vector = in(reg) vector, options(nostack));
     }
