@@ -60,7 +60,11 @@ pub extern "C" fn gravity_s_trap_handler(frame_ptr: *mut TrapFrame) {
             && frame.sstatus & (1 << 8) != 0; // SPP says the trap came from S-mode.
         FRAME_VALID.store(valid, Ordering::Release);
 
-        match frame.sepc.checked_add(4) {
+        // RVC permits a 16-bit C.EBREAK as well as the 32-bit EBREAK.
+        // Decode the instruction length instead of always skipping four bytes.
+        let first_half = unsafe { (frame.sepc as *const u16).read_volatile() };
+        let instruction_len = if first_half & 0b11 == 0b11 { 4 } else { 2 };
+        match frame.sepc.checked_add(instruction_len) {
             Some(next_pc) => frame.sepc = next_pc,
             None => crate::halt(),
         }
