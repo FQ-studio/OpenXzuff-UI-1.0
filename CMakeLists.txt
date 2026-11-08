@@ -82,3 +82,8 @@ add_executable(syscall-dispatch-test tests/syscall_dispatch_test.cpp)
 target_link_libraries(syscall-dispatch-test PRIVATE xzuff_os_base)
 target_compile_options(syscall-dispatch-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-syscall-dispatch COMMAND syscall-dispatch-test)
+
+add_executable(trap-frame-test tests/trap_frame_test.cpp)
+target_include_directories(trap-frame-test PRIVATE Kernel/include)
+target_compile_options(trap-frame-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME gravity-rv64-trap-frame-layout COMMAND trap-frame-test)
