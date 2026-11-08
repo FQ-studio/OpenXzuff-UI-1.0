@@ -8,6 +8,7 @@ mod fdt;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
+mod trap;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
@@ -33,14 +34,14 @@ fn console_putchar(byte: u8) {
     }
 }
 
-fn console_write(text: &str) {
+pub(crate) fn console_write(text: &str) {
     for byte in text.bytes() {
         if byte == b'\n' { console_putchar(b'\r'); }
         console_putchar(byte);
     }
 }
 
-fn print_hex(mut value: usize) {
+pub(crate) fn print_hex(mut value: usize) {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut digits = [0u8; core::mem::size_of::<usize>() * 2];
     let mut i = digits.len();
@@ -59,6 +60,8 @@ fn be32_raw(ptr: *const u8) -> u32 {
 
 #[no_mangle]
 pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
+    trap::install();
+    console_write("S-mode trap vector: installed\n");
     console_write("\nOpenXzuff UI 1.0 / Gravity Kernel\n");
     console_write("RV64 S-mode entry: OK\n");
     console_write("SBI legacy console: OK\n");
@@ -166,7 +169,8 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         }
     }
 
-    console_write("Kernel milestone: FDT + physical page allocator + kernel heap initialized\n");
+    trap::smoke_test();
+    console_write("Kernel milestone: FDT + physical page allocator + kernel heap + S-mode trap round-trip initialized\n");
     halt()
 }
 
@@ -175,7 +179,7 @@ extern "C" {
     static __kernel_end: u8;
 }
 
-fn halt() -> ! {
+pub(crate) fn halt() -> ! {
     loop { unsafe { asm!("wfi", options(nomem, nostack)); } }
 }
 
