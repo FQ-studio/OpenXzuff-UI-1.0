@@ -10,6 +10,7 @@ add_library(xzuff_os_base
     Kernel/src/sbi.cpp
     Kernel/src/xexe_loader.cpp
     Kernel/src/syscall.cpp
+    Kernel/arch/riscv64/trap_dispatch.cpp
     sys/src/service_registry.cpp
     gui/src/framebuffer.cpp
     drivers/serial/uart.cpp
@@ -87,3 +88,8 @@ add_executable(trap-frame-test tests/trap_frame_test.cpp)
 target_include_directories(trap-frame-test PRIVATE Kernel/include)
 target_compile_options(trap-frame-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-rv64-trap-frame-layout COMMAND trap-frame-test)
+
+add_executable(rv64-trap-dispatch-test tests/rv64_trap_dispatch_test.cpp)
+target_link_libraries(rv64-trap-dispatch-test PRIVATE xzuff_os_base)
+target_compile_options(rv64-trap-dispatch-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME gravity-rv64-user-trap-dispatch COMMAND rv64-trap-dispatch-test)
