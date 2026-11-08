@@ -9,6 +9,7 @@ add_library(xzuff_os_base
     Kernel/src/boot_contract.cpp
     Kernel/src/sbi.cpp
     Kernel/src/xexe_loader.cpp
+    Kernel/src/syscall.cpp
     sys/src/service_registry.cpp
     gui/src/framebuffer.cpp
     drivers/serial/uart.cpp
@@ -76,3 +77,8 @@ add_executable(sbi-smoke tests/sbi_smoke.cpp)
 target_link_libraries(sbi-smoke PRIVATE xzuff_os_base)
 target_compile_options(sbi-smoke PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-sbi-wrapper-smoke COMMAND sbi-smoke)
+
+add_executable(syscall-dispatch-test tests/syscall_dispatch_test.cpp)
+target_link_libraries(syscall-dispatch-test PRIVATE xzuff_os_base)
+target_compile_options(syscall-dispatch-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+add_test(NAME gravity-syscall-dispatch COMMAND syscall-dispatch-test)
