@@ -28,10 +28,32 @@ int main() {
     frame.scause = user_environment_call_cause;
     frame.sepc = 0x1000;
     frame.x[register_a7] = 4;
+    for (std::size_t i = register_a0 + 1; i <= register_a5; ++i) {
+        frame.x[i] = 0xA000 + i;
+    }
     const auto yielded = dispatch_user_trap(frame, hooks);
+    bool arguments_preserved = true;
+    for (std::size_t i = register_a0 + 1; i <= register_a5; ++i) {
+        arguments_preserved &= frame.x[i] == 0xA000 + i;
+    }
     if (!yielded.handled || yielded.terminated || frame.x[register_a0] != 0 ||
-        frame.sepc != 0x1004 || state.yields != 1) {
-        std::cerr << "FAIL: user Yield ecall dispatch\n";
+        frame.sepc != 0x1004 || state.yields != 1 || !arguments_preserved ||
+        frame.x[register_zero] != 0) {
+        std::cerr << "FAIL: user Yield ecall dispatch/register preservation\n";
+        return 1;
+    }
+
+    frame.sepc = 0x3000;
+    frame.x[register_a7] = 99;
+    const auto unknown = dispatch_user_trap(frame, hooks);
+    arguments_preserved = true;
+    for (std::size_t i = register_a0 + 1; i <= register_a5; ++i) {
+        arguments_preserved &= frame.x[i] == 0xA000 + i;
+    }
+    if (!unknown.handled || unknown.terminated ||
+        static_cast<std::int64_t>(frame.x[register_a0]) != syscall_error_not_implemented ||
+        frame.sepc != 0x3004 || !arguments_preserved) {
+        std::cerr << "FAIL: unknown syscall must return -ENOSYS and preserve a1-a5\n";
         return 1;
     }
 
@@ -46,9 +68,12 @@ int main() {
     }
 
     frame.scause = 9;
+    frame.sepc = 0x4000;
+    frame.x[register_a0] = 123;
     const auto supervisor_call = dispatch_user_trap(frame, hooks);
-    if (supervisor_call.handled || supervisor_call.terminated) {
-        std::cerr << "FAIL: S-mode ecall must not be handled as U-mode syscall\n";
+    if (supervisor_call.handled || supervisor_call.terminated ||
+        frame.sepc != 0x4000 || frame.x[register_a0] != 123) {
+        std::cerr << "FAIL: S-mode ecall must remain outside U-mode dispatch\n";
         return 1;
     }
 
