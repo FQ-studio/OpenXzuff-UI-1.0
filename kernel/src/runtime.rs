@@ -9,7 +9,7 @@ const TASK_COUNT: usize = 3;
 const STACK_SIZE: usize = 16 * 1024;
 const SBI_EXT_TIME: usize = 0x5449_4d45;
 const SBI_FID_SET_TIMER: usize = 0;
-const TIMER_QUANTUM: usize = 100_000; // QEMU virt timebase: 10 MHz, 10 ms.
+static TIMER_QUANTUM: AtomicUsize = AtomicUsize::new(100_000);
 const SIE_STIE: usize = 1 << 5;
 const SSTATUS_SIE: usize = 1 << 1;
 
