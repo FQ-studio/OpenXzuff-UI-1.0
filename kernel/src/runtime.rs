@@ -50,8 +50,16 @@ fn set_timer(deadline: usize) -> Result<(), usize> {
     if error == 0 { Ok(()) } else { Err(error) }
 }
 
+pub fn configure_timebase(frequency_hz: usize) -> Result<usize, ()> {
+    let quantum = frequency_hz / 100;
+    if quantum == 0 { return Err(()); }
+    TIMER_QUANTUM.store(quantum, Ordering::Release);
+    Ok(quantum)
+}
+
 fn arm_next_timer() {
-    if set_timer(read_time().wrapping_add(TIMER_QUANTUM)).is_err() {
+    let quantum = TIMER_QUANTUM.load(Ordering::Acquire);
+    if quantum == 0 || set_timer(read_time().wrapping_add(quantum)).is_err() {
         crate::console_write("SBI TIME set_timer: FAIL\n");
         crate::halt();
     }
