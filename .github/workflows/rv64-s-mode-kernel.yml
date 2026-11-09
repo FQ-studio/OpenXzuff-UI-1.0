@@ -58,7 +58,7 @@ jobs:
           grep -q 'PPA alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Kernel heap allocator: OK; arena bytes: 65536' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Heap alloc/free smoke test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'S-mode trap GPR save/restore + sret: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'S-mode trap GPR save/restore + sret: PASS' build/kernel/rv64-s-mode/qemu-serial.log\n          grep -q 'RV64 timer preemption + stack context switch: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
         uses: actions/upload-artifact@v4
