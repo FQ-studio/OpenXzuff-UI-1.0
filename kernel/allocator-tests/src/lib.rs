@@ -183,7 +183,7 @@ mod fdt_tests {
         property(&mut structure, device_type, b"memory\0");
 
         let mut memory_reg = Vec::new();
-        for cell in [0u32, 0x8000_0000, 0, 0x0002_0000] {
+        for cell in [1u32, 0x8000_0000, 0, 0x0002_0000] {
             push_be32(&mut memory_reg, cell);
         }
         property(&mut structure, reg, &memory_reg);
@@ -213,7 +213,7 @@ mod fdt_tests {
         }
 
         // One memreserve entry plus the required zero/zero terminator.
-        push_be64(&mut blob, 0x8000_2000);
+        push_be64(&mut blob, 0x1_8000_2000);
         push_be64(&mut blob, 0x1000);
         push_be64(&mut blob, 0);
         push_be64(&mut blob, 0);
@@ -230,11 +230,11 @@ mod fdt_tests {
         assert_eq!(fdt::parse_memory(&blob, &mut map), Ok(blob.len()));
         assert_eq!(
             map.ram_ranges().collect::<Vec<_>>(),
-            vec![Range { start: 0x8000_0000, end: 0x8002_0000 }]
+            vec![Range { start: 0x1_8000_0000, end: 0x1_8002_0000 }]
         );
         assert_eq!(
             map.reserved_ranges().collect::<Vec<_>>(),
-            vec![Range { start: 0x8000_2000, end: 0x8000_3000 }]
+            vec![Range { start: 0x1_8000_2000, end: 0x1_8000_3000 }]
         );
     }
 
