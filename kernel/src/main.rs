@@ -112,13 +112,21 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                 let page_count = unsafe { (*allocator).init(&map) };
                 match page_count {
                     Ok(count) if count > 0 => {
+                        let managed = unsafe { (*allocator).managed_pages() };
+                        let available = unsafe { (*allocator).available_pages() };
+                        if managed != count || available != count {
+                            console_write("Physical page allocator: FAIL (initial accounting)\n");
+                            halt();
+                        }
                         console_write("Physical page allocator: OK; managed pages: ");
                         print_hex(count);
                         console_write("\n");
                         match unsafe { (*allocator).alloc() } {
                             Some(page) => {
                                 console_write("PPA alloc/free smoke test: ");
-                                if unsafe { (*allocator).free(page) }.is_ok() {
+                                let freed = unsafe { (*allocator).free(page) }.is_ok();
+                                let restored = unsafe { (*allocator).available_pages() } == count;
+                                if freed && restored {
                                     console_write("PASS\n");
                                 } else {
                                     console_write("FAIL (free rejected)\n");
