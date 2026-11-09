@@ -8,6 +8,11 @@ SECTIONS
 
     .text : ALIGN(4K) {
         KEEP(*(.text.entry))
+        . = ALIGN(4K);
+        __umode_user_start = .;
+        KEEP(*(.text.umode_user))
+        . = ALIGN(4K);
+        __umode_user_end = .;
         *(.text .text.*)
     }
 
