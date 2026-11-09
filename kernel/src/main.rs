@@ -8,7 +8,8 @@ mod fdt;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
-mod trap;\nmod scheduler;
+mod trap;
+mod scheduler;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
@@ -171,9 +172,9 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
 
     trap::smoke_test();
     if scheduler::smoke_test() {
-        console_write("Cooperative scheduler state test: PASS\\n");
+        console_write("Cooperative scheduler state test: PASS\n");
     } else {
-        console_write("Cooperative scheduler state test: FAIL\\n");
+        console_write("Cooperative scheduler state test: FAIL\n");
         halt();
     }
     console_write("Kernel milestone: FDT + physical page allocator + kernel heap + S-mode trap round-trip initialized\n");
