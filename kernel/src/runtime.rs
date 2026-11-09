@@ -24,6 +24,8 @@ static TIMER_INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 static TASK_A_TICKS: AtomicUsize = AtomicUsize::new(0);
 static TASK_B_TICKS: AtomicUsize = AtomicUsize::new(0);
 static TIMER_TEST_REPORTED: AtomicBool = AtomicBool::new(false);
+static TASK_A_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
+static TASK_B_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -76,8 +78,20 @@ unsafe fn make_initial_frame(stack: *mut TaskStack, entry: extern "C" fn() -> !)
 }
 
 extern "C" fn task_a() -> ! {
+    let mut register_marker = 0xA11C_E000usize;
+    let mut stack_canary = 0xA11C_E55Ausize;
+    let stack_canary_ptr = &mut stack_canary as *mut usize;
     loop {
+        unsafe { asm!("addi {value}, {value}, 0", value = inout("s1") register_marker, options(nomem, nostack)); }
+        if register_marker != 0xA11C_E000
+            || unsafe { core::ptr::read_volatile(stack_canary_ptr) } != 0xA11C_E55A {
+            crate::console_write("Task A register/stack context: FAIL\n");
+            crate::halt();
+        }
         TASK_A_TICKS.fetch_add(1, Ordering::Relaxed);
+        if TIMER_INTERRUPTS.load(Ordering::Relaxed) >= 2 {
+            TASK_A_CONTEXT_OK.store(true, Ordering::Release);
+        }
         if TASK_B_TICKS.load(Ordering::Relaxed) != 0
             && TIMER_INTERRUPTS.load(Ordering::Relaxed) >= 2
             && !TIMER_TEST_REPORTED.swap(true, Ordering::AcqRel)
@@ -92,8 +106,20 @@ extern "C" fn task_a() -> ! {
 }
 
 extern "C" fn task_b() -> ! {
+    let mut register_marker = 0xB11C_E000usize;
+    let mut stack_canary = 0xB11C_E55Ausize;
+    let stack_canary_ptr = &mut stack_canary as *mut usize;
     loop {
+        unsafe { asm!("addi {value}, {value}, 0", value = inout("s1") register_marker, options(nomem, nostack)); }
+        if register_marker != 0xB11C_E000
+            || unsafe { core::ptr::read_volatile(stack_canary_ptr) } != 0xB11C_E55A {
+            crate::console_write("Task B register/stack context: FAIL\n");
+            crate::halt();
+        }
         TASK_B_TICKS.fetch_add(1, Ordering::Relaxed);
+        if TIMER_INTERRUPTS.load(Ordering::Relaxed) >= 3 {
+            TASK_B_CONTEXT_OK.store(true, Ordering::Release);
+        }
         core::hint::spin_loop();
     }
 }
@@ -199,6 +225,10 @@ pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
         crate::halt();
     }
     next_frame
+}
+
+pub fn register_context_observed() -> bool {
+    TASK_A_CONTEXT_OK.load(Ordering::Acquire) && TASK_B_CONTEXT_OK.load(Ordering::Acquire)
 }
 
 pub fn timer_preemption_observed() -> bool {
