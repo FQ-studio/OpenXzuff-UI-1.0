@@ -260,3 +260,58 @@ mod fdt_tests {
         );
     }
 }
+
+#[path = "../../src/scheduler.rs"]
+pub mod scheduler;
+
+#[cfg(test)]
+mod scheduler_tests {
+    use super::scheduler::{Scheduler, SchedulerError, TaskId, TaskState, MAX_TASKS};
+
+    #[test]
+    fn round_robin_yield_rotates_ready_tasks() {
+        let mut s = Scheduler::new();
+        let a=s.create_task().unwrap(); let b=s.create_task().unwrap(); let c=s.create_task().unwrap();
+        assert_eq!(s.schedule_next(),Some(a));
+        assert_eq!(s.yield_current(),Ok(Some(b)));
+        assert_eq!(s.yield_current(),Ok(Some(c)));
+        assert_eq!(s.yield_current(),Ok(Some(a)));
+        assert_eq!(s.state(a),Ok(TaskState::Running));
+        assert_eq!(s.state(b),Ok(TaskState::Ready));
+        assert_eq!(s.state(c),Ok(TaskState::Ready));
+    }
+    #[test]
+    fn blocked_task_is_skipped_until_woken() {
+        let mut s=Scheduler::new(); let a=s.create_task().unwrap(); let b=s.create_task().unwrap();
+        assert_eq!(s.schedule_next(),Some(a));
+        assert_eq!(s.block_current(),Ok(Some(b)));
+        assert_eq!(s.state(a),Ok(TaskState::Blocked));
+        assert_eq!(s.wake(a),Ok(()));
+        assert_eq!(s.yield_current(),Ok(Some(a)));
+    }
+    #[test]
+    fn exited_task_is_not_scheduled_again() {
+        let mut s=Scheduler::new(); let a=s.create_task().unwrap(); let b=s.create_task().unwrap();
+        assert_eq!(s.schedule_next(),Some(a));
+        assert_eq!(s.exit_current(),Ok(Some(b)));
+        assert_eq!(s.exit_current(),Ok(None));
+        assert_eq!(s.state(a),Ok(TaskState::Exited));
+        assert_eq!(s.schedule_next(),None);
+    }
+    #[test]
+    fn sole_ready_task_can_yield_to_itself() {
+        let mut s=Scheduler::new(); let a=s.create_task().unwrap();
+        assert_eq!(s.schedule_next(),Some(a));
+        assert_eq!(s.yield_current(),Ok(Some(a)));
+    }
+    #[test]
+    fn rejects_invalid_operations_and_capacity_overflow() {
+        let mut s=Scheduler::new();
+        assert_eq!(s.yield_current(),Err(SchedulerError::NoCurrentTask));
+        assert_eq!(s.state(TaskId(MAX_TASKS)),Err(SchedulerError::InvalidTask));
+        let a=s.create_task().unwrap();
+        assert_eq!(s.wake(a),Err(SchedulerError::NotBlocked));
+        for _ in 1..MAX_TASKS { s.create_task().unwrap(); }
+        assert_eq!(s.create_task(),Err(SchedulerError::Full));
+    }
+}
