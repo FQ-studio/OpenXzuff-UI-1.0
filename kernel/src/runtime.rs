@@ -74,7 +74,7 @@ extern "C" fn task_a() -> ! {
             crate::console_write("RV64 timer preemption + stack context switch: PASS; interrupts=");
             crate::print_hex(ticks);
             crate::console_write("\n");
-            crate::halt();
+            crate::trap::umode_smoke_test();
         }
         core::hint::spin_loop();
     }
