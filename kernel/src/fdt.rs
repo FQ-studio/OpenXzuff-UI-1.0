@@ -14,12 +14,19 @@ fn be32(b: &[u8], p: usize) -> Result<u32, FdtError> {
     let s = b.get(p..p.checked_add(4).ok_or(FdtError::Bounds)?).ok_or(FdtError::Bounds)?;
     Ok(u32::from_be_bytes([s[0], s[1], s[2], s[3]]))
 }
+
+// FDT permits one or two 32-bit cells for a 64-bit address/size.
+// Do not shift an already-populated u64 by another 32 bits: that discards
+// the first cell instead of concatenating the pair.
 fn read_cells(b: &[u8], p: usize, cells: u32) -> Result<u64, FdtError> {
-    let mut value = 0u64;
-    for i in 0..cells {
-        value = value.checked_shl(32).ok_or(FdtError::Bounds)? | be32(b, p + i as usize * 4)? as u64;
+    match cells {
+        1 => Ok(be32(b, p)? as u64),
+        2 => {
+            let low_offset = p.checked_add(4).ok_or(FdtError::Bounds)?;
+            Ok(((be32(b, p)? as u64) << 32) | be32(b, low_offset)? as u64)
+        }
+        _ => Err(FdtError::Cells),
     }
-    Ok(value)
 }
 fn align4(v: usize) -> Result<usize, FdtError> {
     v.checked_add(3).map(|n| n & !3).ok_or(FdtError::Bounds)
