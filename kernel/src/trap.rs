@@ -166,6 +166,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             frame_ptr
         }
         8 => match frame.x[17] {
+            0 => crate::runtime::on_user_exit(frame_ptr),
             1 => {
                 // ABI v1 SendMessage is reserved until the IPC transport exists.
                 if frame.x[10] != 0x4752_4156 {
@@ -201,7 +202,11 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 && crate::runtime::register_context_observed() {
                 crate::console_write("RV64 callee-saved register + private stack preservation: PASS\n");
                 crate::console_write("U-mode SendMessage -ENOSYS + Yield syscall context switch + Sv39 isolation: PASS\n");
-                crate::halt();
+                frame.sepc = match frame.sepc.checked_add(4) {
+                    Some(next) => next,
+                    None => crate::halt(),
+                };
+                return frame_ptr;
             }
             crate::console_write("U-mode syscall return ABI: FAIL\n");
             crate::halt()
