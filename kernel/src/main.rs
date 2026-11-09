@@ -9,7 +9,8 @@ mod memory;
 mod page_alloc;
 mod heap_alloc;
 mod trap;
-mod scheduler;\nmod runtime;
+mod scheduler;
+mod runtime;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
@@ -177,7 +178,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         console_write("Cooperative scheduler state test: FAIL\n");
         halt();
     }
-    console_write("Kernel milestone: launching real timer-preemptive task test\\n");
+    console_write("Kernel milestone: launching real timer-preemptive task test\n");
     runtime::start()
 }
 
