@@ -11,6 +11,7 @@ mod heap_alloc;
 mod trap;
 mod scheduler;
 mod runtime;
+mod vm;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
@@ -89,6 +90,22 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     if total < 40 || total > MAX_FDT_SIZE {
         console_write("FDT parser: FAIL (invalid blob size)\n");
         halt();
+    }
+    let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
+    let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
+    let user_code_start = core::ptr::addr_of!(__umode_user_start) as usize;
+    let user_code_end = core::ptr::addr_of!(__umode_user_end) as usize;
+    let (user_stack_start, user_stack_end) = trap::user_stack_bounds();
+    let fdt_end = match fdt_addr.checked_add(total) {
+        Some(end) => end,
+        None => { console_write("Sv39 page tables: FAIL (FDT range overflow)\n"); halt(); }
+    };
+    match unsafe { vm::enable_bootstrap(
+        kernel_start, kernel_end, fdt_addr, fdt_end,
+        user_code_start, user_code_end, user_stack_start, user_stack_end
+    ) } {
+        Ok(()) if vm::active() => console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n"),
+        _ => { console_write("Sv39 bootstrap page tables: FAIL\n"); halt(); }
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let mut map = memory::MemoryMap::new();
@@ -193,6 +210,8 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
 extern "C" {
     static __kernel_start: u8;
     static __kernel_end: u8;
+    static __umode_user_start: u8;
+    static __umode_user_end: u8;
 }
 
 pub(crate) fn halt() -> ! {
