@@ -12,9 +12,8 @@ inline constexpr std::size_t register_a0 = 10;
 inline constexpr std::size_t register_a5 = 15;
 inline constexpr std::size_t register_a7 = 17;
 
-// Memory layout contract for a future S-mode trap entry. x[n] stores the
-// interrupted value of integer register xn; x0 is always represented as zero.
-// The assembly entry must preserve this exact order and 16-byte stack alignment.
+// Host-testable C++ layout mirror of the live Rust RV64 trap frame.
+// The assembly entry preserves this exact order and 16-byte stack alignment.
 struct alignas(16) TrapFrame {
     std::uint64_t x[32]{};
     std::uint64_t sepc{};
