@@ -8,7 +8,7 @@ const NOP: u32 = 4;
 const END: u32 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation }
+pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase }
 
 fn be32(b: &[u8], p: usize) -> Result<u32, FdtError> {
     let s = b.get(p..p.checked_add(4).ok_or(FdtError::Bounds)?).ok_or(FdtError::Bounds)?;
@@ -41,6 +41,74 @@ fn prop_name(strings: &[u8], offset: u32) -> Result<&[u8], FdtError> {
     let tail = strings.get(offset as usize..).ok_or(FdtError::Bounds)?;
     let n = tail.iter().position(|b| *b == 0).ok_or(FdtError::Structure)?;
     Ok(&tail[..n])
+}
+
+
+/// Read the architectural timebase frequency from the root /cpus node.
+/// SBI TIME deadlines are expressed in these ticks, not in CPU cycles.
+pub fn timebase_frequency(blob: &[u8]) -> Result<usize, FdtError> {
+    if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(blob, 4)? as usize;
+    let off_struct = be32(blob, 8)? as usize;
+    let off_strings = be32(blob, 12)? as usize;
+    let size_strings = be32(blob, 32)? as usize;
+    let size_struct = be32(blob, 36)? as usize;
+    if total < 40 || total > blob.len()
+        || off_struct.checked_add(size_struct).filter(|v| *v <= total).is_none()
+        || off_strings.checked_add(size_strings).filter(|v| *v <= total).is_none() {
+        return Err(FdtError::Bounds);
+    }
+    let strings = &blob[off_strings..off_strings + size_strings];
+    let struct_end = off_struct + size_struct;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut cpus_node = [false; 32];
+
+    while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= cpus_node.len() { return Err(FdtError::Structure); }
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|b| *b == 0).map(|n| cursor + n).ok_or(FdtError::Structure)?;
+                let name = blob.get(cursor..end).ok_or(FdtError::Bounds)?;
+                cpus_node[depth] = depth == 1
+                    && name.strip_suffix(&[0]).unwrap_or(name)
+                        .split(|b| *b == b'@').next() == Some(&b"cpus"[..]);
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+            }
+            PROP => {
+                if cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() || depth == 0 {
+                    return Err(FdtError::Structure);
+                }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|v| *v <= struct_end).ok_or(FdtError::Bounds)?;
+                if depth == 2 && cpus_node[1] && prop_name(strings, nameoff)? == b"timebase-frequency" {
+                    let frequency = match len {
+                        4 => be32(blob, cursor)? as u64,
+                        8 => read_cells(blob, cursor, 2)?,
+                        _ => return Err(FdtError::Timebase),
+                    };
+                    if frequency == 0 { return Err(FdtError::Timebase); }
+                    return usize::try_from(frequency).map_err(|_| FdtError::Timebase);
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => break,
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    Err(FdtError::Timebase)
 }
 
 /// Parse firmware FDT into usable RAM ranges and apply its memreserve entries.
