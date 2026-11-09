@@ -1,5 +1,5 @@
-//! Allocation-free cooperative scheduler state machine.
-//! This selects tasks; architecture context switching and timer preemption are separate.
+//! Allocation-free round-robin task-state scheduler.
+//! The RV64 runtime uses this policy from its timer trap to select saved task contexts.
 pub const MAX_TASKS: usize = 16;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
