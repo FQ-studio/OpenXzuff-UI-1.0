@@ -108,12 +108,18 @@ __gravity_umode_trap_vector:
     j       __gravity_s_trap_vector
     .size __gravity_umode_trap_vector, . - __gravity_umode_trap_vector
 
+    .section .text.umode_user, "ax"
     .align 4
     .global __gravity_u_mode_ecall_probe
     .type __gravity_u_mode_ecall_probe, @function
 __gravity_u_mode_ecall_probe:
     li      a7, 1
     li      a0, 0x47524156
+    li      a1, 0x11
+    li      a2, 0x22
+    li      a3, 0x33
+    li      a4, 0x44
+    li      a5, 0x55
     ecall
     ebreak
     j       .
