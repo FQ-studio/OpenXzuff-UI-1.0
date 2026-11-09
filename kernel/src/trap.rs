@@ -53,7 +53,7 @@ const _: [(); 16] = [(); core::mem::align_of::<TrapFrame>()];
 static BREAKPOINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAME_VALID: AtomicBool = AtomicBool::new(false);
 
-#[repr(align(16))]
+#[repr(align(4096))]
 struct UModeStack([u8; 4096]);
 static mut UMODE_STACK: UModeStack = UModeStack([0; 4096]);
 #[repr(align(16))]
@@ -149,6 +149,11 @@ pub extern "C" fn gravity_s_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     crate::halt()
 }
 
+pub(crate) fn user_stack_bounds() -> (usize, usize) {
+    let start = core::ptr::addr_of!(UMODE_STACK.0) as usize;
+    (start, start + 4096)
+}
+
 #[no_mangle]
 pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut TrapFrame {
     let frame = unsafe { &mut *frame_ptr };
@@ -160,11 +165,13 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
 
     match frame.scause {
         8 => {
+            // ABI v1 SendMessage=1 is reserved until the IPC transport exists.
+            // The hardware trap path must therefore return -ENOSYS in a0.
             if frame.x[17] != 1 || frame.x[10] != 0x4752_4156 {
-                crate::console_write("U-mode ECALL ABI: FAIL\n");
+                crate::console_write("U-mode syscall ABI: FAIL\n");
                 crate::halt();
             }
-            frame.x[10] = 0x4752_4156;
+            frame.x[10] = (-38isize) as usize;
             frame.sepc = match frame.sepc.checked_add(4) {
                 Some(next) => next,
                 None => crate::halt(),
@@ -172,7 +179,16 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             frame_ptr
         }
         3 => {
-            crate::console_write("U-mode ECALL + supervisor stack switch + sret: PASS\n");
+            let args_preserved = frame.x[11] == 0x11
+                && frame.x[12] == 0x22
+                && frame.x[13] == 0x33
+                && frame.x[14] == 0x44
+                && frame.x[15] == 0x55;
+            if frame.x[10] == (-38isize) as usize && args_preserved {
+                crate::console_write("U-mode ECALL ABI -ENOSYS + Sv39 user-page isolation + supervisor stack switch + sret: PASS\n");
+                crate::halt();
+            }
+            crate::console_write("U-mode syscall return ABI: FAIL\n");
             crate::halt()
         }
         _ => {
