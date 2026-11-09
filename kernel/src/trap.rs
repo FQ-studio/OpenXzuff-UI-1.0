@@ -197,7 +197,9 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 && frame.x[15] == 0x55;
             if frame.x[10] == 0 && args_preserved
                 && UMODE_ISOLATION_FAULT.load(Ordering::Acquire)
-                && crate::runtime::timer_preemption_observed() {
+                && crate::runtime::timer_preemption_observed()
+                && crate::runtime::register_context_observed() {
+                crate::console_write("RV64 callee-saved register + private stack preservation: PASS\n");
                 crate::console_write("U-mode SendMessage -ENOSYS + Yield syscall context switch + Sv39 isolation: PASS\n");
                 crate::halt();
             }
