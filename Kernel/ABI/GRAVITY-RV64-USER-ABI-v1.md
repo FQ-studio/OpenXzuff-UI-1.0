@@ -22,7 +22,7 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 
 | ID | Name | Current RV64 trap/runtime status |
 |---:|---|---|
-| 0 | Exit | -ENOSYS; process teardown/reaping is not wired to the hardware path |
+| 0 | Exit | Implemented for the current U-mode test task; marks it Exited and schedules the next task. General resource reaping is not implemented |
 | 1 | SendMessage | -ENOSYS; exercised by the U-mode QEMU probe |
 | 2 | ReceiveMessage | -ENOSYS |
 | 3 | MapMemory | -ENOSYS |
@@ -55,7 +55,7 @@ For function main() returns i32 { return N; }, where N is -2048..2047:
 2. addi a7, zero, 0 selects Gravity Kernel Exit (syscall ID 0).
 3. ecall requests the kernel service.
 
-The compiler does not depend on the initial value of a7. The live hardware path currently returns -ENOSYS for Exit because process teardown is not implemented.
+The compiler does not depend on the initial value of a7. The live hardware path implements Exit for the built-in U-mode test task; general process cleanup and resource reaping remain incomplete.
 
 ## Implementation boundary
 
