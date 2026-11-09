@@ -5,7 +5,7 @@ const ALIGN: usize = 16;
 const MAX_BLOCKS: usize = 128;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HeapError { InvalidArena, Capacity, InvalidPointer, DoubleFree }
+pub enum HeapError { InvalidArena, InvalidPointer, DoubleFree }
 
 #[derive(Clone, Copy)]
 struct Block { offset: usize, size: usize, used: bool }
