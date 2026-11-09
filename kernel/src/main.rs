@@ -94,15 +94,15 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
-        Err(_) => { console_write("FDT timebase-frequency: FAIL\\n"); halt(); }
+        Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
     };
     let timer_quantum = match runtime::configure_timebase(timebase_hz) {
         Ok(value) => value,
-        Err(_) => { console_write("Timer configuration: FAIL (invalid timebase)\\n"); halt(); }
+        Err(_) => { console_write("Timer configuration: FAIL (invalid timebase)\n"); halt(); }
     };
     console_write("FDT timebase-frequency: parsed; 10 ms quantum ticks=");
     print_hex(timer_quantum);
-    console_write("\\n");
+    console_write("\n");
 
     let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
     let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
