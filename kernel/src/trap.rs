@@ -57,7 +57,7 @@ static UMODE_ISOLATION_FAULT: AtomicBool = AtomicBool::new(false);
 #[repr(align(4096))]
 struct UModeStack([u8; 4096]);
 static mut UMODE_STACK: UModeStack = UModeStack([0; 4096]);
-#[repr(align(16))]
+#[repr(align(4096))]
 struct SupervisorTrapStack([u8; 4096]);
 static mut SUPERVISOR_TRAP_STACK: SupervisorTrapStack = SupervisorTrapStack([0; 4096]);
 
@@ -65,7 +65,6 @@ extern "C" {
     static __gravity_umode_trap_vector: u8;
     static __kernel_start: u8;
     fn __gravity_s_trap_roundtrip_test() -> usize;
-    fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
     fn __gravity_u_mode_ecall_probe() -> !;
 }
 
@@ -86,33 +85,15 @@ pub fn smoke_test() {
     }
 }
 
-/// Start a real U-mode ECALL -> S-mode handler -> sret round trip.
-/// The U task uses a separate user stack; its trap frame is allocated only on
-/// the dedicated supervisor trap stack through the sscratch exchange.
-pub fn umode_smoke_test() -> ! {
-    unsafe {
-        asm!(
-            "csrc sie, {sie_mask}",
-            "csrc sstatus, {sstatus_mask}",
-            sie_mask = in(reg) (1usize << 5),
-            sstatus_mask = in(reg) (1usize << 1),
-            options(nostack)
-        );
-        let user_base = core::ptr::addr_of_mut!(UMODE_STACK.0).cast::<u8>();
-        let user_top = user_base.add(4096) as usize;
-        let supervisor_base = core::ptr::addr_of_mut!(SUPERVISOR_TRAP_STACK.0).cast::<u8>();
-        let supervisor_top = supervisor_base.add(4096) as usize;
-        let gp: usize;
-        asm!("mv {gp}, gp", gp = out(reg) gp, options(nomem, nostack));
-        let task_frame = (supervisor_top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
-        task_frame.write(TrapFrame::new_user(__gravity_u_mode_ecall_probe as usize, user_top));
-        asm!(
-            "csrw sscratch, {stack}",
-            stack = in(reg) supervisor_top,
-            options(nostack)
-        );
-        __gravity_s_trap_resume(task_frame)
-    }
+/// Build the initial U-mode frame on its private supervisor trap stack.
+pub(crate) unsafe fn create_user_task_frame() -> *mut TrapFrame {
+    let user_base = core::ptr::addr_of_mut!(UMODE_STACK.0).cast::<u8>();
+    let user_top = user_base.add(4096) as usize;
+    let supervisor_base = core::ptr::addr_of_mut!(SUPERVISOR_TRAP_STACK.0).cast::<u8>();
+    let supervisor_top = supervisor_base.add(4096) as usize;
+    let frame = (supervisor_top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
+    frame.write(TrapFrame::new_user(__gravity_u_mode_ecall_probe as *const () as usize, user_top));
+    frame
 }
 
 #[no_mangle]
@@ -165,6 +146,11 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
         crate::halt();
     }
 
+    let interrupt_bit = 1usize << (usize::BITS - 1);
+    if frame.scause == (interrupt_bit | 5) {
+        return crate::runtime::on_timer(frame_ptr);
+    }
+
     match frame.scause {
         13 => {
             let protected_kernel_page = core::ptr::addr_of!(__kernel_start) as usize;
@@ -179,29 +165,40 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             };
             frame_ptr
         }
-        8 => {
-            // ABI v1 SendMessage=1 is reserved until the IPC transport exists.
-            // The hardware trap path must therefore return -ENOSYS in a0.
-            if frame.x[17] != 1 || frame.x[10] != 0x4752_4156 {
-                crate::console_write("U-mode syscall ABI: FAIL\n");
-                crate::halt();
+        8 => match frame.x[17] {
+            1 => {
+                // ABI v1 SendMessage is reserved until the IPC transport exists.
+                if frame.x[10] != 0x4752_4156 {
+                    crate::console_write("U-mode SendMessage arguments: FAIL\n");
+                    crate::halt();
+                }
+                frame.x[10] = (-38isize) as usize;
+                frame.sepc = match frame.sepc.checked_add(4) {
+                    Some(next) => next,
+                    None => crate::halt(),
+                };
+                frame_ptr
             }
-            frame.x[10] = (-38isize) as usize;
-            frame.sepc = match frame.sepc.checked_add(4) {
-                Some(next) => next,
-                None => crate::halt(),
-            };
-            frame_ptr
-        }
+            4 => crate::runtime::on_user_yield(frame_ptr),
+            _ => {
+                frame.x[10] = (-38isize) as usize;
+                frame.sepc = match frame.sepc.checked_add(4) {
+                    Some(next) => next,
+                    None => crate::halt(),
+                };
+                frame_ptr
+            }
+        },
         3 => {
             let args_preserved = frame.x[11] == 0x11
                 && frame.x[12] == 0x22
                 && frame.x[13] == 0x33
                 && frame.x[14] == 0x44
                 && frame.x[15] == 0x55;
-            if frame.x[10] == (-38isize) as usize && args_preserved
-                && UMODE_ISOLATION_FAULT.load(Ordering::Acquire) {
-                crate::console_write("U-mode ECALL ABI -ENOSYS + Sv39 user-page isolation + supervisor stack switch + sret: PASS\n");
+            if frame.x[10] == 0 && args_preserved
+                && UMODE_ISOLATION_FAULT.load(Ordering::Acquire)
+                && crate::runtime::timer_preemption_observed() {
+                crate::console_write("U-mode SendMessage -ENOSYS + Yield syscall context switch + Sv39 isolation: PASS\n");
                 crate::halt();
             }
             crate::console_write("U-mode syscall return ABI: FAIL\n");
