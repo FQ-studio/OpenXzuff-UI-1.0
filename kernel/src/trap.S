@@ -63,10 +63,18 @@ __gravity_s_trap_resume:
     mv      sp, a0
 
 .Lgravity_s_trap_restore:
+    ld      t0, 264(sp)
+    andi    t1, t0, 256
+    bnez    t1, .Lgravity_restore_s_mode
+    addi    t1, sp, 288
+    csrw    sscratch, t1
+    j       .Lgravity_restore_status
+.Lgravity_restore_s_mode:
+    csrw    sscratch, zero
+.Lgravity_restore_status:
+    csrw    sstatus, t0
     ld      t0, 256(sp)
     csrw    sepc, t0
-    ld      t0, 264(sp)
-    csrw    sstatus, t0
     ld      ra,   8(sp)
     ld      gp,  24(sp)
     ld      tp,  32(sp)
