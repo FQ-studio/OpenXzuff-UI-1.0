@@ -169,7 +169,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
         13 => {
             let protected_kernel_page = core::ptr::addr_of!(__kernel_start) as usize;
             if frame.stval != protected_kernel_page {
-                crate::console_write("U-mode isolation fault address: FAIL\\n");
+                crate::console_write("U-mode isolation fault address: FAIL\n");
                 crate::halt();
             }
             UMODE_ISOLATION_FAULT.store(true, Ordering::Release);
@@ -199,7 +199,8 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 && frame.x[13] == 0x33
                 && frame.x[14] == 0x44
                 && frame.x[15] == 0x55;
-            if frame.x[10] == (-38isize) as usize && args_preserved\n                && UMODE_ISOLATION_FAULT.load(Ordering::Acquire) {
+            if frame.x[10] == (-38isize) as usize && args_preserved
+                && UMODE_ISOLATION_FAULT.load(Ordering::Acquire) {
                 crate::console_write("U-mode ECALL ABI -ENOSYS + Sv39 user-page isolation + supervisor stack switch + sret: PASS\n");
                 crate::halt();
             }
