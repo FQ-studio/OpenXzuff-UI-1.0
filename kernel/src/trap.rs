@@ -70,7 +70,7 @@ extern "C" {
 
 pub fn install() {
     let vector = core::ptr::addr_of!(__gravity_umode_trap_vector) as usize;
-    unsafe { asm!("csrw stvec, {vector}", vector = in(reg) vector, options(nostack)); }
+    unsafe { asm!("csrw stvec, {vector}", "csrw sscratch, zero", vector = in(reg) vector, options(nostack)); }
 }
 
 pub fn smoke_test() {
@@ -91,9 +91,10 @@ pub fn smoke_test() {
 pub fn umode_smoke_test() -> ! {
     unsafe {
         asm!(
-            "csrc sie, {mask}",
-            "csrc sstatus, {mask}",
-            mask = in(reg) (1usize << 5),
+            "csrc sie, {sie_mask}",
+            "csrc sstatus, {sstatus_mask}",
+            sie_mask = in(reg) (1usize << 5),
+            sstatus_mask = in(reg) (1usize << 1),
             options(nostack)
         );
         let user_base = core::ptr::addr_of_mut!(UMODE_STACK.0).cast::<u8>();
