@@ -52,6 +52,7 @@ const _: [(); 16] = [(); core::mem::align_of::<TrapFrame>()];
 
 static BREAKPOINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAME_VALID: AtomicBool = AtomicBool::new(false);
+static UMODE_ISOLATION_FAULT: AtomicBool = AtomicBool::new(false);
 
 #[repr(align(4096))]
 struct UModeStack([u8; 4096]);
@@ -62,6 +63,7 @@ static mut SUPERVISOR_TRAP_STACK: SupervisorTrapStack = SupervisorTrapStack([0; 
 
 extern "C" {
     static __gravity_umode_trap_vector: u8;
+    static __kernel_start: u8;
     fn __gravity_s_trap_roundtrip_test() -> usize;
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
     fn __gravity_u_mode_ecall_probe() -> !;
@@ -150,7 +152,7 @@ pub extern "C" fn gravity_s_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
 }
 
 pub(crate) fn user_stack_bounds() -> (usize, usize) {
-    let start = core::ptr::addr_of!(UMODE_STACK.0) as usize;
+    let start = unsafe { core::ptr::addr_of!(UMODE_STACK.0) as usize };
     (start, start + 4096)
 }
 
@@ -164,6 +166,19 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     }
 
     match frame.scause {
+        13 => {
+            let protected_kernel_page = core::ptr::addr_of!(__kernel_start) as usize;
+            if frame.stval != protected_kernel_page {
+                crate::console_write("U-mode isolation fault address: FAIL\\n");
+                crate::halt();
+            }
+            UMODE_ISOLATION_FAULT.store(true, Ordering::Release);
+            frame.sepc = match frame.sepc.checked_add(4) {
+                Some(next) => next,
+                None => crate::halt(),
+            };
+            frame_ptr
+        }
         8 => {
             // ABI v1 SendMessage=1 is reserved until the IPC transport exists.
             // The hardware trap path must therefore return -ENOSYS in a0.
@@ -184,7 +199,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 && frame.x[13] == 0x33
                 && frame.x[14] == 0x44
                 && frame.x[15] == 0x55;
-            if frame.x[10] == (-38isize) as usize && args_preserved {
+            if frame.x[10] == (-38isize) as usize && args_preserved\n                && UMODE_ISOLATION_FAULT.load(Ordering::Acquire) {
                 crate::console_write("U-mode ECALL ABI -ENOSYS + Sv39 user-page isolation + supervisor stack switch + sret: PASS\n");
                 crate::halt();
             }
