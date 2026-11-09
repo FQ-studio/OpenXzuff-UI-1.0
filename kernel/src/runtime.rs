@@ -1,15 +1,15 @@
-//! RV64 S-mode task runtime: real trap-frame context switching and SBI timer preemption.
+//! Mixed S/U-mode runtime with SBI timer preemption and trap-frame context switching.
 use core::arch::asm;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::scheduler::{Scheduler, TaskId};
 use crate::trap::TrapFrame;
 
-const TASK_COUNT: usize = 2;
+const TASK_COUNT: usize = 3;
 const STACK_SIZE: usize = 16 * 1024;
 const SBI_EXT_TIME: usize = 0x5449_4d45;
 const SBI_FID_SET_TIMER: usize = 0;
-const TIMER_QUANTUM: usize = 100_000; // QEMU virt timebase is 10 MHz: 10 ms.
+const TIMER_QUANTUM: usize = 100_000; // QEMU virt timebase: 10 MHz, 10 ms.
 const SIE_STIE: usize = 1 << 5;
 const SSTATUS_SIE: usize = 1 << 1;
 
@@ -23,6 +23,7 @@ static mut TASK_FRAMES: [usize; TASK_COUNT] = [0; TASK_COUNT];
 static TIMER_INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 static TASK_A_TICKS: AtomicUsize = AtomicUsize::new(0);
 static TASK_B_TICKS: AtomicUsize = AtomicUsize::new(0);
+static TIMER_TEST_REPORTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -62,19 +63,21 @@ unsafe fn make_initial_frame(stack: *mut TaskStack, entry: extern "C" fn() -> !)
     let frame = (top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
     let gp: usize;
     asm!("mv {gp}, gp", gp = out(reg) gp, options(nomem, nostack));
-    frame.write(TrapFrame::new(entry as usize, top, gp));
+    frame.write(TrapFrame::new(entry as *const () as usize, top, gp));
     frame
 }
 
 extern "C" fn task_a() -> ! {
     loop {
         TASK_A_TICKS.fetch_add(1, Ordering::Relaxed);
-        if TASK_B_TICKS.load(Ordering::Relaxed) != 0 {
+        if TASK_B_TICKS.load(Ordering::Relaxed) != 0
+            && TIMER_INTERRUPTS.load(Ordering::Relaxed) >= 2
+            && !TIMER_TEST_REPORTED.swap(true, Ordering::AcqRel)
+        {
             let ticks = TIMER_INTERRUPTS.load(Ordering::Relaxed);
             crate::console_write("RV64 timer preemption + stack context switch: PASS; interrupts=");
             crate::print_hex(ticks);
             crate::console_write("\n");
-            crate::trap::umode_smoke_test();
         }
         core::hint::spin_loop();
     }
@@ -87,26 +90,30 @@ extern "C" fn task_b() -> ! {
     }
 }
 
-/// Start two independent S-mode tasks. This function transfers control to the
-/// first task and never returns; timer interrupts switch between saved frames.
+/// Create two S-mode tasks and one isolated U-mode task, then enter task A.
 pub fn start() -> ! {
-    let (a, b) = unsafe {
+    let (a, b, user) = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
         let a = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
         let b = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
+        let user = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
         let stack0 = core::ptr::addr_of_mut!(TASK0_STACK);
         let stack1 = core::ptr::addr_of_mut!(TASK1_STACK);
         let frame0 = make_initial_frame(stack0, task_a);
         let frame1 = make_initial_frame(stack1, task_b);
+        let user_frame = crate::trap::create_user_task_frame();
         TASK_FRAMES[a.0] = frame0 as usize;
         TASK_FRAMES[b.0] = frame1 as usize;
-        (a, b)
+        TASK_FRAMES[user.0] = user_frame as usize;
+        (a, b, user)
     };
 
     let first = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
         if (*scheduler).schedule_next() != Some(a) { crate::halt(); }
-        if (*scheduler).state(b).is_err() { crate::halt(); }
+        if (*scheduler).state(b).is_err() || (*scheduler).state(user).is_err() {
+            crate::halt();
+        }
         TASK_FRAMES[a.0] as *mut TrapFrame
     };
 
@@ -123,8 +130,7 @@ pub fn start() -> ! {
     }
 }
 
-/// Called only from the S-mode trap handler with supervisor interrupts masked.
-/// Save the interrupted frame, rotate the run queue, and return the next frame.
+/// Called by both S-origin and U-origin supervisor timer traps.
 pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
     let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
     let current = match current {
@@ -149,4 +155,46 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
         crate::halt();
     }
     next_frame
+}
+
+/// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
+/// retained on the dedicated supervisor trap stack and resumed after rotation.
+pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = match current {
+        Some(id) if id.0 < TASK_COUNT => id,
+        _ => { crate::console_write("Yield syscall: no current task\n"); crate::halt(); }
+    };
+    unsafe {
+        if (*core::ptr::addr_of!(SCHEDULER)).state(current) != Ok(crate::scheduler::TaskState::Running) {
+            crate::console_write("Yield syscall: task is not running\n");
+            crate::halt();
+        }
+        (*frame).x[10] = 0;
+        (*frame).sepc = match (*frame).sepc.checked_add(4) {
+            Some(next) => next,
+            None => crate::halt(),
+        };
+        TASK_FRAMES[current.0] = frame as usize;
+    }
+
+    let next = unsafe {
+        let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
+        match (*scheduler).yield_current() {
+            Ok(Some(id)) => id,
+            _ => { crate::console_write("Yield syscall: scheduler has no next task\n"); crate::halt(); }
+        }
+    };
+    let next_frame = unsafe { TASK_FRAMES[next.0] as *mut TrapFrame };
+    if next_frame.is_null() {
+        crate::console_write("Yield syscall: missing next context\n");
+        crate::halt();
+    }
+    next_frame
+}
+
+pub fn timer_preemption_observed() -> bool {
+    TIMER_INTERRUPTS.load(Ordering::Acquire) >= 2
+        && TASK_A_TICKS.load(Ordering::Acquire) != 0
+        && TASK_B_TICKS.load(Ordering::Acquire) != 0
 }
