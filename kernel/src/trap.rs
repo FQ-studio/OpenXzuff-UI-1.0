@@ -61,7 +61,6 @@ struct SupervisorTrapStack([u8; 4096]);
 static mut SUPERVISOR_TRAP_STACK: SupervisorTrapStack = SupervisorTrapStack([0; 4096]);
 
 extern "C" {
-    static __gravity_s_trap_vector: u8;
     static __gravity_umode_trap_vector: u8;
     fn __gravity_s_trap_roundtrip_test() -> usize;
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -103,8 +102,6 @@ pub fn umode_smoke_test() -> ! {
         let supervisor_top = supervisor_base.add(4096) as usize;
         let gp: usize;
         asm!("mv {gp}, gp", gp = out(reg) gp, options(nomem, nostack));
-        let frame = core::ptr::addr_of_mut!(UMODE_STACK) as *mut UModeStack;
-        let _ = frame; // Keep the static stack's address materialized before frame setup.
         let task_frame = (supervisor_top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
         task_frame.write(TrapFrame::new_user(__gravity_u_mode_ecall_probe as usize, user_top));
         asm!(
