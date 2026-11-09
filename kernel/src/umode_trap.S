@@ -92,6 +92,9 @@ __gravity_u_mode_ecall_probe:
     li      a0, 0x47524156
     ecall
     ebreak
+    li      a7, 0
+    li      a0, 0
+    ecall
 .Lumode_probe_failed:
     ebreak
     j       .
