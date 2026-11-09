@@ -26,6 +26,8 @@ static TASK_B_TICKS: AtomicUsize = AtomicUsize::new(0);
 static TIMER_TEST_REPORTED: AtomicBool = AtomicBool::new(false);
 static TASK_A_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
 static TASK_B_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
+static USER_TASK_EXITED: AtomicBool = AtomicBool::new(false);
+static USER_EXIT_STATUS: AtomicUsize = AtomicUsize::new(usize::MAX);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -86,6 +88,15 @@ extern "C" fn task_a() -> ! {
         if register_marker != 0xA11C_E000
             || unsafe { core::ptr::read_volatile(stack_canary_ptr) } != 0xA11C_E55A {
             crate::console_write("Task A register/stack context: FAIL\n");
+            crate::halt();
+        }
+        if USER_TASK_EXITED.load(Ordering::Acquire) {
+            let status = USER_EXIT_STATUS.load(Ordering::Acquire);
+            if status == 0 {
+                crate::console_write("U-mode Exit syscall + scheduler task exit: PASS\n");
+                crate::halt();
+            }
+            crate::console_write("U-mode Exit syscall status: FAIL\n");
             crate::halt();
         }
         TASK_A_TICKS.fetch_add(1, Ordering::Relaxed);
@@ -229,6 +240,33 @@ pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
 
 pub fn register_context_observed() -> bool {
     TASK_A_CONTEXT_OK.load(Ordering::Acquire) && TASK_B_CONTEXT_OK.load(Ordering::Acquire)
+}
+
+/// Exit the current U-mode test task and schedule another runnable task.
+pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = match current {
+        Some(id) if id.0 == 2 => id,
+        _ => { crate::console_write("Exit syscall: invalid current task\n"); crate::halt(); }
+    };
+    let status = unsafe { (*frame).x[10] };
+    USER_EXIT_STATUS.store(status, Ordering::Release);
+    USER_TASK_EXITED.store(true, Ordering::Release);
+
+    let next = unsafe {
+        let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
+        match (*scheduler).exit_current() {
+            Ok(Some(id)) => id,
+            _ => { crate::console_write("Exit syscall: scheduler has no next task\n"); crate::halt(); }
+        }
+    };
+    let next_frame = unsafe { TASK_FRAMES[next.0] as *mut TrapFrame };
+    if next_frame.is_null() {
+        crate::console_write("Exit syscall: missing next context\n");
+        crate::halt();
+    }
+    let _ = current;
+    next_frame
 }
 
 pub fn timer_preemption_observed() -> bool {
