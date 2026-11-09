@@ -2,6 +2,7 @@ use core::arch::{asm, global_asm};
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 global_asm!(include_str!("trap.S"));
+global_asm!(include_str!("umode_trap.S"));
 
 #[repr(C, align(16))]
 pub(crate) struct TrapFrame {
@@ -17,13 +18,26 @@ impl TrapFrame {
         let mut frame = Self {
             x: [0; 32],
             sepc: entry,
-            // Return to S-mode with interrupts enabled after sret.
             sstatus: (1 << 8) | (1 << 5),
             scause: 0,
             stval: 0,
         };
         frame.x[2] = stack_top;
         frame.x[3] = gp;
+        frame
+    }
+
+    fn new_user(entry: usize, user_stack_top: usize) -> Self {
+        let mut frame = Self {
+            x: [0; 32],
+            sepc: entry,
+            // SPP=0 selects U-mode; SPIE=1 enables supervisor interrupts on
+            // a future privilege return (the U-mode probe itself has no SIE).
+            sstatus: 1 << 5,
+            scause: 0,
+            stval: 0,
+        };
+        frame.x[2] = user_stack_top;
         frame
     }
 }
@@ -39,13 +53,23 @@ const _: [(); 16] = [(); core::mem::align_of::<TrapFrame>()];
 static BREAKPOINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAME_VALID: AtomicBool = AtomicBool::new(false);
 
+#[repr(align(16))]
+struct UModeStack([u8; 4096]);
+static mut UMODE_STACK: UModeStack = UModeStack([0; 4096]);
+#[repr(align(16))]
+struct SupervisorTrapStack([u8; 4096]);
+static mut SUPERVISOR_TRAP_STACK: SupervisorTrapStack = SupervisorTrapStack([0; 4096]);
+
 extern "C" {
     static __gravity_s_trap_vector: u8;
+    static __gravity_umode_trap_vector: u8;
     fn __gravity_s_trap_roundtrip_test() -> usize;
+    fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
+    fn __gravity_u_mode_ecall_probe() -> !;
 }
 
 pub fn install() {
-    let vector = core::ptr::addr_of!(__gravity_s_trap_vector) as usize;
+    let vector = core::ptr::addr_of!(__gravity_umode_trap_vector) as usize;
     unsafe { asm!("csrw stvec, {vector}", vector = in(reg) vector, options(nostack)); }
 }
 
@@ -58,6 +82,36 @@ pub fn smoke_test() {
     } else {
         crate::console_write("S-mode trap round-trip: FAIL\n");
         crate::halt();
+    }
+}
+
+/// Start a real U-mode ECALL -> S-mode handler -> sret round trip.
+/// The U task uses a separate user stack; its trap frame is allocated only on
+/// the dedicated supervisor trap stack through the sscratch exchange.
+pub fn umode_smoke_test() -> ! {
+    unsafe {
+        asm!(
+            "csrc sie, {mask}",
+            "csrc sstatus, {mask}",
+            mask = in(reg) (1usize << 5),
+            options(nostack)
+        );
+        let user_base = core::ptr::addr_of_mut!(UMODE_STACK.0).cast::<u8>();
+        let user_top = user_base.add(4096) as usize;
+        let supervisor_base = core::ptr::addr_of_mut!(SUPERVISOR_TRAP_STACK.0).cast::<u8>();
+        let supervisor_top = supervisor_base.add(4096) as usize;
+        let gp: usize;
+        asm!("mv {gp}, gp", gp = out(reg) gp, options(nomem, nostack));
+        let frame = core::ptr::addr_of_mut!(UMODE_STACK) as *mut UModeStack;
+        let _ = frame; // Keep the static stack's address materialized before frame setup.
+        let task_frame = (supervisor_top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
+        task_frame.write(TrapFrame::new_user(__gravity_u_mode_ecall_probe as usize, user_top));
+        asm!(
+            "csrw sscratch, {stack}",
+            stack = in(reg) supervisor_top,
+            options(nostack)
+        );
+        __gravity_s_trap_resume(task_frame)
     }
 }
 
@@ -95,4 +149,41 @@ pub extern "C" fn gravity_s_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     crate::print_hex(frame.stval);
     crate::console_write("\n");
     crate::halt()
+}
+
+#[no_mangle]
+pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut TrapFrame {
+    let frame = unsafe { &mut *frame_ptr };
+    let from_user = frame.sstatus & (1 << 8) == 0;
+    if !from_user {
+        crate::console_write("U-mode trap gate: rejected S-origin frame\n");
+        crate::halt();
+    }
+
+    match frame.scause {
+        8 => {
+            if frame.x[17] != 1 || frame.x[10] != 0x4752_4156 {
+                crate::console_write("U-mode ECALL ABI: FAIL\n");
+                crate::halt();
+            }
+            frame.x[10] = 0x4752_4156;
+            frame.sepc = match frame.sepc.checked_add(4) {
+                Some(next) => next,
+                None => crate::halt(),
+            };
+            frame_ptr
+        }
+        3 => {
+            crate::console_write("U-mode ECALL + supervisor stack switch + sret: PASS\n");
+            crate::halt()
+        }
+        _ => {
+            crate::console_write("Unexpected U-mode trap; scause=0x");
+            crate::print_hex(frame.scause);
+            crate::console_write(" sepc=0x");
+            crate::print_hex(frame.sepc);
+            crate::console_write("\n");
+            crate::halt()
+        }
+    }
 }
