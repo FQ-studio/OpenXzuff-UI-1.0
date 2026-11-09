@@ -65,6 +65,7 @@ jobs:
           grep -q 'Cooperative scheduler state test: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'RV64 timer preemption + stack context switch: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'RV64 callee-saved register + private stack preservation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'U-mode Exit syscall + scheduler task exit: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode SendMessage -ENOSYS + Yield syscall context switch + Sv39 isolation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
