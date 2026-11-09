@@ -113,6 +113,9 @@ __gravity_umode_trap_vector:
     .global __gravity_u_mode_ecall_probe
     .type __gravity_u_mode_ecall_probe, @function
 __gravity_u_mode_ecall_probe:
+    /* U-mode must not be able to read the supervisor-only kernel image. */
+    la      t0, __kernel_start
+    ld      t1, 0(t0)
     li      a7, 1
     li      a0, 0x47524156
     li      a1, 0x11
