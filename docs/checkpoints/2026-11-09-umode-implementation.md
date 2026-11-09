@@ -27,7 +27,7 @@ This continuation adds the first code path for a real U-mode ECALL round-trip wh
 
 ## Important validation boundary
 
-These are source changes, not a test result. The GitHub commit-status query currently returned an empty status list for the latest source commit. No new host build, RV64 cross-build, QEMU boot, or GitHub Actions PASS is claimed in this checkpoint.
+These are source changes, not a test result. GitHub Actions run #83 (run ID `42574760556`) was found for source commit `3b7aa872056e0177a9f0d936e35aeca606681f1f`. At the time of checkpoint update it was `in_progress`; setup was still running and host tests/build/QEMU had not started. No new host build, RV64 cross-build, QEMU boot, or GitHub Actions PASS is claimed in this checkpoint.
 
 ## Risks and required CI review
 
