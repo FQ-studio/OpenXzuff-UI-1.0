@@ -3,19 +3,17 @@
     .global __gravity_s_trap_vector
     .type   __gravity_s_trap_vector, @function
 
-/* S-mode-only direct trap vector. The current image has no U-mode execution;
- * a future U-mode path must switch to a supervisor-owned stack before using
- * this entry. TrapFrame offsets match the 288-byte C++/Rust layout contract.
+/* Save the interrupted RV64 register set and return through the frame selected
+ * by Rust. The handler returns a TrapFrame pointer in a0, allowing a real task
+ * context switch by changing the restore stack rather than merely changing PC.
  */
 __gravity_s_trap_vector:
     addi    sp, sp, -288
-
-    /* Save every integer register before using a temporary register. */
     sd      zero, 0(sp)
     sd      ra,   8(sp)
     sd      t0,  40(sp)
     addi    t0, sp, 288
-    sd      t0,  16(sp)       /* interrupted sp */
+    sd      t0,  16(sp)
     sd      gp,  24(sp)
     sd      tp,  32(sp)
     sd      t1,  48(sp)
@@ -44,7 +42,6 @@ __gravity_s_trap_vector:
     sd      t4, 232(sp)
     sd      t5, 240(sp)
     sd      t6, 248(sp)
-
     csrr    t0, sepc
     sd      t0, 256(sp)
     csrr    t0, sstatus
@@ -56,13 +53,20 @@ __gravity_s_trap_vector:
 
     mv      a0, sp
     call    gravity_s_trap_handler
+    mv      sp, a0
+    j       .Lgravity_s_trap_restore
 
-    /* Restore the return PC/status selected by the handler. */
+    .global __gravity_s_trap_resume
+    .type   __gravity_s_trap_resume, @function
+/* Enter the first task from Rust using the same complete frame restore path. */
+__gravity_s_trap_resume:
+    mv      sp, a0
+
+.Lgravity_s_trap_restore:
     ld      t0, 256(sp)
     csrw    sepc, t0
     ld      t0, 264(sp)
     csrw    sstatus, t0
-
     ld      ra,   8(sp)
     ld      gp,  24(sp)
     ld      tp,  32(sp)
@@ -97,11 +101,9 @@ __gravity_s_trap_vector:
     sret
 
     .size __gravity_s_trap_vector, . - __gravity_s_trap_vector
+    .size __gravity_s_trap_resume, . - __gravity_s_trap_resume
 
-/* ABI-conforming test helper. It seeds x1 and x5-x31 with distinct sentinels,
- * executes one delegated breakpoint, snapshots every GPR after sret, checks
- * the snapshots, then restores the callee-saved registers and returns 0/1.
- */
+/* Keep the existing full-GPR breakpoint round-trip probe. */
     .align  4
     .global __gravity_s_trap_roundtrip_test
     .type   __gravity_s_trap_roundtrip_test, @function
@@ -124,7 +126,6 @@ __gravity_s_trap_roundtrip_test:
     sd      tp, 112(sp)
     addi    t0, sp, 512
     sd      t0, 120(sp)
-
     li      ra,  0x101
     li      t0,  0x105
     li      t1,  0x106
@@ -154,8 +155,6 @@ __gravity_s_trap_roundtrip_test:
     li      t5,  0x11e
     li      t6,  0x11f
     ebreak
-
-    /* Snapshot every register before using any register as a comparison temp. */
     sd      ra, 128(sp)
     sd      gp, 136(sp)
     sd      tp, 144(sp)
@@ -186,7 +185,6 @@ __gravity_s_trap_roundtrip_test:
     sd      t4, 352(sp)
     sd      t5, 360(sp)
     sd      t6, 368(sp)
-
     ld      t6, 128(sp)
     li      t5, 0x101
     bne     t6, t5, .Lgravity_trap_fail
@@ -277,17 +275,13 @@ __gravity_s_trap_roundtrip_test:
     ld      t6, 368(sp)
     li      t5, 0x11f
     bne     t6, t5, .Lgravity_trap_fail
-
     addi    t6, sp, 512
     ld      t5, 120(sp)
     bne     t6, t5, .Lgravity_trap_fail
-
     li      a0, 0
     j       .Lgravity_trap_restore
-
 .Lgravity_trap_fail:
     li      a0, 1
-
 .Lgravity_trap_restore:
     ld      s0,   0(sp)
     ld      s1,   8(sp)
@@ -306,5 +300,4 @@ __gravity_s_trap_roundtrip_test:
     ld      tp, 112(sp)
     addi    sp, sp, 512
     ret
-
     .size __gravity_s_trap_roundtrip_test, . - __gravity_s_trap_roundtrip_test
