@@ -4,8 +4,8 @@
 
 - Repository: `FQ-studio/OpenXzuff-UI-1.0`
 - Branch: `main`
-- Validated source commit: `cdd0f46b19ac4ca5b04040e3eedb0f264b4d82f5`
-- Workflow: [RV64 S-Mode Kernel run #132](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037)
+- Latest validated source commit: `cbc196338e124005ea95958a10c430d3f3ade3a0`
+- Workflow: [RV64 S-Mode Kernel run #134](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42768638698)
 - Result: **completed / success** on 2026-11-10.
 
 ## Work verified in the live repository
@@ -20,8 +20,9 @@
    - For U-mode returns, it restores the supervisor trap-stack top to `sscratch` before `sret`.
 
 3. `kernel/src/trap.rs`
-   - Verifies U-origin privilege state.
-   - Handles U-mode instruction page fault used by the isolation probe and Rust-native ECALL dispatch.
+   - Validates the U trap frame pointer is at the expected top-of-supervisor-stack frame location before dereferencing it.
+   - Verifies the saved user `sp` equals the probe's initial user stack top.
+   - Verifies U-origin privilege state and handles the U-mode instruction page fault and Rust-native ECALL dispatch.
    - Uses compile-time assertions for the 288-byte frame offsets and 16-byte alignment.
 
 4. `kernel/src/vm.rs` and `kernel/linker.ld`
@@ -37,7 +38,7 @@
 
 ## Actual build and test evidence
 
-The #132 job completed all steps successfully:
+Run #134 completed all steps successfully:
 
 | Stage | Observed result |
 |---|---|
@@ -50,9 +51,9 @@ The #132 job completed all steps successfully:
 
 The artifact ZIP was downloaded and inspected. It contains:
 
-- `openxzuff-kernel.elf` — 63,648 bytes.
+- `openxzuff-kernel.elf` — 63,936 bytes.
 - `openxzuff-kernel.bin` — 28,688 bytes.
-- `qemu-serial.log` — 3,280 bytes.
+- `qemu-serial.log` — 3,347 bytes.
 
 The captured QEMU serial log (OpenSBI v1.3, `qemu-system-riscv64 -machine virt -m 256M -smp 1`) reports:
 
@@ -63,6 +64,7 @@ The captured QEMU serial log (OpenSBI v1.3, `qemu-system-riscv64 -machine virt -
 - `Heap alloc/free smoke test: PASS`
 - `S-mode trap GPR save/restore + sret: PASS`
 - `Cooperative scheduler state test: PASS`
+- `U-mode supervisor trap-stack switch + user SP preservation: PASS`
 - `RV64 timer preemption + stack context switch: PASS; interrupts=2`
 - `RV64 callee-saved register + private stack preservation: PASS`
 - `RV64 IPC empty receive -EAGAIN: PASS`
@@ -72,24 +74,23 @@ The captured QEMU serial log (OpenSBI v1.3, `qemu-system-riscv64 -machine virt -
 
 The workflow contains an individual `grep -q` assertion for every required runtime marker above, so missing output fails the job.
 
-Artifact: [run #132 build outputs and serial log](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037/artifacts/13723271109).
+Artifact: [run #134 build outputs and serial log](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42768638698/artifacts/13741116624).
 
-## Regression diagnosis during integration
+## Regression diagnosis and follow-up
 
-- Run #129 (commit `d69b5b9...`) and run #130 (commit `da80b3c...`) built the kernel but failed at the QEMU workflow assertion stage.
-- Their serial logs showed the allocator, S-mode trap, timer, IPC request/reply, U-mode Yield and Exit markers. The missing assertion was the explicit `RV64 IPC empty receive -EAGAIN: PASS` marker even though the empty-queue path had been observed internally.
-- Run #131 added the missing serial assertion marker; it passed.
-- Run #132 passed again after the SIE mask was scoped to the RV64 target. Its host-test step emitted no Rust warnings in the captured key log lines.
+- Runs #129 and #130 built the kernel but failed at the QEMU assertion stage because the explicit `RV64 IPC empty receive -EAGAIN: PASS` serial marker was missing, even though the empty-queue path had been observed internally. Run #131 added the marker; #131 and #132 then passed.
+- Run #133 added an explicit runtime check that the U-origin trap frame occupies the supervisor-owned stack and that the saved user `sp` is preserved.
+- Run #134 moved this validation ahead of the frame dereference and corrected the diagnostic line ending. Host tests, RV64 build, QEMU boot and the new serial assertion all passed again.
 
-The failures were real CI failures caused by incomplete test evidence, not evidence that those failed revisions had passed. The corrected workflow now verifies the EAGAIN behavior explicitly.
+These earlier failures remain real failures for their respective revisions; the corrected revisions were re-tested rather than retroactively relabelled.
 
 ## Boundaries and remaining engineering work
 
 The verified runtime is a single-hart QEMU bring-up test, not a production scheduler or complete OS.
 
 - Only one U-mode task is exercised, using one static supervisor trap stack. Multiple U-mode tasks need per-task/per-hart supervisor trap stacks.
-- A dedicated test must force a timer interrupt while the U-mode task is executing; the current timer marker proves timer preemption/context switching in the mixed runtime but does not isolate U-mode timer preemption.
-- Add exhaustive U-mode GPR preservation sentinels and negative trap/syscall tests.
+- A dedicated test must force a timer interrupt while the U-mode task is executing; the current timer marker does not isolate U-mode timer preemption.
+- Add exhaustive U-mode GPR/CSR preservation sentinels and negative trap/syscall tests.
 - IPC is scalar-only and non-blocking; no user pointers, copy-in/copy-out, or blocking receive.
 - Sv39 is one bootstrap identity window, not per-process address spaces or memory reclamation.
 - The active syscall path is Rust-native; no stable Rust/C++ dispatcher bridge is wired into the kernel.
@@ -103,4 +104,3 @@ The verified runtime is a single-hart QEMU bring-up test, not a production sched
 3. Add negative syscall/trap and user-memory range tests.
 4. Evolve the bootstrap Sv39 mapping into per-process address spaces with safe allocation/reclamation.
 5. Re-run QEMU CI after each change, then arrange physical-board/LAVA validation separately.
-
