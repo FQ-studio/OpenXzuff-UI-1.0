@@ -11,16 +11,16 @@
 
 ## Verified RV64 kernel baseline
 
-The current `main` branch has a QEMU-bootable RV64 kernel image. GitHub Actions run [#132](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037), commit `cdd0f46b19ac4ca5b04040e3eedb0f264b4d82f5`, completed successfully on 2026-11-10.
+The current `main` branch has a QEMU-bootable RV64 kernel image. The latest source revision, `cbc196338e124005ea95958a10c430d3f3ade3a0`, passed [RV64 S-Mode Kernel run #134](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42768638698) on 2026-11-10.
 
 That run executed:
 
 - Host Rust tests: **21 passed, 0 failed**.
 - Cross-build target: `riscv64imac-unknown-none-elf`; output is a statically linked RV64 ELF with entry point `0x80200000`.
 - OpenSBI v1.3 + QEMU `virt`, 256 MiB, one hart.
-- Serial assertions for FDT/timebase, Sv39 bootstrap mapping, physical-page and heap allocator smoke tests, S-mode trap-frame round-trip, scheduler state, SBI TIME preemption/context switching, register/private-stack preservation, U-mode IPC empty-queue `-EAGAIN`, IPC request/reply, U-mode Yield and U-mode Exit.
+- Serial assertions for FDT/timebase, Sv39 bootstrap mapping, physical-page and heap allocator smoke tests, S-mode trap-frame round-trip, scheduler state, SBI TIME preemption/context switching, register/private-stack preservation, explicit U-to-S trap-stack switching and user-SP preservation, U-mode IPC empty-queue `-EAGAIN`, IPC request/reply, U-mode Yield and U-mode Exit.
 
-The run artifact contains the ELF, raw binary and QEMU serial log. The exact evidence and boundaries are recorded in [the 2026-11-10 checkpoint](checkpoints/2026-11-10-afternoon.md).
+The run artifact contains the ELF, raw binary and QEMU serial log. Exact results and scope limits are recorded in [the 2026-11-10 checkpoint](checkpoints/2026-11-10-afternoon.md).
 
 ## Implemented, but deliberately bounded
 
@@ -28,7 +28,7 @@ The run artifact contains the ELF, raw binary and QEMU serial log. The exact evi
 - The Rust-native syscall contract uses `a7` for the syscall ID and `a0..a5` for arguments/results. Current exercised calls are Exit=0, SendMessage=1, ReceiveMessage=2 and Yield=4.
 - IPC currently transports one scalar machine word per message through fixed-capacity, non-blocking mailboxes. User pointers are not accepted.
 - Sv39 is a bootstrap identity map for one 1 GiB window. Only the probe's code pages and stack pages are user-accessible; this is not a per-process address-space manager.
-- U-mode trap entry switches to a supervisor-owned stack before building the trap frame. The current test uses one U-mode task and one static supervisor trap stack.
+- U-mode trap entry switches to a supervisor-owned stack before building the trap frame. The QEMU probe now asserts that the saved frame occupies the supervisor stack and that the saved user `sp` remains at its expected initial top. The current test uses one U-mode task and one static supervisor trap stack.
 
 ## Not yet established
 
