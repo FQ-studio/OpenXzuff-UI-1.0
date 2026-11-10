@@ -1,46 +1,27 @@
 # RV64 U-mode trap implementation checkpoint — 2026-11-09
 
-## Scope implemented
+> Historical implementation checkpoint. Its original CI state was pending when first written. The implementation has since advanced; the validated follow-up is recorded in [2026-11-10 afternoon checkpoint](2026-11-10-afternoon.md).
 
-This continuation adds the first code path for a real U-mode ECALL round-trip while preserving the existing S-mode trap vector and timer scheduler.
+## Initial implementation scope
 
-### Source changes
+The initial change introduced a privilege-aware U-origin/S-origin trap vector, a 288-byte trap frame, a supervisor-owned stack, and a Rust-native U-mode ECALL probe. It preserved the established S-mode trap path and connected the probe to the runtime.
 
-- Added `kernel/src/umode_trap.S`.
-  - Uses `sscratch` as the per-entry supervisor trap-stack top while in U-mode.
-  - Exchanges `sp` and `sscratch` as the first trap instruction.
-  - If the exchanged supervisor stack pointer is zero, restores the original S-mode stack and tail-calls the established S-mode vector.
-  - For U-origin traps, allocates the 288-byte frame on the supervisor stack, saves all integer GPRs plus `sepc`, `sstatus`, `scause`, and `stval`, and saves the user stack pointer from `sscratch`.
-  - Calls the Rust U-mode trap handler, rearms `sscratch` with the supervisor stack top, restores the saved frame, and executes `sret`.
-  - Adds a small U-mode probe that executes `ecall` then `ebreak`.
+The live implementation has since expanded beyond the original one-ECALL probe to include Sv39 isolation, non-blocking IPC, mailbox request/reply, Yield and Exit syscalls. Refer to the current source and the 2026-11-10 checkpoint rather than treating the initial probe description below as the complete current behavior.
 
-- Updated `kernel/src/trap.rs`.
-  - Installs the privilege-aware vector and initializes `sscratch=0` for S-mode operation.
-  - Adds dedicated static U-mode and supervisor trap stacks.
-  - Builds an initial frame with SPP=0 and enters the probe through the existing `sret` restore path.
-  - Implements a Rust-native U-mode ECALL test ABI: syscall ID in `a7`, argument in `a0`, return in `a0`.
-  - Requires U-origin privilege state and expected test values; advances `sepc` by four for the returning ECALL.
-  - Emits a QEMU serial PASS marker only after the U-mode probe reaches its post-ECALL breakpoint.
+## Initial source changes
 
-- Updated `kernel/src/runtime.rs` to launch the U-mode probe after the existing S-mode timer-preemption smoke path.
-- Updated `.github/workflows/rv64-s-mode-kernel.yml` to require the U-mode ECALL/supervisor-stack/`sret` serial marker.
+- Added `kernel/src/umode_trap.S` with the `sscratch` stack exchange, S-origin fallback, U-origin register/CSR save, and Rust dispatch.
+- Updated `kernel/src/trap.rs` to install the privilege-aware vector and create the initial U-mode task frame.
+- Updated `kernel/src/runtime.rs` to schedule the U-mode test task alongside two S-mode tasks.
+- Updated the RV64 workflow to require serial evidence rather than relying on process exit alone.
 
-## Important validation boundary
+## Superseding validation — 2026-11-10
 
-These are source changes, not a test result. GitHub Actions run #83 (run ID `42574760556`) was found for source commit `3b7aa872056e0177a9f0d936e35aeca606681f1f`. At the time of checkpoint update it was `in_progress`; setup was still running and host tests/build/QEMU had not started. No new host build, RV64 cross-build, QEMU boot, or GitHub Actions PASS is claimed in this checkpoint.
+- Source commit: `cdd0f46b19ac4ca5b04040e3eedb0f264b4d82f5`.
+- GitHub Actions run [#132](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037): **completed / success**.
+- Host tests: **21 passed, 0 failed**.
+- RV64 cross-build: **success**, target `riscv64imac-unknown-none-elf`.
+- QEMU OpenSBI boot: **success**; all required serial assertions passed, including U-mode Sv39 isolation, Yield, Exit, IPC empty-queue and IPC request/reply checks.
+- Artifact: [ELF, raw binary and QEMU serial log](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037/artifacts/13723271109).
 
-## Risks and required CI review
-
-- Confirm the Rust toolchain accepts the inline/global assembly and that the linker includes the new assembly object.
-- Confirm QEMU/OpenSBI starts U-mode with the configured memory protection behavior.
-- Confirm the U-mode probe can access its mapped stack/code under the current Bare translation setup.
-- Confirm the U-origin frame uses the supervisor stack and preserves the user `sp`.
-- Confirm the S-origin fallback still passes the existing S-mode breakpoint round-trip and timer-preemption tests.
-- If CI fails, inspect the exact compiler or QEMU log before changing code; do not infer the failure cause.
-
-## Next actions
-
-1. Obtain the GitHub Actions run for the latest push and inspect the complete build/QEMU log.
-2. Fix any assembler, linker, privilege-return, or QEMU failure.
-3. Require both legacy S-mode markers and the new U-mode ECALL marker.
-4. Only after successful logs, update the status to validated and record run/artifact IDs.
+This validates the recorded QEMU test path only. It does not establish physical-board boot, SMP safety, a general multi-process address-space manager, or production OS stability.
