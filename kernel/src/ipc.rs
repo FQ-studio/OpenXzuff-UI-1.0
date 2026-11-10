@@ -93,6 +93,7 @@ impl Default for MailboxSet {
 
 static mut MAILBOXES: MailboxSet = MailboxSet::new();
 #[cfg(target_arch = "riscv64")]
+#[cfg(target_arch = "riscv64")]
 const SSTATUS_SIE: usize = 1 << 1;
 
 struct InterruptGuard {
