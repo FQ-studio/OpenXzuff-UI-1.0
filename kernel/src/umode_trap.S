@@ -79,18 +79,23 @@ __gravity_u_mode_ecall_probe:
     la      t0, __kernel_start
     ld      t1, 0(t0)
     li      a7, 1
-    li      a0, 0x47524156
-    li      a1, 0x11
+    li      a0, 0                  /* destination task 0 */
+    li      a1, 0x47524156         /* scalar request payload */
     li      a2, 0x22
     li      a3, 0x33
     li      a4, 0x44
     li      a5, 0x55
     ecall
-    li      t0, -38
-    bne     a0, t0, .Lumode_probe_failed
+    bnez    a0, .Lumode_probe_failed
     li      a7, 4
-    li      a0, 0x47524156
+    li      a0, 0
     ecall
+    li      a7, 2
+    li      a0, 0
+    ecall
+    li      t0, 0x5245504c         /* reply from task 0 */
+    bne     a0, t0, .Lumode_probe_failed
+    bnez    a1, .Lumode_probe_failed
     li      a7, 0
     li      a0, 0
     ecall
