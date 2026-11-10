@@ -78,6 +78,11 @@ __gravity_u_mode_ecall_probe:
     /* U-mode must not be able to read the supervisor-only kernel image. */
     la      t0, __kernel_start
     ld      t1, 0(t0)
+    li      a7, 2                  /* empty non-blocking receive */
+    li      a0, 0
+    ecall
+    li      t0, -11                /* -EAGAIN */
+    bne     a0, t0, .Lumode_probe_failed
     li      a7, 1
     li      a0, 0                  /* destination task 0 */
     li      a1, 0x47524156         /* scalar request payload */
