@@ -84,6 +84,13 @@ Artifact: [run #134 build outputs and serial log](https://github.com/FQ-studio/O
 
 These earlier failures remain real failures for their respective revisions; the corrected revisions were re-tested rather than retroactively relabelled.
 
+## Related OpenXzuff UI Core host baselines from the same morning
+
+These workflows ran earlier on 2026-11-10 against commit `17c54b5a23`; they were not re-run after the later kernel-only trap changes because their path filters do not include `kernel/src/trap.rs`.
+
+- [OpenXzuff UI Runtime run #150](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725681832): CMake host build and root CTest **14/14 passed**; Xzuff Go compiler/.xexe fixture checks; Android NDK 27.2.12479018 ARM64 toolchain build/package; Luau source and .lap package smoke tests; JavaScript tests **2/2**; standard Lua tests **2/2**; OpenXzuff3D tests **1/1** and non-empty rendered scene artifact. The 3D build emitted one non-fatal unused-function warning in `renderer.cpp`.
+- [VisionFive 2 Kernel Readiness run #34](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725681937): CMake host build, CTest **14/14 passed**, and VisionFive 2 source/boot-contract checks. This is host/contract validation only, not a physical-board boot or LAVA result.
+
 ## Boundaries and remaining engineering work
 
 The verified runtime is a single-hart QEMU bring-up test, not a production scheduler or complete OS.
