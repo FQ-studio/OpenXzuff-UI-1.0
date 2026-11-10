@@ -53,6 +53,7 @@ const _: [(); 16] = [(); core::mem::align_of::<TrapFrame>()];
 static BREAKPOINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAME_VALID: AtomicBool = AtomicBool::new(false);
 static UMODE_ISOLATION_FAULT: AtomicBool = AtomicBool::new(false);
+static UMODE_STACK_SWITCH_VALIDATED: AtomicBool = AtomicBool::new(false);
 
 #[repr(align(4096))]
 struct UModeStack([u8; 4096]);
@@ -137,6 +138,41 @@ pub(crate) fn user_stack_bounds() -> (usize, usize) {
     (start, start + 4096)
 }
 
+fn supervisor_trap_stack_bounds() -> (usize, usize) {
+    let start = unsafe { core::ptr::addr_of!(SUPERVISOR_TRAP_STACK.0) as usize };
+    (start, start + 4096)
+}
+
+/// The assembly probe never changes its user sp. Require the saved frame to
+/// occupy the top 288 bytes of the supervisor-owned stack and preserve that
+/// exact user stack pointer across every U-origin trap.
+fn validate_user_trap_frame(frame_ptr: *mut TrapFrame) -> bool {
+    if frame_ptr.is_null() {
+        return false;
+    }
+
+    let (trap_start, trap_end) = supervisor_trap_stack_bounds();
+    let frame_start = frame_ptr as usize;
+    let frame_end = match frame_start.checked_add(core::mem::size_of::<TrapFrame>()) {
+        Some(end) => end,
+        None => return false,
+    };
+    let expected_frame_start = match trap_end.checked_sub(core::mem::size_of::<TrapFrame>()) {
+        Some(start) => start,
+        None => return false,
+    };
+    if frame_start != expected_frame_start
+        || frame_start < trap_start
+        || frame_end > trap_end
+        || frame_start & 0x0f != 0
+    {
+        return false;
+    }
+
+    let (_, user_stack_end) = user_stack_bounds();
+    unsafe { (*frame_ptr).x[2] == user_stack_end }
+}
+
 #[no_mangle]
 pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut TrapFrame {
     let frame = unsafe { &mut *frame_ptr };
@@ -144,6 +180,14 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     if !from_user {
         crate::console_write("U-mode trap gate: rejected S-origin frame\n");
         crate::halt();
+    }
+
+    if !validate_user_trap_frame(frame_ptr) {
+        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: FAIL\\n");
+        crate::halt();
+    }
+    if !UMODE_STACK_SWITCH_VALIDATED.swap(true, Ordering::AcqRel) {
+        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: PASS\\n");
     }
 
     let interrupt_bit = 1usize << (usize::BITS - 1);
