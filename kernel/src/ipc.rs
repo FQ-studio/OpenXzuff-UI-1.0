@@ -78,6 +78,7 @@ impl MailboxSet {
         Ok(self.queues[receiver.0].pop())
     }
 
+    #[allow(dead_code)]
     pub fn pending(&self, receiver: TaskId) -> Result<usize, IpcError> {
         if receiver.0 >= MAX_TASKS {
             return Err(IpcError::InvalidTask);
@@ -91,9 +92,11 @@ impl Default for MailboxSet {
 }
 
 static mut MAILBOXES: MailboxSet = MailboxSet::new();
+#[cfg(target_arch = "riscv64")]
 const SSTATUS_SIE: usize = 1 << 1;
 
 struct InterruptGuard {
+    #[cfg(target_arch = "riscv64")]
     previous_sstatus: usize,
 }
 
@@ -115,7 +118,7 @@ impl InterruptGuard {
         }
         #[cfg(not(target_arch = "riscv64"))]
         {
-            Self { previous_sstatus: 0 }
+            Self {}
         }
     }
 }
