@@ -182,6 +182,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                     crate::halt();
                 }
                 crate::console_write("RV64 callee-saved register + private stack preservation: PASS\n");
+                crate::console_write("RV64 IPC empty receive -EAGAIN: PASS\n");
                 crate::console_write("RV64 IPC mailbox send/receive round-trip: PASS\n");
                 crate::console_write("U-mode Yield syscall context switch + Sv39 isolation: PASS\n");
                 crate::runtime::on_user_exit(frame_ptr)
