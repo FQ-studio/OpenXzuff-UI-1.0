@@ -168,17 +168,23 @@ mod fdt_tests {
             .expect("property name exists in FDT strings block") as u32
     }
 
-    fn valid_fdt() -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0";
+    fn valid_fdt_with_timebase(timebase: Option<&[u8]>) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0";
         let address_cells = string_offset(strings, b"#address-cells");
         let size_cells = string_offset(strings, b"#size-cells");
         let device_type = string_offset(strings, b"device_type");
         let reg = string_offset(strings, b"reg");
+        let timebase_frequency = string_offset(strings, b"timebase-frequency");
 
         let mut structure = Vec::new();
         begin_node(&mut structure, b"");
         property(&mut structure, address_cells, &2u32.to_be_bytes());
         property(&mut structure, size_cells, &2u32.to_be_bytes());
+        begin_node(&mut structure, b"cpus");
+        if let Some(value) = timebase {
+            property(&mut structure, timebase_frequency, value);
+        }
+        push_be32(&mut structure, END_NODE);
         begin_node(&mut structure, b"memory@80000000");
         property(&mut structure, device_type, b"memory\0");
 
@@ -221,6 +227,32 @@ mod fdt_tests {
         blob.extend_from_slice(strings);
         assert_eq!(blob.len(), total_size as usize);
         blob
+    }
+
+    fn valid_fdt() -> Vec<u8> {
+        valid_fdt_with_timebase(Some(&10_000_000u32.to_be_bytes()))
+    }
+
+    #[test]
+    fn fdt_timebase_frequency_reads_32_and_64_bit_values() {
+        let narrow = valid_fdt();
+        assert_eq!(fdt::timebase_frequency(&narrow), Ok(10_000_000));
+
+        let wide_value = 0x1_0000_0000u64;
+        let wide = valid_fdt_with_timebase(Some(&wide_value.to_be_bytes()));
+        assert_eq!(fdt::timebase_frequency(&wide), Ok(wide_value as usize));
+    }
+
+    #[test]
+    fn fdt_timebase_frequency_rejects_zero_bad_width_and_missing_property() {
+        let zero = valid_fdt_with_timebase(Some(&0u32.to_be_bytes()));
+        assert_eq!(fdt::timebase_frequency(&zero), Err(FdtError::Timebase));
+
+        let bad_width = valid_fdt_with_timebase(Some(&[0, 1, 2]));
+        assert_eq!(fdt::timebase_frequency(&bad_width), Err(FdtError::Timebase));
+
+        let missing = valid_fdt_with_timebase(None);
+        assert_eq!(fdt::timebase_frequency(&missing), Err(FdtError::Timebase));
     }
 
     #[test]
