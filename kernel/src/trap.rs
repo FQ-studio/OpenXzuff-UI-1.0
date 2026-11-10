@@ -175,19 +175,18 @@ fn validate_user_trap_frame(frame_ptr: *mut TrapFrame) -> bool {
 
 #[no_mangle]
 pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut TrapFrame {
+    if !validate_user_trap_frame(frame_ptr) {
+        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: FAIL\n");
+        crate::halt();
+    }
     let frame = unsafe { &mut *frame_ptr };
     let from_user = frame.sstatus & (1 << 8) == 0;
     if !from_user {
         crate::console_write("U-mode trap gate: rejected S-origin frame\n");
         crate::halt();
     }
-
-    if !validate_user_trap_frame(frame_ptr) {
-        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: FAIL\\n");
-        crate::halt();
-    }
     if !UMODE_STACK_SWITCH_VALIDATED.swap(true, Ordering::AcqRel) {
-        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: PASS\\n");
+        crate::console_write("U-mode supervisor trap-stack switch + user SP preservation: PASS\n");
     }
 
     let interrupt_bit = 1usize << (usize::BITS - 1);
