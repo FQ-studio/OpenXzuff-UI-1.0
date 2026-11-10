@@ -1,6 +1,6 @@
 # Gravity Kernel RV64 User ABI — Draft 1
 
-Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervisor trap entry, mixed S/U-mode frame restore, bootstrap Sv39 mappings, timer preemption, and Yield syscall path execute under OpenSBI/QEMU. A general executable loader and application process model are still not implemented.
+Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervisor trap entry, mixed S/U-mode frame restore, bootstrap Sv39 mappings, timer preemption, Yield, and a bounded scalar-message IPC round-trip execute under OpenSBI/QEMU. A general executable loader and application process model are still not implemented.
 
 ## Target
 
@@ -16,9 +16,10 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 - a7 contains the numeric syscall ID.
 - a0 through a5 carry up to six arguments.
 - For a returning call, a0 carries either a non-negative result or a negative error number (-errno). Values from -1 through -4095 are reserved for errors.
-- ABI v1 preserves a1 through a5 across a returning system call. The caller treats a0 as clobbered.
+- Returning calls preserve a1 through a5 unless the syscall explicitly defines a secondary output. The caller treats a0 as clobbered.
+- ReceiveMessage returns the sender task ID in a1; all other a1-a5 registers remain unchanged.
 - The saved user PC advances by four bytes after the 32-bit ecall instruction.
-- -22 (-EINVAL) means an invalid argument; -14 (-EFAULT) means an invalid user address; -38 (-ENOSYS) means unknown or not implemented.
+- -11 (-EAGAIN) means a non-blocking receive found no message or a mailbox is full; -22 (-EINVAL) means an invalid argument; -14 (-EFAULT) means an invalid user address; -38 (-ENOSYS) means unknown or not implemented.
 
 | ID | Name | Current RV64 trap/runtime status |
 |---:|---|---|
@@ -59,4 +60,4 @@ The compiler does not depend on the initial value of a7. The live hardware path 
 
 ## Implementation boundary
 
-The QEMU probe uses a dedicated U-mode text page and user stack. It verifies that U-mode cannot load from the supervisor-only kernel image, that SendMessage returns -ENOSYS, and that Yield performs a real mixed-privilege context switch. This does not yet imply a general .xexe loader, process isolation for arbitrary applications, user pointer validation/copying, IPC transport, memory mapping syscall, or task exit/reaping.
+The QEMU probe uses a dedicated U-mode text page and user stack. It verifies that U-mode cannot load from the supervisor-only kernel image, sends one scalar request through a bounded FIFO mailbox to task 0, yields to let task 0 receive it and enqueue a reply, then receives that reply before Exit. Mailboxes hold eight machine-word messages per task and are protected against same-hart timer preemption while being mutated. This does not yet imply a general .xexe loader, arbitrary process address spaces, user-buffer copying, blocking IPC, endpoint permissions, SMP-safe queue locking, memory mapping syscall, or general task exit/reaping.
