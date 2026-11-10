@@ -138,7 +138,7 @@ pub(crate) fn user_stack_bounds() -> (usize, usize) {
     (start, start + 4096)
 }
 
-fn supervisor_trap_stack_bounds() -> (usize, usize) {
+pub(crate) fn supervisor_trap_stack_bounds() -> (usize, usize) {
     let start = unsafe { core::ptr::addr_of!(SUPERVISOR_TRAP_STACK.0) as usize };
     (start, start + 4096)
 }
