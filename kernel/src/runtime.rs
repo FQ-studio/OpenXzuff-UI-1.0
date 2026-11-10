@@ -6,6 +6,8 @@ use crate::scheduler::{Scheduler, TaskId};
 use crate::trap::TrapFrame;
 
 const TASK_COUNT: usize = 3;
+const IPC_REQUEST: usize = 0x4752_4156;
+const IPC_REPLY: usize = 0x5245_504c;
 const STACK_SIZE: usize = 16 * 1024;
 const SBI_EXT_TIME: usize = 0x5449_4d45;
 const SBI_FID_SET_TIMER: usize = 0;
@@ -28,6 +30,8 @@ static TASK_A_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
 static TASK_B_CONTEXT_OK: AtomicBool = AtomicBool::new(false);
 static USER_TASK_EXITED: AtomicBool = AtomicBool::new(false);
 static USER_EXIT_STATUS: AtomicUsize = AtomicUsize::new(usize::MAX);
+static IPC_REQUEST_RECEIVED: AtomicBool = AtomicBool::new(false);
+static USER_IPC_REPLY_RECEIVED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -98,6 +102,24 @@ extern "C" fn task_a() -> ! {
             }
             crate::console_write("U-mode Exit syscall status: FAIL\n");
             crate::halt();
+        }
+        match crate::ipc::receive(TaskId(0)) {
+            Ok(Some(message)) => {
+                if message.sender != TaskId(2) || message.payload != IPC_REQUEST {
+                    crate::console_write("IPC request validation: FAIL\n");
+                    crate::halt();
+                }
+                if crate::ipc::send(TaskId(0), TaskId(2), IPC_REPLY).is_err() {
+                    crate::console_write("IPC reply enqueue: FAIL\n");
+                    crate::halt();
+                }
+                IPC_REQUEST_RECEIVED.store(true, Ordering::Release);
+            }
+            Ok(None) => {}
+            Err(_) => {
+                crate::console_write("IPC mailbox receive: FAIL\n");
+                crate::halt();
+            }
         }
         TASK_A_TICKS.fetch_add(1, Ordering::Relaxed);
         if TIMER_INTERRUPTS.load(Ordering::Relaxed) >= 2 {
@@ -200,6 +222,80 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
         crate::halt();
     }
     next_frame
+}
+
+/// Implement ABI v1 SendMessage=1: a0=destination task ID, a1=scalar payload.
+pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let sender = match current {
+        Some(id) if id.0 == 2 => id,
+        _ => { crate::console_write("SendMessage: invalid sender task\n"); crate::halt(); }
+    };
+    let destination = unsafe { (*frame).x[10] };
+    let payload = unsafe { (*frame).x[11] };
+    let result: isize = if payload != IPC_REQUEST || destination >= crate::scheduler::MAX_TASKS {
+        -22
+    } else {
+        let receiver = TaskId(destination);
+        let active = unsafe {
+            (*core::ptr::addr_of!(SCHEDULER)).state(receiver)
+                .map(|state| state != crate::scheduler::TaskState::Exited)
+                .unwrap_or(false)
+        };
+        if !active {
+            -22
+        } else {
+            match crate::ipc::send(sender, receiver, payload) {
+                Ok(()) => 0,
+                Err(crate::ipc::IpcError::QueueFull) => -11,
+                Err(crate::ipc::IpcError::InvalidTask) => -22,
+            }
+        }
+    };
+    unsafe {
+        (*frame).x[10] = result as usize;
+        (*frame).sepc = match (*frame).sepc.checked_add(4) {
+            Some(next) => next,
+            None => crate::halt(),
+        };
+    }
+    frame
+}
+
+/// Implement non-blocking ABI v1 ReceiveMessage=2.
+/// Success returns payload in a0 and sender task ID in a1; empty returns -EAGAIN.
+pub fn on_user_receive_message(frame: *mut TrapFrame) -> *mut TrapFrame {
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let receiver = match current {
+        Some(id) if id.0 == 2 => id,
+        _ => { crate::console_write("ReceiveMessage: invalid receiver task\n"); crate::halt(); }
+    };
+    match crate::ipc::receive(receiver) {
+        Ok(Some(message)) => unsafe {
+            (*frame).x[10] = message.payload;
+            (*frame).x[11] = message.sender.0;
+            if message.sender == TaskId(0) && message.payload == IPC_REPLY {
+                USER_IPC_REPLY_RECEIVED.store(true, Ordering::Release);
+            }
+        },
+        Ok(None) => unsafe { (*frame).x[10] = (-11isize) as usize; },
+        Err(_) => {
+            crate::console_write("ReceiveMessage: invalid mailbox\n");
+            crate::halt();
+        }
+    }
+    unsafe {
+        (*frame).sepc = match (*frame).sepc.checked_add(4) {
+            Some(next) => next,
+            None => crate::halt(),
+        };
+    }
+    frame
+}
+
+pub fn ipc_roundtrip_observed() -> bool {
+    IPC_REQUEST_RECEIVED.load(Ordering::Acquire)
+        && USER_IPC_REPLY_RECEIVED.load(Ordering::Acquire)
 }
 
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
