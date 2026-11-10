@@ -233,7 +233,7 @@ pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
     };
     let destination = unsafe { (*frame).x[10] };
     let payload = unsafe { (*frame).x[11] };
-    let result: isize = if payload != IPC_REQUEST || destination >= crate::scheduler::MAX_TASKS {
+    let result: isize = if destination >= crate::scheduler::MAX_TASKS {
         -22
     } else {
         let receiver = TaskId(destination);
