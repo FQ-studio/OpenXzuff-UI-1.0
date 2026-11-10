@@ -18,7 +18,7 @@ The C++ dispatcher still returns `-ENOSYS` for SendMessage, ReceiveMessage, MapM
 The executable image in lowercase `kernel/` currently has an OpenSBI/QEMU-tested bring-up path:
 
 - Firmware FDT parsing, including memory ranges and timer timebase frequency.
-- Sv39 bootstrap translation with a supervisor-only identity window and dedicated U-mode probe code/stack pages.
+- Sv39 bootstrap translation with distinct supervisor-only kernel and probe-user roots; task switches change `satp`, and only the probe-user root grants U access to its RX text and RW stack pages.
 - Physical page allocator and a fixed 64 KiB kernel heap with smoke tests.
 - S-mode and U-mode trap entry paths, a 288-byte RV64 GPR/CSR frame, `sscratch` supervisor-stack switching, and a common `sret` restore path.
 - SBI TIME timer preemption using a 10 ms quantum derived from the FDT timebase.
@@ -30,4 +30,4 @@ The `RV64 S-Mode Kernel` GitHub Actions workflow builds the RV64 ELF, runs host 
 
 ## Explicit limitations
 
-The Rust runtime remains a bring-up kernel, not a general-purpose OS. It does not yet have a general `.xexe` loader, per-process page-table roots, dynamic memory mapping, user-buffer copyin/copyout, blocking IPC, endpoint capabilities, process resource reaping, SMP-safe scheduling/IPC, a complete interrupt controller/driver stack, or a physical-board LAVA boot result. The uppercase C++ contract layer and lowercase Rust runtime must not be described as one integrated implementation until a real integration boundary is built and tested.
+The Rust runtime remains a bring-up kernel, not a general-purpose OS. It has one statically provisioned probe-user root, not a dynamic per-process VM manager. It does not yet have a general `.xexe` loader, page-table-page allocation/reclamation, arbitrary process mappings, user-buffer copyin/copyout, blocking IPC, endpoint capabilities, process resource reaping, SMP-safe scheduling/IPC, a complete interrupt controller/driver stack, or a physical-board LAVA boot result. The uppercase C++ contract layer and lowercase Rust runtime must not be described as one integrated implementation until a real integration boundary is built and tested.

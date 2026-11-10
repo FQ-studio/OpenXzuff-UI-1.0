@@ -67,6 +67,19 @@ pub fn configure_timebase(frequency_hz: usize) -> Result<usize, ()> {
     Ok(quantum)
 }
 
+fn activate_address_space(task: TaskId) {
+    let expects_user = task.0 == 2;
+    let switched = if expects_user {
+        crate::vm::switch_to_user()
+    } else {
+        crate::vm::switch_to_kernel()
+    };
+    if !switched || crate::vm::current_is_user() != expects_user {
+        crate::console_write("Task address-space switch: FAIL\\n");
+        crate::halt();
+    }
+}
+
 fn arm_next_timer() {
     let quantum = TIMER_QUANTUM.load(Ordering::Acquire);
     if quantum == 0 || set_timer(read_time().wrapping_add(quantum)).is_err() {
@@ -186,6 +199,7 @@ pub fn start() -> ! {
         TASK_FRAMES[a.0] as *mut TrapFrame
     };
 
+    activate_address_space(a);
     arm_next_timer();
     unsafe {
         asm!(
@@ -221,6 +235,7 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
             None => { crate::console_write("Scheduler timer: no runnable task\n"); crate::halt(); }
         }
     };
+    activate_address_space(next);
     let next_frame = unsafe { TASK_FRAMES[next.0] as *mut TrapFrame };
     if next_frame.is_null() {
         crate::console_write("Scheduler timer: missing task context\n");
@@ -338,6 +353,7 @@ pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
             _ => { crate::console_write("Yield syscall: scheduler has no next task\n"); crate::halt(); }
         }
     };
+    activate_address_space(next);
     let next_frame = unsafe { TASK_FRAMES[next.0] as *mut TrapFrame };
     if next_frame.is_null() {
         crate::console_write("Yield syscall: missing next context\n");
@@ -368,6 +384,7 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
             _ => { crate::console_write("Exit syscall: scheduler has no next task\n"); crate::halt(); }
         }
     };
+    activate_address_space(next);
     let next_frame = unsafe { TASK_FRAMES[next.0] as *mut TrapFrame };
     if next_frame.is_null() {
         crate::console_write("Exit syscall: missing next context\n");

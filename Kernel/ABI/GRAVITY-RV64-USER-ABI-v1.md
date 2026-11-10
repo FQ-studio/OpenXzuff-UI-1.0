@@ -24,8 +24,8 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 | ID | Name | Current RV64 trap/runtime status |
 |---:|---|---|
 | 0 | Exit | Implemented for the current U-mode test task; marks it Exited and schedules the next task. General resource reaping is not implemented |
-| 1 | SendMessage | -ENOSYS; exercised by the U-mode QEMU probe |
-| 2 | ReceiveMessage | -ENOSYS |
+| 1 | SendMessage | Implemented for the built-in U-mode probe task; sends one scalar machine word to a task FIFO mailbox and returns 0, -EAGAIN, or -EINVAL |
+| 2 | ReceiveMessage | Implemented as non-blocking receive; returns payload in a0 and sender task ID in a1, or -EAGAIN when empty |
 | 3 | MapMemory | -ENOSYS |
 | 4 | Yield | Implemented for the current U-mode test task; saves its trap frame, rotates the run queue, and resumes it later |
 
@@ -60,4 +60,4 @@ The compiler does not depend on the initial value of a7. The live hardware path 
 
 ## Implementation boundary
 
-The QEMU probe uses a dedicated U-mode text page and user stack. It verifies that U-mode cannot load from the supervisor-only kernel image, sends one scalar request through a bounded FIFO mailbox to task 0, yields to let task 0 receive it and enqueue a reply, then receives that reply before Exit. Mailboxes hold eight machine-word messages per task and are protected against same-hart timer preemption while being mutated. This does not yet imply a general .xexe loader, arbitrary process address spaces, user-buffer copying, blocking IPC, endpoint permissions, SMP-safe queue locking, memory mapping syscall, or general task exit/reaping.
+The QEMU probe uses a dedicated U-mode text page and user stack. The bootstrap now builds two distinct Sv39 roots: a supervisor-only kernel root and a probe-user root that shares supervisor identity mappings but grants U permission only to the probe RX text and RW stack leaves. The scheduler switches `satp` to the selected task's root before restoring its frame. The probe verifies that U-mode cannot load from the supervisor-only kernel image or access the supervisor trap stack, is preempted by the SBI timer, sends one scalar request through a bounded FIFO mailbox to task 0, yields to let task 0 receive it and enqueue a reply, then receives that reply before Exit. Mailboxes hold eight machine-word messages per task and are protected against same-hart timer preemption while being mutated. The user root is still a statically provisioned single test address space: dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, user-buffer copying, blocking IPC, endpoint permissions, SMP-safe queue locking, MapMemory syscall, and general task resource reaping are not implemented.

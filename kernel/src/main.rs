@@ -114,12 +114,19 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         Some(end) => end,
         None => { console_write("Sv39 page tables: FAIL (FDT range overflow)\n"); halt(); }
     };
+    let (supervisor_stack_start, _) = trap::supervisor_trap_stack_bounds();
     match unsafe { vm::enable_bootstrap(
         kernel_start, kernel_end, fdt_addr, fdt_end,
         user_code_start, user_code_end, user_stack_start, user_stack_end
     ) } {
-        Ok(()) if vm::active() => console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n"),
-        _ => { console_write("Sv39 bootstrap page tables: FAIL\n"); halt(); }
+        Ok(()) if vm::active() && vm::roots_are_distinct()
+            && unsafe { vm::verify_isolation(
+                user_code_start, user_stack_start, kernel_start, supervisor_stack_start
+            ) } => {
+                console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\\n");
+                console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\\n");
+            }
+        _ => { console_write("Sv39 kernel/user address spaces: FAIL\\n"); halt(); }
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let mut map = memory::MemoryMap::new();
