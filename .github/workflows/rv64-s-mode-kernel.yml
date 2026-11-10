@@ -70,6 +70,7 @@ jobs:
           grep -q 'RV64 IPC mailbox send/receive round-trip: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode Yield syscall context switch + Sv39 isolation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode supervisor trap-stack switch + user SP preservation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'U-mode timer preemption + saved-frame resume: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
         uses: actions/upload-artifact@v4
