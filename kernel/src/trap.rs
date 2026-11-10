@@ -235,10 +235,10 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             4 => crate::runtime::on_user_yield(frame_ptr),
             5 => {
                 if !crate::runtime::user_timer_preemption_observed() {
-                    crate::console_write("U-mode timer preemption + saved-frame resume: FAIL\\n");
+                    crate::console_write("U-mode timer preemption + saved-frame resume: FAIL\n");
                     crate::halt();
                 }
-                crate::console_write("U-mode timer preemption + saved-frame resume: PASS\\n");
+                crate::console_write("U-mode timer preemption + saved-frame resume: PASS\n");
                 frame.x[10] = 0;
                 frame.sepc = match frame.sepc.checked_add(4) {
                     Some(next) => next,
