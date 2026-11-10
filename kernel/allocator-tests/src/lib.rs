@@ -315,3 +315,57 @@ mod scheduler_tests {
         assert_eq!(s.create_task(),Err(SchedulerError::Full));
     }
 }
+
+
+#[path = "../../src/ipc.rs"]
+pub mod ipc;
+
+#[cfg(test)]
+mod ipc_tests {
+    use super::ipc::{IpcError, MailboxSet, IPC_QUEUE_CAPACITY};
+    use super::scheduler::{TaskId, MAX_TASKS};
+
+    #[test]
+    fn mailboxes_deliver_fifo_messages_with_sender_identity() {
+        let mut mailboxes = MailboxSet::new();
+        let sender = TaskId(2);
+        let receiver = TaskId(0);
+        mailboxes.send(sender, receiver, 0x1111).unwrap();
+        mailboxes.send(TaskId(1), receiver, 0x2222).unwrap();
+        assert_eq!(mailboxes.pending(receiver), Ok(2));
+        assert_eq!(mailboxes.receive(receiver).unwrap(), Some(super::ipc::Message { sender, payload: 0x1111 }));
+        assert_eq!(mailboxes.receive(receiver).unwrap(), Some(super::ipc::Message { sender: TaskId(1), payload: 0x2222 }));
+        assert_eq!(mailboxes.receive(receiver).unwrap(), None);
+    }
+
+    #[test]
+    fn mailboxes_are_isolated_per_receiver() {
+        let mut mailboxes = MailboxSet::new();
+        mailboxes.send(TaskId(0), TaskId(1), 0xAAAA).unwrap();
+        mailboxes.send(TaskId(0), TaskId(2), 0xBBBB).unwrap();
+        assert_eq!(mailboxes.receive(TaskId(1)).unwrap().unwrap().payload, 0xAAAA);
+        assert_eq!(mailboxes.receive(TaskId(2)).unwrap().unwrap().payload, 0xBBBB);
+        assert_eq!(mailboxes.pending(TaskId(0)), Ok(0));
+    }
+
+    #[test]
+    fn bounded_mailbox_reports_full_and_recovers_after_receive() {
+        let mut mailboxes = MailboxSet::new();
+        for value in 0..IPC_QUEUE_CAPACITY {
+            mailboxes.send(TaskId(1), TaskId(0), value).unwrap();
+        }
+        assert_eq!(mailboxes.send(TaskId(1), TaskId(0), 99), Err(IpcError::QueueFull));
+        assert_eq!(mailboxes.receive(TaskId(0)).unwrap().unwrap().payload, 0);
+        mailboxes.send(TaskId(1), TaskId(0), 99).unwrap();
+        assert_eq!(mailboxes.pending(TaskId(0)), Ok(IPC_QUEUE_CAPACITY));
+    }
+
+    #[test]
+    fn mailbox_rejects_task_ids_outside_scheduler_capacity() {
+        let mut mailboxes = MailboxSet::new();
+        let invalid = TaskId(MAX_TASKS);
+        assert_eq!(mailboxes.send(TaskId(0), invalid, 1), Err(IpcError::InvalidTask));
+        assert_eq!(mailboxes.receive(invalid), Err(IpcError::InvalidTask));
+        assert_eq!(mailboxes.pending(invalid), Err(IpcError::InvalidTask));
+    }
+}
