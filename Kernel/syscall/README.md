@@ -1,11 +1,14 @@
 # System Call Boundary
 
-The stable Gravity ABI v1 syscall IDs are declared in Kernel/include/openxzuff/kernel/contracts.hpp. The host-testable dispatcher in Kernel/src/syscall.cpp currently routes:
+The stable Gravity ABI v1 syscall IDs are declared in `Kernel/include/openxzuff/kernel/contracts.hpp`. The host-testable C++ dispatcher in `Kernel/src/syscall.cpp` remains a policy-boundary test double with injected hooks; it currently routes Exit (0) and Yield (4) through those hooks and returns `-ENOSYS` for SendMessage (1), ReceiveMessage (2), MapMemory (3), and unknown IDs.
 
-- Exit (0) to an injected process-exit hook.
-- Yield (4) to an injected scheduler hook.
-- SendMessage (1), ReceiveMessage (2), MapMemory (3), and unknown IDs to -ENOSYS.
+The live RV64 path is separate and executes in `kernel/src/trap.rs` and `kernel/src/runtime.rs`:
 
-Returning calls use a0 for the result or negative errno. ABI v1 preserves a1-a5. The RV64 register-save layout is specified by Kernel/include/openxzuff/kernel/riscv64/trap_frame.hpp.
+- Exit (0): exits the built-in U-mode probe task and schedules another runnable task.
+- SendMessage (1): sends one scalar word to a destination task's bounded FIFO mailbox.
+- ReceiveMessage (2): non-blocking receive; returns payload in a0 and sender task ID in a1, or `-EAGAIN`.
+- Yield (4): saves the current U-mode trap frame, rotates the run queue, and resumes the task later.
 
-The dispatcher is deliberately independent of hardware. It does not install a trap vector, switch tasks, implement IPC, map pages, or execute ecall. Those require separate kernel and QEMU/hardware milestones.
+The live IPC implementation is single-hart and does not dereference user pointers. ABI v1 returning calls preserve a1-a5 except where a syscall defines a secondary output (ReceiveMessage uses a1). The RV64 register-save layout is specified by `Kernel/include/openxzuff/kernel/riscv64/trap_frame.hpp`.
+
+The C++ dispatcher does not install a trap vector, switch tasks, implement hardware IPC, map pages, or execute ecall. Its status must not be conflated with the live Rust RV64 runtime.
