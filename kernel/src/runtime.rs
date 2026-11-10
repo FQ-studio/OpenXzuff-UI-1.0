@@ -33,6 +33,7 @@ static USER_EXIT_STATUS: AtomicUsize = AtomicUsize::new(usize::MAX);
 static IPC_REQUEST_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_REPLY_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_EMPTY_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_TIMER_PREEMPTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -207,6 +208,9 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
     };
 
     unsafe { TASK_FRAMES[current.0] = frame as usize; }
+    if current.0 == 2 && unsafe { (*frame).sstatus & (1 << 8) == 0 } {
+        USER_TIMER_PREEMPTED.store(true, Ordering::Release);
+    }
     TIMER_INTERRUPTS.fetch_add(1, Ordering::Relaxed);
     arm_next_timer();
 
@@ -371,6 +375,10 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
     }
     let _ = current;
     next_frame
+}
+
+pub fn user_timer_preemption_observed() -> bool {
+    USER_TIMER_PREEMPTED.load(Ordering::Acquire)
 }
 
 pub fn timer_preemption_observed() -> bool {
