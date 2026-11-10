@@ -19,6 +19,6 @@ For S-origin traps, x[2] stores the interrupted S-mode stack pointer. For U-orig
 - The common restore path inspects SPP and restores sscratch for either S-mode or U-mode context.
 - Supervisor timer interrupts are dispatched from both S-origin and U-origin contexts.
 - U-mode ECALL uses a7 for the syscall ID and a0–a5 for arguments. ABI v1 advances sepc by four bytes for ECALL.
-- QEMU probes exercise GPR preservation, a U-mode page fault against supervisor-only memory, SendMessage returning -ENOSYS, and a real Yield context switch.
+- QEMU probes exercise GPR preservation, a U-mode page fault against supervisor-only memory, a SendMessage/ReceiveMessage scalar mailbox request/reply, a real Yield context switch, and Exit of the built-in U-mode task.
 
 The C++ openxzuff::kernel::riscv64::TrapFrame header is a host-testable layout mirror. Passing its static assertions alone is not evidence of hardware trap operation; the RV64 QEMU workflow supplies that separate evidence.
