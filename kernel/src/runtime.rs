@@ -32,6 +32,7 @@ static USER_TASK_EXITED: AtomicBool = AtomicBool::new(false);
 static USER_EXIT_STATUS: AtomicUsize = AtomicUsize::new(usize::MAX);
 static IPC_REQUEST_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_REPLY_RECEIVED: AtomicBool = AtomicBool::new(false);
+static USER_IPC_EMPTY_OBSERVED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -278,7 +279,10 @@ pub fn on_user_receive_message(frame: *mut TrapFrame) -> *mut TrapFrame {
                 USER_IPC_REPLY_RECEIVED.store(true, Ordering::Release);
             }
         },
-        Ok(None) => unsafe { (*frame).x[10] = (-11isize) as usize; },
+        Ok(None) => {
+            USER_IPC_EMPTY_OBSERVED.store(true, Ordering::Release);
+            unsafe { (*frame).x[10] = (-11isize) as usize; }
+        },
         Err(_) => {
             crate::console_write("ReceiveMessage: invalid mailbox\n");
             crate::halt();
@@ -291,6 +295,10 @@ pub fn on_user_receive_message(frame: *mut TrapFrame) -> *mut TrapFrame {
         };
     }
     frame
+}
+
+pub fn ipc_empty_receive_observed() -> bool {
+    USER_IPC_EMPTY_OBSERVED.load(Ordering::Acquire)
 }
 
 pub fn ipc_roundtrip_observed() -> bool {
