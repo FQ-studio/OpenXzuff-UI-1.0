@@ -123,10 +123,10 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
             && unsafe { vm::verify_isolation(
                 user_code_start, user_stack_start, kernel_start, supervisor_stack_start
             ) } => {
-                console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\\n");
-                console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\\n");
+                console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
+                console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\n");
             }
-        _ => { console_write("Sv39 kernel/user address spaces: FAIL\\n"); halt(); }
+        _ => { console_write("Sv39 kernel/user address spaces: FAIL\n"); halt(); }
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let mut map = memory::MemoryMap::new();

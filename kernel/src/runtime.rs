@@ -75,7 +75,7 @@ fn activate_address_space(task: TaskId) {
         crate::vm::switch_to_kernel()
     };
     if !switched || crate::vm::current_is_user() != expects_user {
-        crate::console_write("Task address-space switch: FAIL\\n");
+        crate::console_write("Task address-space switch: FAIL\n");
         crate::halt();
     }
 }
