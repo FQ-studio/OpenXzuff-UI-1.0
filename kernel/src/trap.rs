@@ -175,27 +175,18 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 if frame.x[10] != 0 || !args_preserved
                     || !UMODE_ISOLATION_FAULT.load(Ordering::Acquire)
                     || !crate::runtime::timer_preemption_observed()
-                    || !crate::runtime::register_context_observed() {
+                    || !crate::runtime::register_context_observed()
+                    || !crate::runtime::ipc_roundtrip_observed() {
                     crate::console_write("U-mode syscall integration: FAIL\n");
                     crate::halt();
                 }
                 crate::console_write("RV64 callee-saved register + private stack preservation: PASS\n");
-                crate::console_write("U-mode SendMessage -ENOSYS + Yield syscall context switch + Sv39 isolation: PASS\n");
+                crate::console_write("RV64 IPC mailbox send/receive round-trip: PASS\n");
+                crate::console_write("U-mode Yield syscall context switch + Sv39 isolation: PASS\n");
                 crate::runtime::on_user_exit(frame_ptr)
             },
-            1 => {
-                // ABI v1 SendMessage is reserved until the IPC transport exists.
-                if frame.x[10] != 0x4752_4156 {
-                    crate::console_write("U-mode SendMessage arguments: FAIL\n");
-                    crate::halt();
-                }
-                frame.x[10] = (-38isize) as usize;
-                frame.sepc = match frame.sepc.checked_add(4) {
-                    Some(next) => next,
-                    None => crate::halt(),
-                };
-                frame_ptr
-            }
+            1 => crate::runtime::on_user_send_message(frame_ptr),
+            2 => crate::runtime::on_user_receive_message(frame_ptr),
             4 => crate::runtime::on_user_yield(frame_ptr),
             _ => {
                 frame.x[10] = (-38isize) as usize;
