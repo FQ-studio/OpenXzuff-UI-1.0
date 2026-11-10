@@ -78,6 +78,14 @@ __gravity_u_mode_ecall_probe:
     /* U-mode must not be able to read the supervisor-only kernel image. */
     la      t0, __kernel_start
     ld      t1, 0(t0)
+    /* Stay in U-mode long enough for SBI TIME to preempt this exact context. */
+    li      t2, 20000000
+.Lumode_timer_wait:
+    addi    t2, t2, -1
+    bnez    t2, .Lumode_timer_wait
+    li      a7, 5                  /* verify timer preemption and frame resume */
+    ecall
+    bnez    a0, .Lumode_probe_failed
     li      a7, 2                  /* empty non-blocking receive */
     li      a0, 0
     ecall
