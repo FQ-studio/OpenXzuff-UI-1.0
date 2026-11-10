@@ -167,7 +167,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
         }
         8 => match frame.x[17] {
             0 => {
-                let args_preserved = frame.x[11] == 0x11
+                let args_preserved = frame.x[11] == 0
                     && frame.x[12] == 0x22
                     && frame.x[13] == 0x33
                     && frame.x[14] == 0x44
