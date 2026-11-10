@@ -7,10 +7,10 @@ Status: **implemented and QEMU-validated for the single U-mode integration test 
 - `kernel/src/umode_trap.S` installs the privilege-aware vector.
   - In U-mode, `sscratch` holds the supervisor trap-stack top; in S-mode it is zero.
   - The first `csrrw sp, sscratch, sp` switches U-origin traps to supervisor-owned storage before allocating the 288-byte frame.
-  - S-origin traps restore the interrupted S stack and tail into `__gravity_s_trap_vector`.
+  - S-origin traps restore the interrupted S stack and enter `__gravity_s_trap_vector`.
   - U-origin traps save x0–x31 plus `sepc`, `sstatus`, `scause` and `stval`, then call the Rust dispatcher.
 - `kernel/src/trap.S` selects the next frame and sets `sscratch` from the selected frame's SPP state before `sret`: zero for S-mode, supervisor-stack top for U-mode.
-- `kernel/src/trap.rs` checks that user-origin traps have SPP=0 and handles instruction page fault, U-mode ECALL and unexpected U-mode exceptions.
+- `kernel/src/trap.rs` validates the frame pointer is exactly at the top of the supervisor trap stack before dereferencing it, verifies the saved user `sp` equals the probe's expected stack top, checks SPP=0, and handles U-mode instruction page fault and ECALL dispatch.
 - `kernel/src/vm.rs` creates one Sv39 bootstrap identity window. The probe code and its dedicated stack are the only U=1 mappings in the split 4 KiB page tables; kernel pages remain supervisor-only.
 - `kernel/src/runtime.rs` runs two S-mode tasks and one U-mode test task. The timer path uses SBI TIME; the U-mode test exercises Yield, Exit and scalar IPC.
 - The active syscall implementation is Rust-native. The host-tested C++ dispatcher is not yet linked into this kernel path.
@@ -28,7 +28,7 @@ Arguments/results use `a0..a5`. Returning ECALLs advance `sepc` by four bytes. T
 
 ## Verified evidence
 
-GitHub Actions [RV64 S-Mode Kernel run #132](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42725952037), source commit `cdd0f46b19ac4ca5b04040e3eedb0f264b4d82f5`, completed successfully on 2026-11-10.
+GitHub Actions [RV64 S-Mode Kernel run #134](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42768638698), source commit `cbc196338e124005ea95958a10c430d3f3ade3a0`, completed successfully on 2026-11-10.
 
 - Host test step: **21 passed, 0 failed**.
 - RV64 cross-build step: success for `riscv64imac-unknown-none-elf`.
@@ -36,6 +36,7 @@ GitHub Actions [RV64 S-Mode Kernel run #132](https://github.com/FQ-studio/OpenXz
 - Captured serial log contains:
   - `Sv39 bootstrap page tables: PASS; U-mode mappings isolated`
   - `S-mode trap GPR save/restore + sret: PASS`
+  - `U-mode supervisor trap-stack switch + user SP preservation: PASS`
   - `RV64 timer preemption + stack context switch: PASS; interrupts=2`
   - `RV64 callee-saved register + private stack preservation: PASS`
   - `RV64 IPC empty receive -EAGAIN: PASS`
@@ -43,14 +44,14 @@ GitHub Actions [RV64 S-Mode Kernel run #132](https://github.com/FQ-studio/OpenXz
   - `U-mode Yield syscall context switch + Sv39 isolation: PASS`
   - `U-mode Exit syscall + scheduler task exit: PASS`
 
-The workflow requires these markers with individual `grep -q` assertions. The uploaded artifact includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
+The workflow requires each marker with an individual `grep -q` assertion. The uploaded artifact includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
 
 ## Explicit limits and next tests
 
 This is a bring-up test, not a production process subsystem:
 
 1. The current implementation has one U-mode task and one static supervisor trap stack. Allocate a distinct supervisor trap stack per U-mode task (and per hart) before supporting concurrent or multiple U-mode processes.
-2. Add an explicit test proving a timer interrupt can preempt a U-mode task and later resume that exact U frame.
+2. Add an explicit test proving a timer interrupt can preempt a U-mode task and later resume that exact U frame. The existing timer marker does not isolate U-mode timer preemption.
 3. Add exhaustive U-mode register-preservation sentinels, including all caller/callee-saved integer registers and stack alignment across ECALL, Yield and timer paths.
 4. Add negative tests for S-mode ECALL routing, unsupported U-mode exceptions and invalid syscall arguments.
 5. Introduce user-memory copy-in/copy-out with range and permission checks before any pointer-bearing syscall.
