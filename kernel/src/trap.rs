@@ -287,7 +287,7 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                     Some(next) => next,
                     None => crate::halt(),
                 };
-                crate::console_write("U-mode unknown syscall -ENOSYS: PASS\\n");
+                crate::console_write("U-mode unknown syscall -ENOSYS: PASS\n");
                 frame_ptr
             },
             _ => {
