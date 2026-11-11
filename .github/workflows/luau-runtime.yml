@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - "Kernel/**"
+      - "kernel/**"
       - "sys/**"
       - "user/**"
       - "gui/**"
