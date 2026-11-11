@@ -281,6 +281,15 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                 };
                 frame_ptr
             },
+            99 => {
+                frame.x[10] = (-38isize) as usize;
+                frame.sepc = match frame.sepc.checked_add(4) {
+                    Some(next) => next,
+                    None => crate::halt(),
+                };
+                crate::console_write("U-mode unknown syscall -ENOSYS: PASS\\n");
+                frame_ptr
+            },
             _ => {
                 frame.x[10] = (-38isize) as usize;
                 frame.sepc = match frame.sepc.checked_add(4) {

@@ -86,6 +86,11 @@ __gravity_u_mode_ecall_probe:
     li      a7, 5                  /* verify timer preemption and frame resume */
     ecall
     bnez    a0, .Lumode_probe_failed
+    li      a7, 99                 /* unsupported syscall must return -ENOSYS */
+    li      a0, 0
+    ecall
+    li      t0, -38
+    bne     a0, t0, .Lumode_probe_failed
     li      a7, 2                  /* empty non-blocking receive */
     li      a0, 0
     ecall
