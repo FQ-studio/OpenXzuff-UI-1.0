@@ -183,7 +183,8 @@ pub fn start() -> ! {
         let stack1 = core::ptr::addr_of_mut!(TASK1_STACK);
         let frame0 = make_initial_frame(stack0, task_a);
         let frame1 = make_initial_frame(stack1, task_b);
-        let user_frame = crate::trap::create_user_task_frame();
+        let user_frame = crate::trap::create_user_task_frame(user.0);
+        if user_frame.is_null() { crate::halt(); }
         TASK_FRAMES[a.0] = frame0 as usize;
         TASK_FRAMES[b.0] = frame1 as usize;
         TASK_FRAMES[user.0] = user_frame as usize;
@@ -211,6 +212,11 @@ pub fn start() -> ! {
         );
         __gravity_s_trap_resume(first)
     }
+}
+
+/// Current scheduler task ID, used to validate ownership of U-mode trap storage.
+pub(crate) fn current_task_id() -> Option<usize> {
+    unsafe { (*core::ptr::addr_of!(SCHEDULER)).current().map(|id| id.0) }
 }
 
 /// Called by both S-origin and U-origin supervisor timer traps.

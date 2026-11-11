@@ -114,17 +114,24 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         Some(end) => end,
         None => { console_write("Sv39 page tables: FAIL (FDT range overflow)\n"); halt(); }
     };
-    let (supervisor_stack_start, _) = trap::supervisor_trap_stack_bounds();
+    let supervisor_stack_starts = trap::supervisor_trap_stack_starts();
+    if !trap::supervisor_trap_stacks_layout_valid() {
+        console_write("Per-task supervisor trap stacks: FAIL (layout)\n");
+        halt();
+    }
     match unsafe { vm::enable_bootstrap(
         kernel_start, kernel_end, fdt_addr, fdt_end,
         user_code_start, user_code_end, user_stack_start, user_stack_end
     ) } {
         Ok(()) if vm::active() && vm::roots_are_distinct()
-            && unsafe { vm::verify_isolation(
-                user_code_start, user_stack_start, kernel_start, supervisor_stack_start
-            ) } => {
+            && supervisor_stack_starts.iter().all(|&stack_start| unsafe {
+                vm::verify_isolation(
+                    user_code_start, user_stack_start, kernel_start, stack_start
+                )
+            }) => {
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
                 console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\n");
+                console_write("Per-task supervisor trap stacks: PASS; slots=16; supervisor-only\n");
             }
         _ => { console_write("Sv39 kernel/user address spaces: FAIL\n"); halt(); }
     }

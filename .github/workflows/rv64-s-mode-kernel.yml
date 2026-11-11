@@ -55,6 +55,7 @@ jobs:
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Per-task supervisor trap stacks: PASS; slots=16; supervisor-only' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT parser: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT memory map: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Physical page allocator: OK' build/kernel/rv64-s-mode/qemu-serial.log

@@ -60,7 +60,8 @@ struct UModeStack([u8; 4096]);
 static mut UMODE_STACK: UModeStack = UModeStack([0; 4096]);
 #[repr(align(4096))]
 struct SupervisorTrapStack([u8; 4096]);
-static mut SUPERVISOR_TRAP_STACK: SupervisorTrapStack = SupervisorTrapStack([0; 4096]);
+static mut SUPERVISOR_TRAP_STACKS: [SupervisorTrapStack; crate::scheduler::MAX_TASKS] =
+    [const { SupervisorTrapStack([0; 4096]) }; crate::scheduler::MAX_TASKS];
 
 extern "C" {
     static __gravity_umode_trap_vector: u8;
@@ -87,10 +88,13 @@ pub fn smoke_test() {
 }
 
 /// Build the initial U-mode frame on its private supervisor trap stack.
-pub(crate) unsafe fn create_user_task_frame() -> *mut TrapFrame {
+pub(crate) unsafe fn create_user_task_frame(task_id: usize) -> *mut TrapFrame {
+    if task_id >= crate::scheduler::MAX_TASKS {
+        return core::ptr::null_mut();
+    }
     let user_base = core::ptr::addr_of_mut!(UMODE_STACK.0).cast::<u8>();
     let user_top = user_base.add(4096) as usize;
-    let supervisor_base = core::ptr::addr_of_mut!(SUPERVISOR_TRAP_STACK.0).cast::<u8>();
+    let supervisor_base = core::ptr::addr_of_mut!(SUPERVISOR_TRAP_STACKS[task_id].0).cast::<u8>();
     let supervisor_top = supervisor_base.add(4096) as usize;
     let frame = (supervisor_top - core::mem::size_of::<TrapFrame>()) as *mut TrapFrame;
     frame.write(TrapFrame::new_user(__gravity_u_mode_ecall_probe as *const () as usize, user_top));
@@ -138,9 +142,33 @@ pub(crate) fn user_stack_bounds() -> (usize, usize) {
     (start, start + 4096)
 }
 
-pub(crate) fn supervisor_trap_stack_bounds() -> (usize, usize) {
-    let start = unsafe { core::ptr::addr_of!(SUPERVISOR_TRAP_STACK.0) as usize };
-    (start, start + 4096)
+/// Return the base of each scheduler slot's page-aligned supervisor trap stack.
+pub(crate) fn supervisor_trap_stack_starts() -> [usize; crate::scheduler::MAX_TASKS] {
+    core::array::from_fn(|task_id| unsafe {
+        core::ptr::addr_of!(SUPERVISOR_TRAP_STACKS[task_id].0) as usize
+    })
+}
+
+/// Check that every slot is page-aligned, exactly one page, and non-overlapping.
+pub(crate) fn supervisor_trap_stacks_layout_valid() -> bool {
+    let starts = supervisor_trap_stack_starts();
+    for task_id in 0..crate::scheduler::MAX_TASKS {
+        if starts[task_id] & 0xfff != 0 {
+            return false;
+        }
+        if task_id > 0 && starts[task_id] != starts[task_id - 1] + 4096 {
+            return false;
+        }
+    }
+    true
+}
+
+fn supervisor_trap_stack_bounds(task_id: usize) -> Option<(usize, usize)> {
+    if task_id >= crate::scheduler::MAX_TASKS {
+        return None;
+    }
+    let start = unsafe { core::ptr::addr_of!(SUPERVISOR_TRAP_STACKS[task_id].0) as usize };
+    Some((start, start + 4096))
 }
 
 /// The assembly probe never changes its user sp. Require the saved frame to
@@ -151,7 +179,14 @@ fn validate_user_trap_frame(frame_ptr: *mut TrapFrame) -> bool {
         return false;
     }
 
-    let (trap_start, trap_end) = supervisor_trap_stack_bounds();
+    let task_id = match crate::runtime::current_task_id() {
+        Some(task_id) => task_id,
+        None => return false,
+    };
+    let (trap_start, trap_end) = match supervisor_trap_stack_bounds(task_id) {
+        Some(bounds) => bounds,
+        None => return false,
+    };
     let frame_start = frame_ptr as usize;
     let frame_end = match frame_start.checked_add(core::mem::size_of::<TrapFrame>()) {
         Some(end) => end,
