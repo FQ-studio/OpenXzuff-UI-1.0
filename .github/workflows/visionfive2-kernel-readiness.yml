@@ -14,6 +14,18 @@ on:
       - 'boards/riscv64/visionfive2/**'
       - '.github/workflows/visionfive2-kernel-readiness.yml'
 
+  pull_request:
+    paths:
+      - 'kernel/**'
+      - 'Kernel/**'
+      - 'drivers/**'
+      - 'sys/**'
+      - 'gui/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'boards/riscv64/visionfive2/**'
+      - '.github/workflows/visionfive2-kernel-readiness.yml'
+
 permissions:
   contents: read
 
