@@ -25,11 +25,11 @@ Status: **QEMU-validated for one U-mode integration task, with 16 task-indexed s
 | 4 | Yield | Saves the current U frame and rotates to another runnable task |
 | 5 | VerifyUserTimerPreemption (test-only) | Returns success only after the scheduler recorded a timer interrupt while task 2 was in U-mode; emits a QEMU PASS marker |
 
-Arguments/results use `a0..a5`. Returning ECALLs advance `sepc` by four bytes. The test does not accept or dereference user-provided pointers.
+Arguments/results use `a0..a5`. Returning ECALLs advance `sepc` by four bytes. The probe also invokes unknown syscall ID 99 and requires `-ENOSYS` (`-38`). The test does not accept or dereference user-provided pointers.
 
 ## Verified evidence
 
-GitHub Actions [RV64 S-Mode Kernel run #145](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971914049), source commit `4eae95c5366314927959f0fe1c60eff8f1f8ad25`, completed successfully on 2026-11-11.
+GitHub Actions [RV64 S-Mode Kernel run #147](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614), source commit `c3ca6626e4ba47482669bc6f41346b9da413fd45`, completed successfully on 2026-11-11.
 
 - Host test step: **23 passed, 0 failed**.
 - RV64 cross-build step: success for `riscv64imac-unknown-none-elf`.
@@ -40,6 +40,7 @@ GitHub Actions [RV64 S-Mode Kernel run #145](https://github.com/FQ-studio/OpenXz
   - `S-mode trap GPR save/restore + sret: PASS`
   - `U-mode supervisor trap-stack switch + user SP preservation: PASS`
   - `U-mode timer preemption + saved-frame resume: PASS`
+  - `U-mode unknown syscall -ENOSYS: PASS`
   - `RV64 timer preemption + stack context switch: PASS; interrupts=2`
   - `RV64 callee-saved register + private stack preservation: PASS`
   - `RV64 IPC empty receive -EAGAIN: PASS`
@@ -47,7 +48,7 @@ GitHub Actions [RV64 S-Mode Kernel run #145](https://github.com/FQ-studio/OpenXz
   - `U-mode Yield syscall context switch + Sv39 isolation: PASS`
   - `U-mode Exit syscall + scheduler task exit: PASS`
 
-The workflow requires each marker with an individual `grep -q` assertion. The [run #145 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971914049/artifacts/13833448650) includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
+The workflow requires each marker with an individual `grep -q` assertion. The [run #147 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614/artifacts/13833589291) includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
 
 ## Explicit limits and next tests
 
@@ -56,7 +57,7 @@ This is a bring-up test, not a production process subsystem:
 1. Sixteen task-indexed supervisor trap-stack slots are allocated and checked for S-only mappings, but only task 2 currently runs in U-mode. Add a second U-mode task with a distinct user stack and prove both task IDs trap and resume on their own stack slots.
 2. Add per-hart trap-stack ownership and SMP-safe scheduler/IPC synchronization before multi-hart execution.
 3. Add exhaustive U-mode GPR/CSR sentinels across ECALL, timer preemption, Yield and task exit; current tests do not prove every U-mode register value.
-4. Add negative tests for S-mode ECALL routing, unsupported U-mode exceptions, invalid syscall arguments and invalid user addresses.
+4. Unknown syscall ID 99 is now verified to return `-ENOSYS`; still add negative tests for S-mode ECALL routing, unsupported U-mode exceptions, invalid syscall arguments and invalid user addresses.
 5. Introduce user-memory copy-in/copy-out with range and permission checks before any pointer-bearing syscall.
 6. Replace the bootstrap-only page tables with per-process address spaces and reclamation.
 7. Define and test the Rust/C++ ABI bridge only after syscall error, argument, return and task-exit semantics are stable.

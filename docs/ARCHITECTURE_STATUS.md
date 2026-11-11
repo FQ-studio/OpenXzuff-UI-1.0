@@ -11,16 +11,16 @@
 
 ## Verified RV64 kernel baseline
 
-The current `main` branch has a QEMU-bootable RV64 kernel image. The latest RV64-validated source revision, `4eae95c5366314927959f0fe1c60eff8f1f8ad25`, passed [RV64 S-Mode Kernel run #145](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971914049) on 2026-11-11.
+The current `main` branch has a QEMU-bootable RV64 kernel image. The latest RV64-validated source revision, `c3ca6626e4ba47482669bc6f41346b9da413fd45`, passed [RV64 S-Mode Kernel run #147](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614) on 2026-11-11.
 
 That run executed:
 
 - Host Rust tests: **23 passed, 0 failed**; the suite includes FDT timebase 32/64-bit parsing, zero/missing/bad-width rejection, RAM/reservation parsing, allocator, scheduler and IPC cases.
 - Cross-build target: `riscv64imac-unknown-none-elf`; output is a statically linked RV64 ELF with entry point `0x80200000`.
 - OpenSBI v1.3 + QEMU `virt`, 256 MiB, one hart.
-- Serial assertions for FDT/timebase, Sv39 bootstrap mapping, all 16 per-task supervisor trap-stack slots being page-aligned and supervisor-only, physical-page and heap allocator smoke tests, S-mode trap-frame round-trip, scheduler state, SBI TIME preemption/context switching, explicit U-mode timer preemption and saved-frame resume, U-to-S trap-stack switching and user-SP preservation, U-mode IPC empty-queue `-EAGAIN`, IPC request/reply, U-mode Yield and U-mode Exit.
+- Serial assertions for FDT/timebase, Sv39 bootstrap mapping, all 16 per-task supervisor trap-stack slots being page-aligned and supervisor-only, physical-page and heap allocator smoke tests, S-mode trap-frame round-trip, scheduler state, SBI TIME preemption/context switching, explicit U-mode timer preemption and saved-frame resume, unknown U-mode syscall `-ENOSYS` handling, U-to-S trap-stack switching and user-SP preservation, U-mode IPC empty-queue `-EAGAIN`, IPC request/reply, U-mode Yield and U-mode Exit.
 
-The [run #145 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971914049/artifacts/13833448650) contains the ELF, raw binary and QEMU serial log. Exact results and scope limits are recorded in [the 2026-11-11 checkpoint](checkpoints/2026-11-11-afternoon.md).
+The [run #147 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614/artifacts/13833589291) contains the ELF, raw binary and QEMU serial log. Exact results and scope limits are recorded in [the 2026-11-11 checkpoint](checkpoints/2026-11-11-afternoon.md).
 
 
 ## Verified OpenXzuff UI Core host baseline
@@ -38,7 +38,7 @@ The [run #145 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/ru
 ## Implemented, but deliberately bounded
 
 - The scheduler test runtime has two S-mode tasks and one U-mode test task on a single hart.
-- The Rust-native syscall contract uses `a7` for the syscall ID and `a0..a5` for arguments/results. Exercised calls are Exit=0, SendMessage=1, ReceiveMessage=2 and Yield=4; ID 5 is a test-only assertion that the U-mode timer-preempted frame resumed, not a public application ABI.
+- The Rust-native syscall contract uses `a7` for the syscall ID and `a0..a5` for arguments/results. Exercised calls are Exit=0, SendMessage=1, ReceiveMessage=2 and Yield=4; ID 5 is a test-only assertion that the U-mode timer-preempted frame resumed, not a public application ABI. The U-mode probe also sends unknown ID 99 and verifies `-ENOSYS` (`-38`).
 - IPC currently transports one scalar machine word per message through fixed-capacity, non-blocking mailboxes. User pointers are not accepted.
 - Sv39 is a bootstrap identity map for one 1 GiB window. Only the probe's code pages and stack pages are user-accessible; this is not a per-process address-space manager.
 - U-mode trap entry switches to the supervisor trap stack assigned to the current scheduler task before building the 288-byte frame. Sixteen page-aligned slots are reserved by `TaskId`; QEMU verifies their layout and checks every slot is supervisor-only in the user page table. The current runtime still exercises only one U-mode task (task 2) and one user stack on one hart; allocating slots does not yet prove multi-U-task or SMP operation.
