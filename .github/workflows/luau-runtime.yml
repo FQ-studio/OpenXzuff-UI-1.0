@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - "Kernel/**"
+      - "kernel/**"
       - "sys/**"
       - "user/**"
       - "gui/**"
