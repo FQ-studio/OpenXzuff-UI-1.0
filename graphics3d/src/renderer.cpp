@@ -15,7 +15,6 @@ float dot(Vec3 a, Vec3 b) { return a.x*b.x+a.y*b.y+a.z*b.z; }
 Vec3 cross(Vec3 a, Vec3 b) { return {a.y*b.z-a.z*b.y,a.z*b.x-a.x*b.z,a.x*b.y-a.y*b.x}; }
 float length(Vec3 v) { return std::sqrt(dot(v,v)); }
 Vec3 normalized(Vec3 v) { const float l=length(v); return l>kEpsilon ? v/l : Vec3{0,0,0}; }
-float clamp01(float v) { return std::clamp(v,0.0F,1.0F); }
 struct ViewVertex { Vec3 p; Vec3 n; };
 struct ScreenVertex { float x,y,z; Vec3 normal; };
 float edge(const ScreenVertex& a,const ScreenVertex& b,float x,float y) {
