@@ -91,6 +91,10 @@ __gravity_u_mode_ecall_probe:
     ecall
     li      t0, -38
     bne     a0, t0, .Lumode_probe_failed
+    li      a7, 6                  /* report only after user checked -ENOSYS */
+    li      a0, 0
+    ecall
+    bnez    a0, .Lumode_probe_failed
     li      a7, 2                  /* empty non-blocking receive */
     li      a0, 0
     ecall

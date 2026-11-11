@@ -54,6 +54,7 @@ static BREAKPOINT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static FRAME_VALID: AtomicBool = AtomicBool::new(false);
 static UMODE_ISOLATION_FAULT: AtomicBool = AtomicBool::new(false);
 static UMODE_STACK_SWITCH_VALIDATED: AtomicBool = AtomicBool::new(false);
+static UNKNOWN_SYSCALL_REJECTED: AtomicBool = AtomicBool::new(false);
 
 #[repr(align(4096))]
 struct UModeStack([u8; 4096]);
@@ -283,11 +284,24 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             },
             99 => {
                 frame.x[10] = (-38isize) as usize;
+                UNKNOWN_SYSCALL_REJECTED.store(true, Ordering::Release);
                 frame.sepc = match frame.sepc.checked_add(4) {
                     Some(next) => next,
                     None => crate::halt(),
                 };
+                frame_ptr
+            },
+            6 => {
+                if !UNKNOWN_SYSCALL_REJECTED.load(Ordering::Acquire) {
+                    crate::console_write("U-mode unknown syscall -ENOSYS: FAIL\n");
+                    crate::halt();
+                }
                 crate::console_write("U-mode unknown syscall -ENOSYS: PASS\n");
+                frame.x[10] = 0;
+                frame.sepc = match frame.sepc.checked_add(4) {
+                    Some(next) => next,
+                    None => crate::halt(),
+                };
                 frame_ptr
             },
             _ => {
