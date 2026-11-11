@@ -24,12 +24,13 @@ Status: **QEMU-validated for one U-mode integration task, with 16 task-indexed s
 | 2 | ReceiveMessage | Non-blocking receive; empty queue returns `-EAGAIN` |
 | 4 | Yield | Saves the current U frame and rotates to another runnable task |
 | 5 | VerifyUserTimerPreemption (test-only) | Returns success only after the scheduler recorded a timer interrupt while task 2 was in U-mode; emits a QEMU PASS marker |
+| 6 | ConfirmEnosysProbe (test-only) | Emits the ENOSYS PASS marker only after the probe has checked the prior unknown-syscall return value |
 
-Arguments/results use `a0..a5`. Returning ECALLs advance `sepc` by four bytes. The probe also invokes unknown syscall ID 99 and requires `-ENOSYS` (`-38`). The test does not accept or dereference user-provided pointers.
+Arguments/results use `a0..a5`. Returning ECALLs advance `sepc` by four bytes. The probe invokes unknown syscall ID 99 and requires `-ENOSYS` (`-38`). Only after the assembly probe compares the returned `a0` with `-38` does it call test-only ID 6 to emit the PASS marker. The test does not accept or dereference user-provided pointers.
 
 ## Verified evidence
 
-GitHub Actions [RV64 S-Mode Kernel run #147](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614), source commit `c3ca6626e4ba47482669bc6f41346b9da413fd45`, completed successfully on 2026-11-11.
+GitHub Actions [RV64 S-Mode Kernel run #148](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125672), source commit `4cb674aedd98571a3b9c5e9a4d5bc04162eba6e8`, completed successfully on 2026-11-11.
 
 - Host test step: **23 passed, 0 failed**.
 - RV64 cross-build step: success for `riscv64imac-unknown-none-elf`.
@@ -48,7 +49,7 @@ GitHub Actions [RV64 S-Mode Kernel run #147](https://github.com/FQ-studio/OpenXz
   - `U-mode Yield syscall context switch + Sv39 isolation: PASS`
   - `U-mode Exit syscall + scheduler task exit: PASS`
 
-The workflow requires each marker with an individual `grep -q` assertion. The [run #147 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972561614/artifacts/13833589291) includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
+The workflow requires each marker with an individual `grep -q` assertion. The [run #148 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125672/artifacts/13833867960) includes `openxzuff-kernel.elf`, `openxzuff-kernel.bin` and `qemu-serial.log`.
 
 ## Explicit limits and next tests
 
