@@ -4,7 +4,6 @@
 
 - Repository: `FQ-studio/OpenXzuff-UI-1.0`
 - Branch: `main`
-- Current main head: `4cb674aedd98571a3b9c5e9a4d5bc04162eba6e8`.
 - Latest validated kernel source commit: `4cb674aedd98571a3b9c5e9a4d5bc04162eba6e8`.
 - Core renderer cleanup commit: `3e8f1ed6c8b3725085391a0e39f4e9cbb4e1250a`.
 
@@ -17,7 +16,7 @@
 5. `kernel/src/trap.rs` and `kernel/src/umode_trap.S`: add a negative U-mode syscall probe. Unknown syscall ID 99 must return `-ENOSYS` (-38), and the runtime emits a dedicated marker.
 6. The unknown-syscall marker now follows a two-stage check: ID 99 returns `-ENOSYS`; the assembly probe compares `a0` with `-38`; only then does test-only ID 6 ask the handler to emit PASS. This prevents a false PASS marker before the return value is verified.
 7. `.github/workflows/rv64-s-mode-kernel.yml`: requires the per-task stack and unknown-syscall serial markers.
-7. CI path filters: Core runtime and VisionFive 2 readiness workflows now include lowercase `kernel/**`; the Core workflow includes it for push and pull requests, and VisionFive 2 readiness now includes a pull-request trigger.
+8. CI path filters: Core runtime and VisionFive 2 readiness workflows now include lowercase `kernel/**`; the Core workflow includes it for push and pull requests, and VisionFive 2 readiness now includes a pull-request trigger.
 
 ## RV64 build and QEMU evidence
 

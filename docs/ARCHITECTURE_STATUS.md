@@ -25,7 +25,7 @@ The [run #148 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/ru
 
 ## Verified OpenXzuff UI Core host baseline
 
-[OpenXzuff UI Runtime, OS Contracts and 3D run #153](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971393352) passed on 2026-11-11 for source commit `3e8f1ed6c8b3725085391a0e39f4e9cbb4e1250a`:
+[OpenXzuff UI Runtime, OS Contracts and 3D run #157](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972631482) passed on 2026-11-11 for source commit `5c2b997043d3ebf82430edc118849f2a8e61ee81`. This run exercised the Core workflow after its path filter was expanded to include lowercase `kernel/**` for pushes and pull requests:
 
 - Root CTest: **14/14 passed**; Xzuff Go compiler/.xexe fixture validation passed.
 - Xzuff Go / xgo cross-compiled and packaged for Android ARM64 using NDK 27.2.12479018.
@@ -33,7 +33,7 @@ The [run #148 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/ru
 - JavaScript host tests: **2/2**; standard Lua host tests: **2/2**; OpenXzuff3D tests: **1/1**; rendered-scene artifact verification passed.
 - Removed the unused `clamp01` helper in `graphics3d/src/renderer.cpp`; the renderer's unused-function warning is absent from run #153. Two non-fatal unused-parameter warnings remain in the vendored Luau `Ast.h` headers.
 
-[Run #153 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42971393352/artifacts/13833493328) contains the host/runtime smoke outputs.
+[Run #157 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42972631482/artifacts/13834056868) contains the host/runtime smoke outputs.
 
 ## Implemented, but deliberately bounded
 
