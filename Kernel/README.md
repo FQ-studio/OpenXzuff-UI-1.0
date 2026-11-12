@@ -18,7 +18,8 @@ The C++ dispatcher still returns `-ENOSYS` for SendMessage, ReceiveMessage, MapM
 The executable image in lowercase `kernel/` currently has an OpenSBI/QEMU-tested bring-up path:
 
 - Firmware FDT parsing, including memory ranges and timer timebase frequency.
-- Sv39 bootstrap translation with distinct supervisor-only kernel and probe-user roots; task switches change `satp`, and only the probe-user root grants U access to its RX text and RW stack pages.
+- Sv39 bootstrap translation with distinct supervisor-only kernel and probe-user roots. The linked image has section-aware W^X permissions: `.text` supervisor RX, `.rodata` supervisor R, and `.data/.bss` supervisor RW; the other bootstrap identity-mapped regions are supervisor RW/NX.
+- The probe-user root grants U access only to its RX text and RW stack. Task switches change `satp` and execute `sfence.vma`.
 - Physical page allocator and a fixed 64 KiB kernel heap with smoke tests.
 - S-mode and U-mode trap entry paths, a 288-byte RV64 GPR/CSR frame, `sscratch` supervisor-stack switching, and a common `sret` restore path.
 - SBI TIME timer preemption using a 10 ms quantum derived from the FDT timebase.
@@ -26,7 +27,7 @@ The executable image in lowercase `kernel/` currently has an OpenSBI/QEMU-tested
 - Live U-mode Exit and Yield syscalls.
 - A bounded scalar IPC transport: per-task FIFO mailboxes, eight messages per mailbox, SendMessage and non-blocking ReceiveMessage syscalls, and a U-mode-to-kernel-task request/reply round-trip.
 
-The `RV64 S-Mode Kernel` GitHub Actions workflow builds the RV64 ELF, runs host tests against the allocator/FDT/scheduler/IPC modules, boots it with OpenSBI in QEMU, and checks the serial assertions. A passing workflow is evidence for this QEMU configuration only.
+The `RV64 S-Mode Kernel` GitHub Actions workflow builds the RV64 ELF, runs host tests against the allocator/FDT/scheduler/IPC modules, boots it with OpenSBI in QEMU, and checks the serial assertions. Run #154 completed successfully on 12 November 2026; it is evidence for this QEMU configuration only.
 
 ## Explicit limitations
 
