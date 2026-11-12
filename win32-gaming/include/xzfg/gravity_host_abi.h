@@ -15,6 +15,15 @@ extern "C" {
 
 #define XZFG_GRAVITY_HOST_ABI_VERSION 1u
 
+/* RV64 U-mode ecall numbers. Keep in sync with kernel/src/syscall_abi.rs. */
+enum {
+    XZFG_SYSCALL_EXIT = 0,
+    XZFG_SYSCALL_SEND_MESSAGE = 1,
+    XZFG_SYSCALL_RECEIVE_MESSAGE = 2,
+    XZFG_SYSCALL_MAP_MEMORY = 3,
+    XZFG_SYSCALL_YIELD = 4
+};
+
 typedef uint64_t xzfg_handle;
 typedef int32_t xzfg_status;
 
