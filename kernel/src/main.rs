@@ -15,7 +15,7 @@ mod runtime;
 mod vm;
 mod syscall_abi;
 
-static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
+pub(crate) static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
 #[repr(align(16))]
 struct HeapArena([u8; 64 * 1024]);
