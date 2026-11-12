@@ -37,9 +37,9 @@ The repository now contains an RV64 U-mode adapter that issues real `ecall` inst
 | UnmapMemory | 7 | Sv39 user heap unmap + physical page return |
 | ProtectMemory | 8 | Sv39 user PTE permission update |
 
-The user heap is currently a **single-process, 2 MiB virtual arena** for the built-in U-mode task. Physical pages are drawn from the kernel's identity-mapped direct-map window, zeroed under the kernel root, and exposed with U-mode page permissions. QEMU coverage is being added for allocation, read/write, permission reduction, and unmap.
+The user heap is currently a **single-process, 2 MiB virtual arena** for the built-in U-mode task. Physical pages are drawn from the kernel's identity-mapped direct-map window, zeroed under the kernel root, and exposed with U-mode page permissions. The Rust QEMU kernel workflow already exercises the live U-mode Map/Protect/Unmap syscall path; the new RV64 adapter CI step separately cross-compiles the C++ ecall wrapper. The adapter now exposes scalar Send/Receive callbacks as well.
 
-This is a real syscall/trap/VM integration slice, not a complete Win32 backend. Task creation, multiple independent user address spaces, VFS handles, waitables, networking, graphics/audio/input services, PE loading, and x86/x64-to-RV64 translation remain unimplemented.
+This is a real syscall/trap/VM/IPC integration slice, not a complete Win32 backend. The scheduler currently boots two static S-mode tasks and one static U-mode task; the adapter does not yet offer dynamic task creation or multiple independent user address spaces. VFS handles, waitables, networking, graphics/audio/input services, PE loading, and x86/x64-to-RV64 translation remain unimplemented.
 
 ## Linux replacement map
 
