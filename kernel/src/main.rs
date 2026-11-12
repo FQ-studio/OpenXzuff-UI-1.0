@@ -134,12 +134,20 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         data_start, data_end, bss_start, bss_end,
     ) } {
         Ok(()) if vm::active() && vm::roots_are_distinct()
-            && supervisor_stack_starts.iter().all(|&stack_start| unsafe {
-                vm::verify_isolation(
-                    user_code_start, user_stack_start, kernel_start, stack_start,
-                    text_start, (rodata_start < rodata_end).then_some(rodata_start),
-                    data_start, bss_start,
-                )
+            && supervisor_stack_starts.iter().all(|&stack_start| {
+                let stack_end = match stack_start.checked_add(4096) {
+                    Some(end) => end,
+                    None => return false,
+                };
+                unsafe {
+                    vm::verify_isolation(
+                        user_code_start, user_code_end,
+                        user_stack_start, user_stack_end,
+                        kernel_start, stack_start, stack_end,
+                        text_start, text_end, rodata_start, rodata_end,
+                        data_start, data_end, bss_start, bss_end,
+                    )
+                }
             }) => {
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
                 console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\n");
