@@ -156,6 +156,11 @@ __gravity_u_mode_ecall_probe:
     ecall
     bnez    a0, .Lumode_probe_failed
 
+    li      a1, 0                  /* restore ABI register-preservation sentinels */
+    li      a2, 0x22
+    li      a3, 0x33
+    li      a4, 0x44
+    li      a5, 0x55
     li      a7, 0
     li      a0, 0
     ecall
