@@ -1,7 +1,5 @@
 #include "xzfg/gravity_kernel_backend_rv64.hpp"
 
-#include <cstdint>
-
 namespace {
 
 constexpr long kSyscallExit = XZFG_SYSCALL_EXIT;
