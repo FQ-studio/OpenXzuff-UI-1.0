@@ -1,0 +1,40 @@
+name: Win32 Gaming Gravity Backend Bridge
+
+on:
+  pull_request:
+    paths:
+      - 'CMakeLists.txt'
+      - 'Kernel/include/openxzuff/kernel/**'
+      - 'Kernel/src/syscall.cpp'
+      - 'win32-gaming/**'
+      - '.github/workflows/win32-gravity-backend.yml'
+  push:
+    branches:
+      - main
+      - 'feature/win32-gaming-gravity-port'
+    paths:
+      - 'CMakeLists.txt'
+      - 'Kernel/include/openxzuff/kernel/**'
+      - 'Kernel/src/syscall.cpp'
+      - 'win32-gaming/**'
+      - '.github/workflows/win32-gravity-backend.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  host-bridge:
+    name: Build and test Gravity host bridge (host mock)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build backend bridge tests
+        run: cmake --build build --target win32-gravity-host-abi-test win32-gravity-kernel-backend-test --parallel 2
+
+      - name: Run backend bridge tests
+        run: ctest --test-dir build --output-on-failure -R 'win32-gravity-(host-abi-contract|kernel-backend-bridge)'
