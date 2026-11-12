@@ -331,6 +331,80 @@ pub fn ipc_roundtrip_observed() -> bool {
         && USER_IPC_REPLY_RECEIVED.load(Ordering::Acquire)
 }
 
+fn vm_error_to_errno(error: crate::vm::VmError) -> isize {
+    match error {
+        crate::vm::VmError::NoMemory => crate::syscall_abi::ENOMEM,
+        crate::vm::VmError::AddressNotMapped => crate::syscall_abi::EFAULT,
+        _ => crate::syscall_abi::EINVAL,
+    }
+}
+
+fn finish_user_syscall(frame: *mut TrapFrame, result: isize) -> *mut TrapFrame {
+    unsafe {
+        (*frame).x[10] = result as usize;
+        (*frame).sepc = match (*frame).sepc.checked_add(4) {
+            Some(next) => next,
+            None => crate::halt(),
+        };
+    }
+    frame
+}
+
+/// ABI v1 MapMemory=3: a0=hint, a1=length, a2=protection; returns user VA.
+pub fn on_user_map_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let hint = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let protection = unsafe { (*frame).x[12] };
+    if protection > u32::MAX as usize {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let allocator = core::ptr::addr_of_mut!(crate::PAGE_ALLOCATOR);
+    let result = unsafe {
+        crate::vm::map_user_memory(&mut *allocator, hint, length, protection as u32)
+    };
+    match result {
+        Ok(address) => finish_user_syscall(frame, address as isize),
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
+/// ABI extension UnmapMemory=7: a0=user VA, a1=length.
+pub fn on_user_unmap_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let address = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let allocator = core::ptr::addr_of_mut!(crate::PAGE_ALLOCATOR);
+    let result = unsafe {
+        crate::vm::unmap_user_memory(&mut *allocator, address, length)
+    };
+    match result {
+        Ok(()) => finish_user_syscall(frame, 0),
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
+/// ABI extension ProtectMemory=8: a0=user VA, a1=length, a2=protection.
+pub fn on_user_protect_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let address = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let protection = unsafe { (*frame).x[12] };
+    if protection > u32::MAX as usize {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    match crate::vm::protect_user_memory(address, length, protection as u32) {
+        Ok(()) => finish_user_syscall(frame, 0),
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
 /// retained on the dedicated supervisor trap stack and resumed after rotation.
 pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
