@@ -34,6 +34,9 @@ static IPC_REQUEST_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_REPLY_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_EMPTY_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_TIMER_PREEMPTED: AtomicBool = AtomicBool::new(false);
+static USER_VM_MAP_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_PROTECT_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_UNMAP_OBSERVED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -366,7 +369,7 @@ pub fn on_user_map_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
         crate::vm::map_user_memory(&mut *allocator, hint, length, protection as u32)
     };
     match result {
-        Ok(address) => finish_user_syscall(frame, address as isize),
+        Ok(address) => { USER_VM_MAP_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, address as isize) },
         Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
     }
 }
@@ -383,7 +386,7 @@ pub fn on_user_unmap_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
         crate::vm::unmap_user_memory(&mut *allocator, address, length)
     };
     match result {
-        Ok(()) => finish_user_syscall(frame, 0),
+        Ok(()) => { USER_VM_UNMAP_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) },
         Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
     }
 }
@@ -400,9 +403,15 @@ pub fn on_user_protect_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
         return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
     }
     match crate::vm::protect_user_memory(address, length, protection as u32) {
-        Ok(()) => finish_user_syscall(frame, 0),
+        Ok(()) => { USER_VM_PROTECT_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) },
         Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
     }
+}
+
+pub fn user_vm_roundtrip_observed() -> bool {
+    USER_VM_MAP_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_PROTECT_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_UNMAP_OBSERVED.load(Ordering::Acquire)
 }
 
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
