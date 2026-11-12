@@ -269,6 +269,9 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             crate::syscall_abi::SEND_MESSAGE => crate::runtime::on_user_send_message(frame_ptr),
             crate::syscall_abi::RECEIVE_MESSAGE => crate::runtime::on_user_receive_message(frame_ptr),
             crate::syscall_abi::YIELD => crate::runtime::on_user_yield(frame_ptr),
+            crate::syscall_abi::MAP_MEMORY => crate::runtime::on_user_map_memory(frame_ptr),
+            crate::syscall_abi::UNMAP_MEMORY => crate::runtime::on_user_unmap_memory(frame_ptr),
+            crate::syscall_abi::PROTECT_MEMORY => crate::runtime::on_user_protect_memory(frame_ptr),
             5 => {
                 if !crate::runtime::user_timer_preemption_observed() {
                     crate::console_write("U-mode timer preemption + saved-frame resume: FAIL\n");
