@@ -86,7 +86,9 @@ typedef struct xzfg_gravity_host_api_v1 {
 
     /* Appended v1 extensions. Older v1 tables remain valid when struct_size
        ends before these optional fields. Scalar IPC is backed by RV64 syscalls
-       1/2; it is not a general shared-memory or blocking IPC facility. */
+       1/2; payloads are limited to signed-positive 63-bit values because a0
+       carries both the scalar result and negative errno values. This is not a
+       general shared-memory or blocking IPC facility. */
     xzfg_status (*message_send)(void *context, uint64_t destination_task,
                                 uint64_t payload);
     xzfg_status (*message_receive)(void *context, uint64_t *out_sender_task,
