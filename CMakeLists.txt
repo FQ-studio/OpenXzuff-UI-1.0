@@ -102,7 +102,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64|riscv")
     )
 endif()
 
-# Gravity-native Win32 Gaming host ABI: host mock contract tests only.
+# Gravity-native Win32 Gaming host ABI: host-side contract tests.
 # This validates the versioned boundary; it does not implement a kernel backend.
 add_executable(win32-gravity-host-abi-test
     win32-gaming/tests/gravity_host_abi_test.cpp
