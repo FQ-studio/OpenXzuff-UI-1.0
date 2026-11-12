@@ -47,6 +47,13 @@ bool check(bool value, const char *message) {
 }
 
 int main() {
+    static_assert(XZFG_SYSCALL_EXIT == 0);
+    static_assert(XZFG_SYSCALL_SEND_MESSAGE == 1);
+    static_assert(XZFG_SYSCALL_RECEIVE_MESSAGE == 2);
+    static_assert(XZFG_SYSCALL_MAP_MEMORY == 3);
+    static_assert(XZFG_SYSCALL_YIELD == 4);
+    static_assert(XZFG_SYSCALL_UNMAP_MEMORY == 7);
+    static_assert(XZFG_SYSCALL_PROTECT_MEMORY == 8);
     MockState state{};
     xzfg_gravity_host_api_v1 api{};
     api.abi_version = XZFG_GRAVITY_HOST_ABI_VERSION;
