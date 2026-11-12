@@ -27,6 +27,15 @@ inline long gravity_ecall3(long number, long arg0, long arg1,
     return a0;
 }
 
+inline long gravity_ecall_receive(long *out_sender) noexcept {
+    register long a0 asm("a0") = 0;
+    register long a1 asm("a1") = 0;
+    register long a7 asm("a7") = XZFG_SYSCALL_RECEIVE_MESSAGE;
+    asm volatile("ecall" : "+r"(a0), "+r"(a1) : "r"(a7) : "memory");
+    *out_sender = a1;
+    return a0;
+}
+
 xzfg_status task_yield(void *) noexcept {
     return static_cast<xzfg_status>(
         gravity_ecall1(XZFG_SYSCALL_YIELD, 0));
@@ -60,6 +69,25 @@ xzfg_status memory_unmap(void *, uint64_t address, uint64_t length) noexcept {
         static_cast<long>(length)));
 }
 
+xzfg_status message_send(void *, uint64_t destination, uint64_t payload) noexcept {
+    return static_cast<xzfg_status>(gravity_ecall2(
+        XZFG_SYSCALL_SEND_MESSAGE, static_cast<long>(destination),
+        static_cast<long>(payload)));
+}
+
+xzfg_status message_receive(void *, uint64_t *out_sender,
+                            uint64_t *out_payload) noexcept {
+    if (out_sender == nullptr || out_payload == nullptr) {
+        return XZFG_STATUS_INVALID_ARGUMENT;
+    }
+    long sender = 0;
+    const long payload = gravity_ecall_receive(&sender);
+    if (payload < 0) return static_cast<xzfg_status>(payload);
+    *out_sender = static_cast<uint64_t>(sender);
+    *out_payload = static_cast<uint64_t>(payload);
+    return XZFG_STATUS_OK;
+}
+
 xzfg_status memory_protect(void *, uint64_t address, uint64_t length,
                            uint32_t protection) noexcept {
     constexpr uint32_t known = XZFG_MEMORY_READ | XZFG_MEMORY_WRITE |
@@ -86,5 +114,7 @@ extern "C" int xzfg_gravity_host_api_v1_bind_rv64(
     api->memory_map = memory_map;
     api->memory_unmap = memory_unmap;
     api->memory_protect = memory_protect;
+    api->message_send = message_send;
+    api->message_receive = message_receive;
     return xzfg_gravity_host_api_v1_valid(api);
 }
