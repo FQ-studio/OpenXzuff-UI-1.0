@@ -64,6 +64,7 @@ jobs:
             -I win32-gaming/include \
             -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
             -o build/win32-gravity-rv64/gravity_kernel_backend_rv64.o
-          llvm-objdump -d build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis
-          test "$(grep -c '[[:space:]]ecall' build/win32-gravity-rv64/adapter.dis)" -ge 2
-          grep -q 'xzfg_gravity_host_api_v1_bind_rv64' build/win32-gravity-rv64/adapter.dis
+          llvm-objdump -d --no-show-raw-insn build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis
+          cat build/win32-gravity-rv64/adapter.dis
+          awk '/ecall/ { count++ } END { print "RV64 ecall instructions:", count+0; if (count < 2) exit 1 }' build/win32-gravity-rv64/adapter.dis
+          llvm-nm build/win32-gravity-rv64/gravity_kernel_backend_rv64.o | grep -q 'xzfg_gravity_host_api_v1_bind_rv64'
