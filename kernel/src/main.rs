@@ -107,6 +107,14 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
 
     let kernel_start = core::ptr::addr_of!(__kernel_start) as usize;
     let kernel_end = core::ptr::addr_of!(__kernel_end) as usize;
+    let text_start = core::ptr::addr_of!(__text_start) as usize;
+    let text_end = core::ptr::addr_of!(__text_end) as usize;
+    let rodata_start = core::ptr::addr_of!(__rodata_start) as usize;
+    let rodata_end = core::ptr::addr_of!(__rodata_end) as usize;
+    let data_start = core::ptr::addr_of!(__data_start) as usize;
+    let data_end = core::ptr::addr_of!(__data_end) as usize;
+    let bss_start = core::ptr::addr_of!(__bss_start) as usize;
+    let bss_end = core::ptr::addr_of!(__bss_end) as usize;
     let user_code_start = core::ptr::addr_of!(__umode_user_start) as usize;
     let user_code_end = core::ptr::addr_of!(__umode_user_end) as usize;
     let (user_stack_start, user_stack_end) = trap::user_stack_bounds();
@@ -121,12 +129,16 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     }
     match unsafe { vm::enable_bootstrap(
         kernel_start, kernel_end, fdt_addr, fdt_end,
-        user_code_start, user_code_end, user_stack_start, user_stack_end
+        user_code_start, user_code_end, user_stack_start, user_stack_end,
+        text_start, text_end, rodata_start, rodata_end,
+        data_start, data_end, bss_start, bss_end,
     ) } {
         Ok(()) if vm::active() && vm::roots_are_distinct()
             && supervisor_stack_starts.iter().all(|&stack_start| unsafe {
                 vm::verify_isolation(
-                    user_code_start, user_stack_start, kernel_start, stack_start
+                    user_code_start, user_stack_start, kernel_start, stack_start,
+                    text_start, (rodata_start < rodata_end).then_some(rodata_start),
+                    data_start, bss_start,
                 )
             }) => {
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
@@ -239,6 +251,14 @@ extern "C" {
     static __kernel_start: u8;
     static __kernel_end: u8;
     static __umode_user_start: u8;
+    static __text_start: u8;
+    static __text_end: u8;
+    static __rodata_start: u8;
+    static __rodata_end: u8;
+    static __data_start: u8;
+    static __data_end: u8;
+    static __bss_start: u8;
+    static __bss_end: u8;
     static __umode_user_end: u8;
 }
 
