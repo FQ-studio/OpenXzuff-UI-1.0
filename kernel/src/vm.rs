@@ -206,9 +206,9 @@ pub unsafe fn enable_bootstrap(
     if heap_region == code_region || heap_region == stack_region {
         return Err(VmError::UserRegionTooLarge);
     }
-    (*USER_HEAP_LEVEL0).0.fill(0);
+    (*heap_l0).0.fill(0);
     (*user_level1).0[heap_region] = table_pte(
-        core::ptr::addr_of_mut!(USER_HEAP_LEVEL0) as usize,
+        heap_l0 as usize,
     );
 
     fill_user_region(
