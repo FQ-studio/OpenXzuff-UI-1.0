@@ -104,6 +104,23 @@ add_test(NAME win32-gravity-host-abi-contract
     COMMAND win32-gravity-host-abi-test
 )
 
+# Gravity syscall-hook bridge: exercises only the existing Yield and Exit
+# dispatcher hooks; memory mapping remains explicitly -ENOSYS.
+add_executable(win32-gravity-kernel-backend-test
+    win32-gaming/src/gravity_kernel_backend.cpp
+    win32-gaming/tests/gravity_kernel_backend_test.cpp
+)
+target_include_directories(win32-gravity-kernel-backend-test PRIVATE
+    win32-gaming/include
+)
+target_link_libraries(win32-gravity-kernel-backend-test PRIVATE xzuff_os_base)
+target_compile_options(win32-gravity-kernel-backend-test PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
+)
+add_test(NAME win32-gravity-kernel-backend-bridge
+    COMMAND win32-gravity-kernel-backend-test
+)
+
 add_executable(rv64-trap-dispatch-test tests/rv64_trap_dispatch_test.cpp)
 target_link_libraries(rv64-trap-dispatch-test PRIVATE xzuff_os_base)
 target_compile_options(rv64-trap-dispatch-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
