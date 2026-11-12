@@ -13,6 +13,7 @@ mod scheduler;
 mod ipc;
 mod runtime;
 mod vm;
+mod syscall_abi;
 
 static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
