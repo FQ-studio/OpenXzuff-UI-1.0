@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'kernel/**'
+      - 'win32-gaming/**'
+      - 'CMakeLists.txt'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/rv64-s-mode-kernel.yml'
   pull_request:
@@ -27,7 +29,18 @@ jobs:
         run: |
           rustup target add riscv64imac-unknown-none-elf
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf
+          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu
+
+      - name: Compile Win32 Gravity RV64 ecall adapter
+        run: |
+          set -euo pipefail
+          riscv64-linux-gnu-g++ \
+            -std=c++20 -march=rv64imac -mabi=lp64 \
+            -ffreestanding -fno-exceptions -fno-rtti \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Iwin32-gaming/include \
+            -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
+            -o build-gravity-rv64-adapter.o
 
       - name: Run host allocator tests
         run: cargo test --manifest-path kernel/allocator-tests/Cargo.toml
