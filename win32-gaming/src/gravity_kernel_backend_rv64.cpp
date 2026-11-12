@@ -4,8 +4,8 @@
 
 namespace {
 
-constexpr long kSyscallExit = 0;
-constexpr long kSyscallYield = 4;
+constexpr long kSyscallExit = XZFG_SYSCALL_EXIT;
+constexpr long kSyscallYield = XZFG_SYSCALL_YIELD;
 
 inline xzfg_status gravity_ecall(long number, long argument) noexcept {
     register long a0 asm("a0") = argument;
