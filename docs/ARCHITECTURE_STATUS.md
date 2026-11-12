@@ -11,17 +11,30 @@
 
 ## Verified RV64 kernel baseline
 
-The current `main` branch has a QEMU-bootable RV64 kernel image. The latest RV64-validated source revision, `4cb674aedd98571a3b9c5e9a4d5bc04162eba6e8`, passed [RV64 S-Mode Kernel run #148](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125672) on 2026-11-11.
+The latest RV64-validated kernel source is commit `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`. [RV64 S-Mode Kernel run #156](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040) completed successfully on 2026-11-12.
 
 That run executed:
 
-- Host Rust tests: **23 passed, 0 failed**; the suite includes FDT timebase 32/64-bit parsing, zero/missing/bad-width rejection, RAM/reservation parsing, allocator, scheduler and IPC cases.
-- Cross-build target: `riscv64imac-unknown-none-elf`; output is a statically linked RV64 ELF with entry point `0x80200000`.
-- OpenSBI v1.3 + QEMU `virt`, 256 MiB, one hart.
-- Serial assertions for FDT/timebase, Sv39 bootstrap mapping, all 16 per-task supervisor trap-stack slots being page-aligned and supervisor-only, physical-page and heap allocator smoke tests, S-mode trap-frame round-trip, scheduler state, SBI TIME preemption/context switching, explicit U-mode timer preemption and saved-frame resume, unknown U-mode syscall `-ENOSYS` handling, U-to-S trap-stack switching and user-SP preservation, U-mode IPC empty-queue `-EAGAIN`, IPC request/reply, U-mode Yield and U-mode Exit.
+- Host Rust tests: **23 passed, 0 failed**.
+- RV64 cross-build target: `riscv64imac-unknown-none-elf`; kernel ELF build succeeded.
+- OpenSBI + QEMU `virt`, 256 MiB, one hart; all required serial assertions passed.
+- Full-page Sv39 permission verification: every 4 KiB page in linker-defined `.text`, `.rodata`, `.data` and `.bss` was checked in both roots. The verifier accounts for the U-mode probe text in `.text` and private user stack in `.bss`.
+- W^X policy: kernel text RX, rodata R, data/BSS RW; U-mode probe text U-RX, private user stack U-RW; kernel and supervisor trap-stack pages remain supervisor-only.
+- All 16 per-task supervisor trap-stack pages were checked in both kernel and probe-user roots.
+- Existing FDT/timebase, page/heap allocator, S-mode trap round-trip, scheduler, timer preemption, U-mode timer saved-frame resume, unknown syscall `-ENOSYS`, U-mode IPC, Yield and Exit smoke assertions also passed.
 
-The [run #148 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125672/artifacts/13833867960) contains the ELF, raw binary and QEMU serial log. Exact results and scope limits are recorded in [the 2026-11-11 checkpoint](checkpoints/2026-11-11-afternoon.md).
+Relevant serial evidence includes:
 
+- `Sv39 kernel W^X section permissions: PASS; text=RX rodata=R data=RW`
+- `Per-task supervisor trap stacks: PASS; slots=16; supervisor-only`
+- `U-mode timer preemption + saved-frame resume: PASS`
+- `U-mode unknown syscall -ENOSYS: PASS`
+- `U-mode Yield syscall context switch + Sv39 isolation: PASS`
+- `U-mode Exit syscall + scheduler task exit: PASS`
+
+The [run #156 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040/artifacts/13920398891) contains the ELF, raw binary and QEMU serial log. QEMU's 15-second smoke-test timeout is accepted only after the required serial assertions pass; it is not a long-duration stability test.
+
+The W^X layout and range-verification contract are documented in [RV64 Sv39 bootstrap mappings and W^X verification](design/rv64-sv39-wx.md).
 
 ## Verified OpenXzuff UI Core host baseline
 
