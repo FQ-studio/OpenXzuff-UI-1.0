@@ -1,6 +1,6 @@
-//! Sv39 bootstrap plus a distinct address space for the built-in U-mode task.
-//! The kernel root is supervisor-only; the probe root grants U access only to
-//! its RX text and RW stack. This is not yet a dynamic VM manager.
+//! Sv39 bootstrap plus a bounded dynamic heap arena for one built-in U-mode task.
+//! The kernel root is supervisor-only; the user root grants U access to its RX
+//! probe text, RW stack, and separately allocated pages in a 2 MiB heap window.
 use core::arch::asm;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
