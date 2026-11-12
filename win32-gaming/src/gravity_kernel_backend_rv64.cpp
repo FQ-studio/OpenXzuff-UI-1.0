@@ -70,6 +70,10 @@ xzfg_status memory_unmap(void *, uint64_t address, uint64_t length) noexcept {
 }
 
 xzfg_status message_send(void *, uint64_t destination, uint64_t payload) noexcept {
+    /* ReceiveMessage uses negative a0 values for errno, so reserve that range. */
+    if (payload > static_cast<uint64_t>(INT64_MAX)) {
+        return XZFG_STATUS_INVALID_ARGUMENT;
+    }
     return static_cast<xzfg_status>(gravity_ecall2(
         XZFG_SYSCALL_SEND_MESSAGE, static_cast<long>(destination),
         static_cast<long>(payload)));
