@@ -142,8 +142,10 @@ pub unsafe fn enable_bootstrap(
     let code_region_end = (user_code_end - 1 - base) / L1_SPAN;
     let stack_region = (user_stack_start - base) / L1_SPAN;
     let stack_region_end = (user_stack_end - 1 - base) / L1_SPAN;
+    if code_region != code_region_end || stack_region != stack_region_end {
+        return Err(VmError::UserRegionTooLarge);
+    }
     if image_region != image_region_end
-        || code_region != code_region_end || stack_region != stack_region_end
         || code_region != image_region || stack_region != image_region
         || user_code_start < text_start || user_code_end > text_end
         || user_stack_start < bss_start || user_stack_end > bss_end {
@@ -269,30 +271,110 @@ unsafe fn has_permissions(root: usize, address: usize, required: u64, forbidden:
         .unwrap_or(false)
 }
 
-/// Verify W^X kernel sections plus RX/RW U-mode mappings in both address spaces.
+/// Check every 4 KiB leaf in a page-aligned range, not just its first page.
+unsafe fn has_permissions_range(
+    root: usize, start: usize, end: usize, required: u64, forbidden: u64,
+) -> bool {
+    if start > end || start & (PAGE - 1) != 0 || end & (PAGE - 1) != 0 {
+        return false;
+    }
+    let mut address = start;
+    while address < end {
+        if !has_permissions(root, address, required, forbidden) {
+            return false;
+        }
+        address = match address.checked_add(PAGE) {
+            Some(next) => next,
+            None => return false,
+        };
+    }
+    true
+}
+
+/// Check a section whose designated user pages intentionally differ from the
+/// surrounding supervisor-only mapping (U-mode text inside .text or stack in .bss).
+unsafe fn has_permissions_range_with_user_override(
+    root: usize,
+    start: usize,
+    end: usize,
+    user_start: usize,
+    user_end: usize,
+    supervisor_required: u64,
+    supervisor_forbidden: u64,
+    user_required: u64,
+    user_forbidden: u64,
+) -> bool {
+    if start >= end || user_start >= user_end
+        || user_start < start || user_end > end
+        || start & (PAGE - 1) != 0 || end & (PAGE - 1) != 0
+        || user_start & (PAGE - 1) != 0 || user_end & (PAGE - 1) != 0 {
+        return false;
+    }
+    let mut address = start;
+    while address < end {
+        let page_end = match address.checked_add(PAGE) {
+            Some(next) => next,
+            None => return false,
+        };
+        let (required, forbidden) =
+            if overlaps_page(address, page_end, user_start, user_end) {
+                (user_required, user_forbidden)
+            } else {
+                (supervisor_required, supervisor_forbidden)
+            };
+        if !has_permissions(root, address, required, forbidden) {
+            return false;
+        }
+        address = page_end;
+    }
+    true
+}
+
+/// Verify every mapped page in the kernel sections, U-mode text/stack and
+/// supervisor trap stack. U-mode probe pages are explicit exceptions inside
+/// the otherwise supervisor-only .text and .bss ranges.
 pub unsafe fn verify_isolation(
-    user_code: usize, user_stack: usize, kernel_page: usize, supervisor_stack: usize,
-    text: usize, rodata: Option<usize>, data: usize, bss: usize,
+    user_code_start: usize, user_code_end: usize,
+    user_stack_start: usize, user_stack_end: usize,
+    kernel_page: usize,
+    supervisor_stack_start: usize, supervisor_stack_end: usize,
+    text_start: usize, text_end: usize,
+    rodata_start: usize, rodata_end: usize,
+    data_start: usize, data_end: usize,
+    bss_start: usize, bss_end: usize,
 ) -> bool {
     let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
     let user_satp = USER_SATP.load(Ordering::Acquire);
-    if kernel_satp == 0 || user_satp == 0 || kernel_satp == user_satp { return false; }
+    if kernel_satp == 0 || user_satp == 0 || kernel_satp == user_satp {
+        return false;
+    }
     let kernel_root = pte_table_root(kernel_satp);
     let user_root = pte_table_root(user_satp);
-    let kernel_text = has_permissions(kernel_root, text, R | X, W | U)
-        && has_permissions(user_root, text, R | X, W | U);
-    let kernel_rodata = rodata.map(|address| {
-        has_permissions(kernel_root, address, R, W | X | U)
-            && has_permissions(user_root, address, R, W | X | U)
-    }).unwrap_or(true);
-    let kernel_data = has_permissions(kernel_root, data, R | W, X | U)
-        && has_permissions(user_root, data, R | W, X | U);
-    let kernel_bss = has_permissions(kernel_root, bss, R | W, X | U)
-        && has_permissions(user_root, bss, R | W, X | U);
-    let user_text = has_permissions(user_root, user_code, U | R | X, W);
-    let user_stack_flags = has_permissions(user_root, user_stack, U | R | W, X);
-    let supervisor_only = has_permissions(user_root, kernel_page, 0, U)
-        && has_permissions(user_root, supervisor_stack, 0, U);
-    kernel_text && kernel_rodata && kernel_data && kernel_bss
-        && user_text && user_stack_flags && supervisor_only
+
+    let kernel_text = has_permissions_range(kernel_root, text_start, text_end, R | X, W | U);
+    let user_text = has_permissions_range_with_user_override(
+        user_root, text_start, text_end, user_code_start, user_code_end,
+        R | X, W | U, U | R | X, W,
+    );
+    let kernel_rodata = has_permissions_range(kernel_root, rodata_start, rodata_end, R, W | X | U);
+    let user_rodata = has_permissions_range(user_root, rodata_start, rodata_end, R, W | X | U);
+    let kernel_data = has_permissions_range(kernel_root, data_start, data_end, R | W, X | U);
+    let user_data = has_permissions_range(user_root, data_start, data_end, R | W, X | U);
+    let kernel_bss = has_permissions_range(kernel_root, bss_start, bss_end, R | W, X | U);
+    let user_bss = has_permissions_range_with_user_override(
+        user_root, bss_start, bss_end, user_stack_start, user_stack_end,
+        R | W, X | U, U | R | W, X,
+    );
+    let user_code = has_permissions_range(user_root, user_code_start, user_code_end, U | R | X, W);
+    let user_stack = has_permissions_range(user_root, user_stack_start, user_stack_end, U | R | W, X);
+    let kernel_page_is_rx = has_permissions(user_root, kernel_page, R | X, W | U);
+    let supervisor_stack = has_permissions_range(
+        user_root, supervisor_stack_start, supervisor_stack_end, R | W, X | U,
+    ) && has_permissions_range(
+        kernel_root, supervisor_stack_start, supervisor_stack_end, R | W, X | U,
+    );
+
+    kernel_text && user_text && kernel_rodata && user_rodata
+        && kernel_data && user_data && kernel_bss && user_bss
+        && user_code && user_stack && kernel_page_is_rx && supervisor_stack
 }
