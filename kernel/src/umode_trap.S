@@ -127,6 +127,14 @@ __gravity_u_mode_ecall_probe:
     li      t0, -22                /* -EINVAL */
     bne     a0, t0, .Lumode_probe_failed
 
+    li      a0, 0
+    li      a1, 4096
+    li      a2, 15                 /* READ | WRITE | EXECUTE | USER */
+    li      a7, 3
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
     /* Allocate one real user page, write/read it, protect it read-only,
        then unmap it back to the physical page allocator. */
     li      a0, 0                  /* first-fit user VA */
@@ -143,6 +151,14 @@ __gravity_u_mode_ecall_probe:
 
     mv      a0, s0
     li      a1, 4096
+    li      a2, 15                 /* reject READ | WRITE | EXECUTE | USER */
+    li      a7, 8                  /* ProtectMemory */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+    li      t0, 0x47524156
+    mv      a0, s0
+    li      a1, 4096
     li      a2, 9                  /* READ | USER */
     li      a7, 8                  /* ProtectMemory */
     ecall
@@ -151,11 +167,25 @@ __gravity_u_mode_ecall_probe:
     bne     t1, t0, .Lumode_probe_failed
 
     mv      a0, s0
+    li      a1, 8192
+    li      a7, 7
+    ecall
+    li      t0, -14                /* -EFAULT: preflight leaves page mapped */
+    bne     a0, t0, .Lumode_probe_failed
+    ld      t1, 0(s0)
+    li      t0, 0x47524156
+    bne     t1, t0, .Lumode_probe_failed
+    mv      a0, s0
     li      a1, 4096
     li      a7, 7                  /* UnmapMemory */
     ecall
     bnez    a0, .Lumode_probe_failed
-
+    mv      a0, s0
+    li      a1, 4096
+    li      a7, 7
+    ecall
+    li      t0, -14
+    bne     a0, t0, .Lumode_probe_failed
     li      a1, 0                  /* restore ABI register-preservation sentinels */
     li      a2, 0x22
     li      a3, 0x33

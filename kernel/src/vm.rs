@@ -20,8 +20,9 @@ const SUPERVISOR_RX: u64 = V | R | X | A;
 const SUPERVISOR_R: u64 = V | R | A;
 const SV39_MODE: usize = 8usize << 60;
 const SATP_PPN_MASK: usize = (1usize << 44) - 1;
-pub const USER_HEAP_BASE: usize = 0x9000_0000;
-pub const USER_HEAP_SIZE: usize = L1_SPAN;
+static USER_HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
+static KERNEL_WINDOW_BASE: AtomicUsize = AtomicUsize::new(0);
+const USER_HEAP_SIZE: usize = crate::vm_policy::USER_HEAP_SIZE;
 
 #[repr(C, align(4096))]
 struct PageTable([u64; ENTRIES]);
@@ -131,9 +132,11 @@ pub unsafe fn enable_bootstrap(
     }
     let base = kernel_start & !(L2_SPAN - 1);
     let end = base.checked_add(L2_SPAN).ok_or(VmError::InvalidRange)?;
-    let heap_end = USER_HEAP_BASE.checked_add(USER_HEAP_SIZE)
+    let heap_base = crate::vm_policy::user_heap_base(base)
         .ok_or(VmError::OutsideBootstrapWindow)?;
-    if USER_HEAP_BASE < base || heap_end > end {
+    let heap_end = heap_base.checked_add(USER_HEAP_SIZE)
+        .ok_or(VmError::OutsideBootstrapWindow)?;
+    if heap_base < base || heap_end > end {
         return Err(VmError::OutsideBootstrapWindow);
     }
     let in_window = |start: usize, finish: usize| {
@@ -202,8 +205,8 @@ pub unsafe fn enable_bootstrap(
     );
     (*kernel_level1).0[image_region] = table_pte(kernel_image_l0 as usize);
     (*user_level1).0.copy_from_slice(&(*kernel_level1).0);
-    let heap_region = (USER_HEAP_BASE >> 21) & 0x1ff;
-    if heap_region == code_region || heap_region == stack_region {
+    let heap_region = crate::vm_policy::l1_region_index(heap_base);
+    if heap_region == image_region || heap_region == code_region || heap_region == stack_region {
         return Err(VmError::UserRegionTooLarge);
     }
     (*heap_l0).0.fill(0);
@@ -232,6 +235,8 @@ pub unsafe fn enable_bootstrap(
     let kernel_satp = SV39_MODE | (((kernel_root as usize) >> 12) & SATP_PPN_MASK);
     let user_satp = SV39_MODE | (((user_root as usize) >> 12) & SATP_PPN_MASK);
     if kernel_satp == user_satp { return Err(VmError::MisalignedTable); }
+    KERNEL_WINDOW_BASE.store(base, Ordering::Release);
+    USER_HEAP_BASE.store(heap_base, Ordering::Release);
     KERNEL_SATP.store(kernel_satp, Ordering::Release);
     USER_SATP.store(user_satp, Ordering::Release);
     write_satp(kernel_satp);
@@ -262,23 +267,8 @@ pub fn switch_to_user() -> bool {
     true
 }
 
-/// Convert Win32 host protection bits to a valid Sv39 user leaf PTE.
 fn user_leaf_flags(protection: u32) -> Result<u64, VmError> {
-    const READ: u32 = 1;
-    const WRITE: u32 = 2;
-    const EXECUTE: u32 = 4;
-    const USER: u32 = 8;
-    if protection & !(READ | WRITE | EXECUTE | USER) != 0
-        || protection & USER == 0
-        || protection & (READ | EXECUTE) == 0
-        || (protection & WRITE != 0 && protection & READ == 0) {
-        return Err(VmError::InvalidProtection);
-    }
-    let mut flags = V | U | A;
-    if protection & READ != 0 { flags |= R; }
-    if protection & WRITE != 0 { flags |= W | D; }
-    if protection & EXECUTE != 0 { flags |= X; }
-    Ok(flags)
+    crate::vm_policy::user_leaf_flags(protection).map_err(|_| VmError::InvalidProtection)
 }
 
 fn user_heap_page_range(address: usize, length: usize) -> Result<(usize, usize), VmError> {
@@ -288,9 +278,10 @@ fn user_heap_page_range(address: usize, length: usize) -> Result<(usize, usize),
     let rounded = length.checked_add(PAGE - 1)
         .ok_or(VmError::InvalidRange)? & !(PAGE - 1);
     let end = address.checked_add(rounded).ok_or(VmError::InvalidRange)?;
-    let heap_end = USER_HEAP_BASE.checked_add(USER_HEAP_SIZE)
+    let heap_base = USER_HEAP_BASE.load(Ordering::Acquire);
+    let heap_end = heap_base.checked_add(USER_HEAP_SIZE)
         .ok_or(VmError::OutsideUserHeap)?;
-    if address < USER_HEAP_BASE || end > heap_end {
+    if heap_base == 0 || address < heap_base || end > heap_end {
         return Err(VmError::OutsideUserHeap);
     }
     Ok((address, end))
@@ -317,6 +308,10 @@ pub fn map_user_memory(
         return Err(VmError::OutsideUserHeap);
     }
     let pages = rounded / PAGE;
+    let heap_base = USER_HEAP_BASE.load(Ordering::Acquire);
+    let window_base = KERNEL_WINDOW_BASE.load(Ordering::Acquire);
+    let window_end = window_base.checked_add(L2_SPAN).ok_or(VmError::OutsideBootstrapWindow)?;
+    if heap_base == 0 || window_base == 0 { return Err(VmError::OutsideBootstrapWindow); }
     let table = unsafe { &mut *core::ptr::addr_of_mut!(USER_HEAP_LEVEL0) };
     let first = if hint == 0 {
         let mut found = None;
@@ -329,7 +324,7 @@ pub fn map_user_memory(
         found.ok_or(VmError::NoMemory)?
     } else {
         let (start, end) = user_heap_page_range(hint, length)?;
-        let first = (start - USER_HEAP_BASE) / PAGE;
+        let first = (start - heap_base) / PAGE;
         let count = (end - start) / PAGE;
         if count != pages || !table.0[first..first + pages].iter().all(|pte| pte & V == 0) {
             return Err(VmError::AddressNotMapped);
@@ -338,7 +333,7 @@ pub fn map_user_memory(
     };
 
     for offset in 0..pages {
-        let physical = match allocator.alloc_in_range(0x8000_0000, 0xc000_0000) {
+        let physical = match allocator.alloc_in_range(window_base, window_end) {
             Some(page) => page,
             None => {
                 for rollback in 0..offset {
@@ -369,10 +364,12 @@ pub fn map_user_memory(
         }
     }
     unsafe { asm!("sfence.vma zero, zero", options(nostack)); }
-    Ok(USER_HEAP_BASE + first * PAGE)
+    Ok(heap_base + first * PAGE)
 }
 
-/// Unmap only pages owned by the Win32 user heap arena and return them to PPA.
+/// Unmap owned user pages transactionally, invalidate translations, scrub the
+/// frames under the supervisor root, then return them to the physical allocator.
+/// Two passes avoid a large temporary array on the 4 KiB supervisor trap stack.
 pub fn unmap_user_memory(
     allocator: &mut crate::page_alloc::PageAllocator,
     address: usize,
@@ -382,18 +379,40 @@ pub fn unmap_user_memory(
         return Err(VmError::OutsideUserHeap);
     }
     let (start, end) = user_heap_page_range(address, length)?;
-    let first = (start - USER_HEAP_BASE) / PAGE;
+    let heap_base = USER_HEAP_BASE.load(Ordering::Acquire);
+    let first = (start - heap_base) / PAGE;
     let pages = (end - start) / PAGE;
     let table = unsafe { &mut *core::ptr::addr_of_mut!(USER_HEAP_LEVEL0) };
-    if !table.0[first..first + pages].iter().all(|pte| pte & (V | U) == (V | U)) {
-        return Err(VmError::AddressNotMapped);
+    for offset in 0..pages {
+        let pte = table.0[first + offset];
+        let flags = pte & 0x3ff;
+        if flags & (V | U) != (V | U)
+            || flags & (R | W | X) == 0
+            || (flags & W != 0 && (flags & R == 0 || flags & X != 0)) {
+            return Err(VmError::AddressNotMapped);
+        }
+        let physical = pte_table_address(pte);
+        if !allocator.is_allocated(physical) {
+            return Err(VmError::AddressNotMapped);
+        }
+        for prior in 0..offset {
+            if pte_table_address(table.0[first + prior]) == physical {
+                return Err(VmError::AddressNotMapped);
+            }
+        }
     }
-    for index in first..first + pages {
+    if !switch_to_kernel() {
+        return Err(VmError::SatpReadback);
+    }
+    for offset in 0..pages {
+        let index = first + offset;
         let physical = pte_table_address(table.0[index]);
-        allocator.free(physical).map_err(|_| VmError::AddressNotMapped)?;
         table.0[index] = 0;
+        unsafe { core::ptr::write_bytes(physical as *mut u8, 0, PAGE); }
+        if allocator.free(physical).is_err() { crate::halt(); }
     }
     unsafe { asm!("sfence.vma zero, zero", options(nostack)); }
+    if !switch_to_user() { crate::halt(); }
     Ok(())
 }
 
@@ -408,7 +427,8 @@ pub fn protect_user_memory(
     }
     let flags = user_leaf_flags(protection)?;
     let (start, end) = user_heap_page_range(address, length)?;
-    let first = (start - USER_HEAP_BASE) / PAGE;
+    let heap_base = USER_HEAP_BASE.load(Ordering::Acquire);
+    let first = (start - heap_base) / PAGE;
     let pages = (end - start) / PAGE;
     let table = unsafe { &mut *core::ptr::addr_of_mut!(USER_HEAP_LEVEL0) };
     if !table.0[first..first + pages].iter().all(|pte| pte & (V | U) == (V | U)) {

@@ -56,6 +56,20 @@ mod tests {
     }
 
     #[test]
+    fn allocation_state_tracks_alloc_and_free() {
+        let mut map = MemoryMap::new(); map.add(0x1000, 0x3000).unwrap();
+        let mut p = PageAllocator::new(); p.init(&map).unwrap();
+        let addr = p.alloc().unwrap(); assert!(p.is_allocated(addr));
+        p.free(addr).unwrap(); assert!(!p.is_allocated(addr));
+    }
+    #[test]
+    fn ranged_allocation_never_returns_a_page_outside_the_window() {
+        let mut map = MemoryMap::new(); map.add(0x1000, 0x9000).unwrap();
+        let mut p = PageAllocator::new(); p.init(&map).unwrap();
+        let page = p.alloc_in_range(0x4000, 0x8000).unwrap();
+        assert!((0x4000..0x8000).contains(&page)); assert!(p.is_allocated(page));
+    }
+    #[test]
     fn double_free_is_rejected() {
         let mut map = MemoryMap::new();
         map.add(0x1000, 0x3000).unwrap();
@@ -368,6 +382,8 @@ mod scheduler_tests {
 pub mod ipc;
 #[path = "../../src/syscall_abi.rs"]
 pub mod syscall_abi;
+#[path = "../../src/vm_policy.rs"]
+pub mod vm_policy;
 
 #[cfg(test)]
 mod ipc_tests {

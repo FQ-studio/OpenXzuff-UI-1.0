@@ -26,8 +26,10 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 | 0 | Exit | Implemented for the current U-mode test task; marks it Exited and schedules the next task. General resource reaping is not implemented |
 | 1 | SendMessage | Implemented for the built-in U-mode probe task; sends one scalar machine word to a task FIFO mailbox and returns 0, -EAGAIN, or -EINVAL |
 | 2 | ReceiveMessage | Implemented as non-blocking receive; returns payload in a0 and sender task ID in a1, or -EAGAIN when empty |
-| 3 | MapMemory | -ENOSYS |
+| 3 | MapMemory | Implemented for the built-in U-mode probe: first-fit or hinted mapping in a bounded 2 MiB heap; zero-filled frames; READ/WRITE/EXECUTE/USER flags; W+X and write-only requests rejected |
 | 4 | Yield | Implemented for the current U-mode test task; saves its trap frame, rotates the run queue, and resumes it later |
+| 7 | UnmapMemory | Implemented for pages in the built-in 2 MiB user heap; preflights ownership, invalidates mappings, scrubs frames and returns them to the physical allocator |
+| 8 | ProtectMemory | Implemented for mapped heap pages; accepts R, RW or X user permissions and rejects W+X |
 
 The host-testable C++ dispatcher in Kernel/src/syscall.cpp remains a policy boundary with injected hooks. The live RV64 implementation is the Rust trap path in kernel/src/trap.rs and kernel/src/runtime.rs.
 
@@ -60,4 +62,8 @@ The compiler does not depend on the initial value of a7. The live hardware path 
 
 ## Implementation boundary
 
-The QEMU probe uses a dedicated U-mode text page and user stack. The bootstrap now builds two distinct Sv39 roots: a supervisor-only kernel root and a probe-user root that shares supervisor identity mappings but grants U permission only to the probe RX text and RW stack leaves. The linked kernel image uses section-aware W^X leaves in both roots: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss; the remaining bootstrap identity map is supervisor RW/NX. The scheduler switches `satp` to the selected task's root before restoring its frame. The probe verifies that U-mode cannot load from the supervisor-only kernel image or access the supervisor trap stack, is preempted by the SBI timer, sends one scalar request through a bounded FIFO mailbox to task 0, yields to let task 0 receive it and enqueue a reply, then receives that reply before Exit. Mailboxes hold eight machine-word messages per task and are protected against same-hart timer preemption while being mutated. The user root is still a statically provisioned single test address space: dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, user-buffer copying, blocking IPC, endpoint permissions, SMP-safe queue locking, MapMemory syscall, and general task resource reaping are not implemented.
+The QEMU probe uses dedicated U-mode text and stack pages plus a single statically provisioned user address space. The kernel and probe roots share supervisor identity mappings, while U permission is granted only to the probe's RX text, RW stack and explicitly allocated heap leaves. The linked kernel image uses section-aware W^X permissions: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss.
+
+The built-in probe has a bounded 2 MiB heap arena. MapMemory allocates zero-filled physical frames from the active 1 GiB identity window; ProtectMemory changes permissions only on mapped heap pages; UnmapMemory preflights the full range and allocator ownership, switches to the supervisor root, clears mappings, scrubs frames, and returns them to the allocator. The heap VA is derived from the bootstrap window base plus a 256 MiB offset, rather than hard-coded to QEMU's 0x80000000 RAM base. User leaf permissions enforce W^X. The QEMU probe checks W+X rejection for both MapMemory and ProtectMemory, verifies an invalid oversized unmap leaves the first page mapped, and verifies a second unmap returns -EFAULT.
+
+This is not a general virtual-memory manager. Dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, demand paging, copyin/copyout, ASIDs, remote TLB shootdown, SMP-safe page-table mutation, blocking IPC, endpoint permissions and general task resource reaping remain unimplemented.

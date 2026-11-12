@@ -95,6 +95,10 @@ impl PageAllocator {
         Ok(())
     }
 
+    pub fn is_allocated(&self, addr: usize) -> bool {
+        addr & (PAGE_SIZE - 1) == 0 && self.ledger[..self.ledger_len].contains(&addr)
+            && !self.free_stack[..self.free_len].contains(&addr)
+    }
     pub fn available_pages(&self) -> usize { self.free_len }
     pub fn managed_pages(&self) -> usize { self.ledger_len }
 }

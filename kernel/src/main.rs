@@ -13,6 +13,7 @@ mod scheduler;
 mod ipc;
 mod runtime;
 mod vm;
+mod vm_policy;
 mod syscall_abi;
 
 pub(crate) static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();

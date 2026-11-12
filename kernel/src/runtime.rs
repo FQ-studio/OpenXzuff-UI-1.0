@@ -37,6 +37,7 @@ static USER_TIMER_PREEMPTED: AtomicBool = AtomicBool::new(false);
 static USER_VM_MAP_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_VM_PROTECT_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_VM_UNMAP_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_WX_REJECTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -370,6 +371,10 @@ pub fn on_user_map_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
     };
     match result {
         Ok(address) => { USER_VM_MAP_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, address as isize) },
+        Err(crate::vm::VmError::InvalidProtection) => {
+            if crate::vm_policy::requests_write_execute(protection as u32) { USER_VM_WX_REJECTED.store(true, Ordering::Release); }
+            finish_user_syscall(frame, crate::syscall_abi::EINVAL)
+        }
         Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
     }
 }
@@ -404,6 +409,10 @@ pub fn on_user_protect_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
     }
     match crate::vm::protect_user_memory(address, length, protection as u32) {
         Ok(()) => { USER_VM_PROTECT_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) },
+        Err(crate::vm::VmError::InvalidProtection) => {
+            if crate::vm_policy::requests_write_execute(protection as u32) { USER_VM_WX_REJECTED.store(true, Ordering::Release); }
+            finish_user_syscall(frame, crate::syscall_abi::EINVAL)
+        }
         Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
     }
 }
@@ -412,6 +421,7 @@ pub fn user_vm_roundtrip_observed() -> bool {
     USER_VM_MAP_OBSERVED.load(Ordering::Acquire)
         && USER_VM_PROTECT_OBSERVED.load(Ordering::Acquire)
         && USER_VM_UNMAP_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_WX_REJECTED.load(Ordering::Acquire)
 }
 
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
