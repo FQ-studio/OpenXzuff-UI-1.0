@@ -51,19 +51,19 @@ jobs:
       - name: Install RV64 cross compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-riscv64-unknown-elf binutils-riscv64-unknown-elf
+          sudo apt-get install -y clang llvm
 
       - name: Compile RV64 ecall adapter
         run: |
           set -euo pipefail
           mkdir -p build/win32-gravity-rv64
-          riscv64-unknown-elf-g++ \
+          clang++ --target=riscv64-unknown-elf \
             -std=c++17 -Wall -Wextra -Wpedantic -Werror \
             -ffreestanding -fno-exceptions -fno-rtti \
             -march=rv64imac -mabi=lp64 \
             -I win32-gaming/include \
             -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
             -o build/win32-gravity-rv64/gravity_kernel_backend_rv64.o
-          riscv64-unknown-elf-objdump -d build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis
+          llvm-objdump -d build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis
           test "$(grep -c '[[:space:]]ecall' build/win32-gravity-rv64/adapter.dis)" -ge 2
           grep -q 'xzfg_gravity_host_api_v1_bind_rv64' build/win32-gravity-rv64/adapter.dis
