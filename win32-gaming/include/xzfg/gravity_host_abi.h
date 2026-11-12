@@ -83,6 +83,14 @@ typedef struct xzfg_gravity_host_api_v1 {
     xzfg_status (*wait_handles)(void *context, const xzfg_handle *handles,
                                 uint32_t count, uint32_t mode,
                                 uint64_t timeout_ticks, uint32_t *out_index);
+
+    /* Appended v1 extensions. Older v1 tables remain valid when struct_size
+       ends before these optional fields. Scalar IPC is backed by RV64 syscalls
+       1/2; it is not a general shared-memory or blocking IPC facility. */
+    xzfg_status (*message_send)(void *context, uint64_t destination_task,
+                                uint64_t payload);
+    xzfg_status (*message_receive)(void *context, uint64_t *out_sender_task,
+                                   uint64_t *out_payload);
 } xzfg_gravity_host_api_v1;
 
 /* Validate only ABI shape and mandatory v1 operations. Optional service
@@ -91,7 +99,8 @@ static inline int xzfg_gravity_host_api_v1_valid(
     const xzfg_gravity_host_api_v1 *api) {
     return api != NULL &&
            api->abi_version == XZFG_GRAVITY_HOST_ABI_VERSION &&
-           api->struct_size >= (uint32_t)sizeof(xzfg_gravity_host_api_v1) &&
+           api->struct_size >= (uint32_t)offsetof(
+               xzfg_gravity_host_api_v1, message_send) &&
            api->task_yield != NULL &&
            api->task_exit != NULL &&
            api->memory_map != NULL &&
