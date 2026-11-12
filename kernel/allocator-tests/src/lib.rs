@@ -366,6 +366,8 @@ mod scheduler_tests {
 
 #[path = "../../src/ipc.rs"]
 pub mod ipc;
+#[path = "../../src/syscall_abi.rs"]
+pub mod syscall_abi;
 
 #[cfg(test)]
 mod ipc_tests {
@@ -414,5 +416,40 @@ mod ipc_tests {
         assert_eq!(mailboxes.send(TaskId(0), invalid, 1), Err(IpcError::InvalidTask));
         assert_eq!(mailboxes.receive(invalid), Err(IpcError::InvalidTask));
         assert_eq!(mailboxes.pending(invalid), Err(IpcError::InvalidTask));
+    }
+}
+
+#[cfg(test)]
+mod syscall_abi_tests {
+    use super::syscall_abi;
+
+    #[test]
+    fn public_syscall_numbers_match_win32_gravity_abi_v1() {
+        assert_eq!(
+            [
+                syscall_abi::EXIT,
+                syscall_abi::SEND_MESSAGE,
+                syscall_abi::RECEIVE_MESSAGE,
+                syscall_abi::MAP_MEMORY,
+                syscall_abi::YIELD,
+                syscall_abi::UNMAP_MEMORY,
+                syscall_abi::PROTECT_MEMORY,
+            ],
+            [0, 1, 2, 3, 4, 7, 8]
+        );
+    }
+
+    #[test]
+    fn errno_values_match_the_c_host_abi() {
+        assert_eq!(
+            [
+                syscall_abi::EAGAIN,
+                syscall_abi::EFAULT,
+                syscall_abi::ENOMEM,
+                syscall_abi::ENOSYS,
+                syscall_abi::EINVAL,
+            ],
+            [-11, -14, -12, -38, -22]
+        );
     }
 }
