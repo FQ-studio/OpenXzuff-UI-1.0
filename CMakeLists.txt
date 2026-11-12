@@ -117,8 +117,9 @@ add_test(NAME win32-gravity-host-abi-contract
     COMMAND win32-gravity-host-abi-test
 )
 
-# Gravity syscall-hook bridge: exercises only the existing Yield and Exit
-# dispatcher hooks; memory mapping remains explicitly -ENOSYS.
+# Host-only syscall-hook shim: exercises Yield and Exit policy hooks.
+# The RV64 user adapter is compiled separately for the RISC-V target and
+# enters the Rust trap/syscall path with real U-mode ecall instructions.
 add_executable(win32-gravity-kernel-backend-test
     win32-gaming/src/gravity_kernel_backend.cpp
     win32-gaming/tests/gravity_kernel_backend_test.cpp
