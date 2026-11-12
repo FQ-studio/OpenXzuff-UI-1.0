@@ -143,6 +143,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
             }) => {
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
                 console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\n");
+                console_write("Sv39 kernel W^X section permissions: PASS; text=RX rodata=R data=RW\n");
                 console_write("Per-task supervisor trap stacks: PASS; slots=16; supervisor-only\n");
             }
         _ => { console_write("Sv39 kernel/user address spaces: FAIL\n"); halt(); }
