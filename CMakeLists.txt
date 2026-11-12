@@ -89,6 +89,19 @@ target_include_directories(trap-frame-test PRIVATE Kernel/include)
 target_compile_options(trap-frame-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-rv64-trap-frame-layout COMMAND trap-frame-test)
 
+# The actual U-mode adapter is part of RV64 userland builds only.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64|riscv")
+    add_library(xzfg_gravity_rv64_adapter STATIC
+        win32-gaming/src/gravity_kernel_backend_rv64.cpp
+    )
+    target_include_directories(xzfg_gravity_rv64_adapter PUBLIC
+        win32-gaming/include
+    )
+    target_compile_options(xzfg_gravity_rv64_adapter PRIVATE
+        $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
+    )
+endif()
+
 # Gravity-native Win32 Gaming host ABI: host mock contract tests only.
 # This validates the versioned boundary; it does not implement a kernel backend.
 add_executable(win32-gravity-host-abi-test
