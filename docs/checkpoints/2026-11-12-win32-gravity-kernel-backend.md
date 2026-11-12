@@ -1,39 +1,50 @@
-# Win32 Gaming Gravity Kernel Backend Bridge — 2026-11-12
+# Win32 Gaming Gravity Kernel Backend — 2026-11-12
 
-## Implemented in this checkpoint
+## Real RV64 kernel path now present
 
-- Added `gravity_kernel_backend.hpp/.cpp` as a C++ host bridge from the Win32 Gaming ABI v1 table to the existing hook-driven Gravity syscall dispatcher.
-- `task_yield` dispatches the existing syscall ID 4 and forwards through the scheduler hook.
-- `task_exit` dispatches the existing syscall ID 0 and forwards the signed 32-bit exit status through the process-exit hook.
-- Added an explicit backend test for Yield, Exit, absent hooks, and unsupported memory operations.
-- Added a dedicated GitHub Actions workflow that configures CMake, builds the ABI/backend host tests, and runs the matching CTest cases.
+The repository contains two deliberately separate backends:
 
-## Deliberate limits
+1. `gravity_kernel_backend.cpp` is a host-testable C++ policy shim. It can exercise injected Yield/Exit hooks but is not the live kernel.
+2. `gravity_kernel_backend_rv64.cpp` is the RV64 U-mode adapter. Its callbacks issue real `ecall` instructions. Those calls enter `kernel/src/trap.rs`, then `kernel/src/runtime.rs`, and reach the Rust Gravity scheduler, IPC mailbox, and Sv39 VM implementation.
 
-This is a host-testable bridge to the existing C++ syscall policy dispatcher. It is **not yet a direct binding to the live Rust RV64 trap/runtime path**.
+The RV64 adapter currently binds:
+- Exit (syscall 0)
+- SendMessage (syscall 1)
+- ReceiveMessage (syscall 2)
+- MapMemory (syscall 3)
+- Yield (syscall 4)
+- UnmapMemory (syscall 7)
+- ProtectMemory (syscall 8)
 
-The current syscall contract only assigns:
-- 0 — Exit
-- 1 — SendMessage
-- 2 — ReceiveMessage
-- 3 — MapMemory
-- 4 — Yield
+The host ABI v1 table now has optional scalar `message_send` and `message_receive` callbacks appended after the original fields. Validation uses the original v1 prefix size, so older v1 tables remain valid. The RV64 adapter populates these callbacks; the host-only shim leaves them null because the C++ policy dispatcher does not implement IPC.
 
-The C++ dispatcher currently implements Exit and Yield through injected hooks. SendMessage, ReceiveMessage, and MapMemory return `-ENOSYS` in that dispatcher. The live Rust RV64 probe has a limited working path for scalar IPC, Yield, and Exit, but does not yet provide a general user-process VM API.
+## Kernel capabilities verified in the source
 
-Accordingly:
-- `memory_map` and `memory_unmap` validate arguments, then return `-ENOSYS`.
-- `task_create`, memory protection, VFS handles, and waitables remain unavailable.
-- No Linux syscall, Linux kernel, glibc, or Linux device-node dependency is introduced.
-- No x86/x64 instruction translation or Windows PE execution is implemented by this bridge.
+- Rust U-mode trap handler dispatches the syscall IDs above to concrete runtime functions.
+- Scheduler performs round-robin selection and timer-driven context switching.
+- SBI TIME timer interrupts preempt S-mode tasks and the built-in U-mode probe task.
+- IPC provides bounded, non-blocking scalar mailboxes.
+- Sv39 supports the built-in U-mode task's bounded 2 MiB heap arena: map, protect, unmap and physical-page return.
+- Kernel/user address spaces are distinct; the current runtime has one built-in U-mode process.
 
-## Validation
+## Remaining blockers — not complete
 
-The dedicated workflow completed successfully for PR #12 at head commit `bbbe9f01ba71fc8669140b38a45033640d0b30bd`.
+These capabilities are still absent or limited, and must not be reported as implemented:
 
-- GitHub Actions run: [Win32 Gaming Gravity Backend Bridge](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43207846649)
-- CMake configure: passed.
-- Build targets `win32-gravity-host-abi-test` and `win32-gravity-kernel-backend-test`: passed.
-- CTest: 2/2 passed (`win32-gravity-host-abi-contract`, `win32-gravity-kernel-backend-bridge`).
+- Dynamic task/process creation from arbitrary entry points. The scheduler policy can allocate task IDs, but the live runtime has only three statically provisioned tasks and only one U-mode task context.
+- Multiple independent user address spaces and per-process page-table ownership.
+- General VFS/file handles, directory operations, async I/O, waitable objects and blocking IPC.
+- Network, graphics, audio and input service bindings for the Win32 host.
+- PE32/PE32+ loader, imports/relocations, Win32 API/DLL implementation.
+- x86/x64-to-RV64 translation, Windows exception/SEH mapping and real Windows application execution.
+- Full runtime link of the RV64 adapter into a packaged Win32 runtime. CI compiles the adapter object and separately QEMU-boots the Rust kernel; this is not yet an end-to-end game test.
 
-The workflow tests the host ABI and C++ dispatcher bridge only. It is not an RV64/QEMU or physical-board integration test.
+## CI validation added
+
+The RV64 S-mode kernel workflow now also compiles `gravity_kernel_backend_rv64.cpp` with an RV64 cross-compiler and is triggered by changes under `win32-gaming/**` and `CMakeLists.txt`. Its QEMU stage continues to assert the real Rust kernel's timer, context-switch, IPC and VM smoke tests.
+
+The host bridge workflow still validates only the host ABI/policy shim. Do not treat its 2/2 result as proof of RV64 hardware execution.
+
+## Scope statement
+
+This is a genuine RV64 syscall-to-Rust-kernel integration slice for the currently supported single built-in U-mode task. It is not a complete process subsystem or a runnable Windows/Proton compatibility layer.
