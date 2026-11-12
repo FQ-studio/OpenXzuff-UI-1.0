@@ -174,8 +174,9 @@ pub unsafe fn enable_bootstrap(
     let user_level1 = core::ptr::addr_of_mut!(USER_LEVEL1);
     let code_l0 = core::ptr::addr_of_mut!(USER_CODE_LEVEL0);
     let stack_l0 = core::ptr::addr_of_mut!(USER_STACK_LEVEL0);
+    let heap_l0 = core::ptr::addr_of_mut!(USER_HEAP_LEVEL0);
     for address in [kernel_root as usize, kernel_level1 as usize, kernel_image_l0 as usize, user_root as usize,
-        user_level1 as usize, code_l0 as usize, stack_l0 as usize] {
+        user_level1 as usize, code_l0 as usize, stack_l0 as usize, heap_l0 as usize] {
         if address & (PAGE - 1) != 0 { return Err(VmError::MisalignedTable); }
     }
 
