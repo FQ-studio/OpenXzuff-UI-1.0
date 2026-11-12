@@ -50,13 +50,16 @@ int main() {
     uint64_t address = 0;
     ok &= check(api.memory_map(api.context, 0, 4096, XZFG_MEMORY_READ,
                                &address) == XZFG_STATUS_NOT_IMPLEMENTED,
-                "memory map reports ENOSYS until the kernel implements it");
+                "host policy shim has no VM hook (live RV64 adapter uses Rust VM syscall)");
     ok &= check(api.memory_unmap(api.context, 0x40000000u, 4096) ==
                     XZFG_STATUS_NOT_IMPLEMENTED,
-                "memory unmap reports ENOSYS until the kernel implements it");
+                "host policy shim has no VM hook (live RV64 adapter uses Rust VM syscall)");
     ok &= check(api.memory_map(api.context, 0, 0, XZFG_MEMORY_READ,
                                &address) == XZFG_STATUS_INVALID_ARGUMENT,
                 "invalid memory map request is rejected before dispatch");
+
+    ok &= check(api.message_send == nullptr && api.message_receive == nullptr,
+                "host-only policy shim does not fake live Rust IPC callbacks");
 
     openxzuff::kernel::SyscallHooks missing_hooks{};
     xzfg_gravity_host_api_v1 incomplete{};
