@@ -131,6 +131,11 @@ pub unsafe fn enable_bootstrap(
     }
     let base = kernel_start & !(L2_SPAN - 1);
     let end = base.checked_add(L2_SPAN).ok_or(VmError::InvalidRange)?;
+    let heap_end = USER_HEAP_BASE.checked_add(USER_HEAP_SIZE)
+        .ok_or(VmError::OutsideBootstrapWindow)?;
+    if USER_HEAP_BASE < base || heap_end > end {
+        return Err(VmError::OutsideBootstrapWindow);
+    }
     let in_window = |start: usize, finish: usize| {
         finish.checked_sub(1).map(|last| start >= base && start < end && last >= base && last < end)
             .unwrap_or(false)
