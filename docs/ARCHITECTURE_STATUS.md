@@ -38,22 +38,26 @@ The W^X layout and range-verification contract are documented in [RV64 Sv39 boot
 
 ## Verified OpenXzuff UI Core host baseline
 
-[OpenXzuff UI Runtime, OS Contracts and 3D run #158](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125749) passed on 2026-11-11 for source commit `4cb674aedd98571a3b9c5e9a4d5bc04162eba6e8`. This run exercised the Core workflow after its path filter was expanded to include lowercase `kernel/**` for pushes and pull requests:
+[OpenXzuff UI Runtime, OS Contracts and 3D run #166](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047) completed successfully on 2026-11-12 for the same source revision as the RV64 run above, `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`.
 
-- Root CTest: **14/14 passed**; Xzuff Go compiler/.xexe fixture validation passed.
-- Xzuff Go / xgo cross-compiled and packaged for Android ARM64 using NDK 27.2.12479018.
-- Luau runtime and .lap package smoke tests passed.
+- Root CTest: **14/14 passed**; OS contracts, Xzuff Go compiler, Coder Checker and `.xexe` fixture validation passed.
+- Xzuff Go / xgo cross-compiled and packaged for Android ARM64 with NDK 27.2.12479018. The workflow verified the resulting `xgo`, `xzuff-go` and `xzuff-check` binaries as AArch64 Android executables. This is a native Termux command-line toolchain, not an APK.
+- Luau runtime build, source smoke test and `.lap` package smoke test passed.
 - JavaScript host tests: **2/2**; standard Lua host tests: **2/2**; OpenXzuff3D tests: **1/1**; rendered-scene artifact verification passed.
-- Removed the unused `clamp01` helper in `graphics3d/src/renderer.cpp`; the renderer's unused-function warning is absent from run #153. Two non-fatal unused-parameter warnings remain in the vendored Luau `Ast.h` headers.
+- Two non-fatal unused-parameter warnings remain in the vendored Luau `Ast.h` headers.
 
-[Run #158 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/42973125749/artifacts/13834496947) contains the host/runtime smoke outputs.
+[Run #166 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047/artifacts/13920654059) contains the host/runtime smoke outputs and Android ARM64 toolchain package.
+
+## VisionFive 2 host readiness
+
+[VisionFive 2 Kernel Readiness run #49](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461210) completed successfully on the same source revision. CMake host build, strict-warning compilation, CTest **14/14**, and board boot-contract source checks passed. The workflow explicitly notes that these checks do not prove physical board boot or full FDT correctness; no physical VisionFive 2 or LAVA result is claimed.
 
 ## Implemented, but deliberately bounded
 
 - The scheduler test runtime has two S-mode tasks and one U-mode test task on a single hart.
 - The Rust-native syscall contract uses `a7` for the syscall ID and `a0..a5` for arguments/results. Exercised calls are Exit=0, SendMessage=1, ReceiveMessage=2 and Yield=4; IDs 5 and 6 are test-only assertions for U-mode timer-frame resume and the verified `-ENOSYS` negative test; neither is a public application ABI. The U-mode probe sends unknown ID 99 and checks `-ENOSYS` (`-38`) before asking the kernel to emit its PASS marker.
 - IPC currently transports one scalar machine word per message through fixed-capacity, non-blocking mailboxes. User pointers are not accepted.
-- Sv39 is a bootstrap identity map for one 1 GiB window. Only the probe's code pages and stack pages are user-accessible; this is not a per-process address-space manager.
+- Sv39 is a bootstrap identity map for one 1 GiB window. The verifier walks every 4 KiB page in `.text`, `.rodata`, `.data` and `.bss` in both roots, with explicit U-mode probe-text and user-stack exceptions; only the probe's code pages and stack pages are user-accessible. This is not a per-process address-space manager.
 - U-mode trap entry switches to the supervisor trap stack assigned to the current scheduler task before building the 288-byte frame. Sixteen page-aligned slots are reserved by `TaskId`; QEMU verifies their layout and checks every slot is supervisor-only in the user page table. The current runtime still exercises only one U-mode task (task 2) and one user stack on one hart; allocating slots does not yet prove multi-U-task or SMP operation.
 
 ## Not yet established
