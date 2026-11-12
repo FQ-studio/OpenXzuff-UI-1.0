@@ -89,6 +89,21 @@ target_include_directories(trap-frame-test PRIVATE Kernel/include)
 target_compile_options(trap-frame-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-rv64-trap-frame-layout COMMAND trap-frame-test)
 
+# Gravity-native Win32 Gaming host ABI: host mock contract tests only.
+# This validates the versioned boundary; it does not implement a kernel backend.
+add_executable(win32-gravity-host-abi-test
+    win32-gaming/tests/gravity_host_abi_test.cpp
+)
+target_include_directories(win32-gravity-host-abi-test PRIVATE
+    win32-gaming/include
+)
+target_compile_options(win32-gravity-host-abi-test PRIVATE
+    $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
+)
+add_test(NAME win32-gravity-host-abi-contract
+    COMMAND win32-gravity-host-abi-test
+)
+
 add_executable(rv64-trap-dispatch-test tests/rv64_trap_dispatch_test.cpp)
 target_link_libraries(rv64-trap-dispatch-test PRIVATE xzuff_os_base)
 target_compile_options(rv64-trap-dispatch-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
