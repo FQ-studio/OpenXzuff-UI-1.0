@@ -263,7 +263,7 @@ pub fn active() -> bool {
 
 fn pte_table_root(satp: usize) -> usize { (satp & SATP_PPN_MASK) << 12 }
 
-fn has_permissions(root: usize, address: usize, required: u64, forbidden: u64) -> bool {
+unsafe fn has_permissions(root: usize, address: usize, required: u64, forbidden: u64) -> bool {
     lookup_flags(root, address)
         .map(|flags| flags & required == required && flags & forbidden == 0)
         .unwrap_or(false)
