@@ -256,13 +256,15 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                     || !crate::runtime::timer_preemption_observed()
                     || !crate::runtime::register_context_observed()
                     || !crate::runtime::ipc_roundtrip_observed()
-                    || !crate::runtime::ipc_empty_receive_observed() {
+                    || !crate::runtime::ipc_empty_receive_observed()
+                    || !crate::runtime::user_vm_roundtrip_observed() {
                     crate::console_write("U-mode syscall integration: FAIL\n");
                     crate::halt();
                 }
                 crate::console_write("RV64 callee-saved register + private stack preservation: PASS\n");
                 crate::console_write("RV64 IPC empty receive -EAGAIN: PASS\n");
                 crate::console_write("RV64 IPC mailbox send/receive round-trip: PASS\n");
+                crate::console_write("U-mode Sv39 memory map/protect/unmap: PASS\\n");
                 crate::console_write("U-mode Yield syscall context switch + Sv39 isolation: PASS\n");
                 crate::runtime::on_user_exit(frame_ptr)
             },
