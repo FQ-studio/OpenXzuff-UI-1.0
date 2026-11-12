@@ -1,6 +1,6 @@
 # OpenXzuff Win32 Gaming Runtime — Gravity-native port plan
 
-Status: architecture scaffold only; no executable compatibility runtime is implemented yet.
+Status: Gravity RV64 syscall bridge and a bounded user-VM path are under implementation. The Windows compatibility runtime, PE loader, and x86/x64 translator are not implemented yet.
 
 ## Goal
 
@@ -22,6 +22,24 @@ This is not a Linux distribution, Linux userspace, or a claim that upstream Prot
 3. Graphics/audio/input adapters: OpenXzuff graphics, audio and input service backends. DXVK/VKD3D/FAudio are candidates for separately audited ports, not assumed working dependencies.
 4. Win32 host adapter: process, thread, virtual memory, synchronization, files, clocks, networking and handles.
 5. Gravity backend: implement the host adapter using documented Gravity Kernel syscalls and OpenXzuff system services only.
+
+## Implemented Gravity bridge slice
+
+The repository now contains an RV64 U-mode adapter that issues real `ecall` instructions using the public syscall numbers:
+
+| Operation | Syscall | Current kernel path |
+|---|---:|---|
+| Exit | 0 | Rust U-mode trap → scheduler task exit |
+| SendMessage | 1 | Scalar task mailbox |
+| ReceiveMessage | 2 | Non-blocking scalar mailbox |
+| MapMemory | 3 | Sv39 user heap page mapping |
+| Yield | 4 | Scheduler context switch |
+| UnmapMemory | 7 | Sv39 user heap unmap + physical page return |
+| ProtectMemory | 8 | Sv39 user PTE permission update |
+
+The user heap is currently a **single-process, 2 MiB virtual arena** for the built-in U-mode task. Physical pages are drawn from the kernel's identity-mapped direct-map window, zeroed under the kernel root, and exposed with U-mode page permissions. QEMU coverage is being added for allocation, read/write, permission reduction, and unmap.
+
+This is a real syscall/trap/VM integration slice, not a complete Win32 backend. Task creation, multiple independent user address spaces, VFS handles, waitables, networking, graphics/audio/input services, PE loading, and x86/x64-to-RV64 translation remain unimplemented.
 
 ## Linux replacement map
 
