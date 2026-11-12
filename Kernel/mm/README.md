@@ -15,7 +15,7 @@ The executable Rust kernel in lowercase `kernel/src/vm.rs` now builds separate s
 - The built-in U-mode probe has live MapMemory, ProtectMemory and UnmapMemory syscalls. Physical frames are allocated only from the identity-mapped window, zero-filled before mapping, ownership-checked before unmap, scrubbed before free, and followed by a TLB flush. User PTE permissions enforce W^X.
 - Linker section boundaries are page-aligned so section permissions cannot share a writable/executable page.
 
-The RV64 S-Mode Kernel PR check #225 passed the bounded Map/Protect/Unmap path under OpenSBI/QEMU on 12 November 2026. The new W^X, allocator ownership and atomic-unmap checks are pending revalidation.
+The RV64 S-Mode Kernel PR check #227 passed the bounded Map/Protect/Unmap path, W^X rejection, allocator ownership and atomic-unmap checks under OpenSBI/QEMU on 13 November 2026 (Malaysia time). Host tests: 34 passed, 0 failed.
 
 ## Explicit limitations
 

@@ -14,6 +14,14 @@ This checkpoint applies to the open PR branch `feature/win32-gaming-gravity-port
 - Extend the U-mode QEMU probe to reject W+X MapMemory/ProtectMemory, verify failed multi-page unmap is atomic, and reject a second unmap.
 - Update ABI and MM documentation to distinguish the bounded probe heap from a general VM manager.
 
-## Validation target
+## Validation result
 
-The PR branch previously passed RV64 S-Mode Kernel run #225, including OpenSBI/QEMU checks for the bounded Map/Protect/Unmap round trip. This checkpoint must be revalidated by the new host and QEMU workflow run before it is considered tested. No VisionFive 2 physical-board result is claimed.
+RV64 S-Mode Kernel run #227 completed with SUCCESS on commit `ebc880c07d9d1803093df54cdf0735799675b94d`.
+
+- Host tests: 34 passed, 0 failed.
+- Kernel ELF build: succeeded.
+- OpenSBI v1.3 + QEMU: succeeded.
+- Serial assertions: Sv39 bootstrap and W^X, S/U context switching, timer preemption, IPC, MapMemory, ProtectMemory, W^X rejection, transactional UnmapMemory and double-unmap rejection all emitted PASS.
+- Artifact: `openxzuff-gravity-kernel-rv64-s-mode` uploaded by the workflow.
+
+VisionFive 2 readiness run #129 is a host/contract check only; no physical-board or LAVA boot result is claimed.
