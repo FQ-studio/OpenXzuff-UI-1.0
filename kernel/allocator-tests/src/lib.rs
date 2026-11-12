@@ -27,6 +27,21 @@ mod tests {
     }
 
     #[test]
+    fn alloc_in_range_only_returns_direct_mapped_pages() {
+        let mut map = MemoryMap::new();
+        map.add(0x8000_0000, 0x8000_8000).unwrap();
+        let mut pages = PageAllocator::new();
+        assert_eq!(pages.init(&map).unwrap(), 8);
+
+        for _ in 0..4 {
+            let page = pages.alloc_in_range(0x8000_2000, 0x8000_6000).unwrap();
+            assert!((0x8000_2000..0x8000_6000).contains(&page));
+        }
+        assert_eq!(pages.alloc_in_range(0x8000_2000, 0x8000_6000), None);
+        assert_eq!(pages.available_pages(), 4);
+    }
+
+    #[test]
     fn alloc_free_restores_capacity() {
         let mut map = MemoryMap::new();
         map.add(0x1000, 0x5000).unwrap();
