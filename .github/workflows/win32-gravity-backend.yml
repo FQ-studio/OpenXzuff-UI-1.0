@@ -6,7 +6,9 @@ on:
       - 'CMakeLists.txt'
       - 'Kernel/include/openxzuff/kernel/**'
       - 'Kernel/src/syscall.cpp'
+      - 'kernel/**'
       - 'win32-gaming/**'
+      - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/win32-gravity-backend.yml'
   push:
     branches:
@@ -38,3 +40,30 @@ jobs:
 
       - name: Run backend bridge tests
         run: ctest --test-dir build --output-on-failure -R 'win32-gravity-(host-abi-contract|kernel-backend-bridge)'
+
+  rv64-user-adapter:
+    name: Cross-compile the real RV64 U-mode adapter
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install RV64 cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-riscv64-unknown-elf binutils-riscv64-unknown-elf
+
+      - name: Compile RV64 ecall adapter
+        run: |
+          set -euo pipefail
+          mkdir -p build/win32-gravity-rv64
+          riscv64-unknown-elf-g++ \
+            -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+            -ffreestanding -fno-exceptions -fno-rtti \
+            -march=rv64imac -mabi=lp64 \
+            -I win32-gaming/include \
+            -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
+            -o build/win32-gravity-rv64/gravity_kernel_backend_rv64.o
+          riscv64-unknown-elf-objdump -d build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis
+          test "$(grep -c '[[:space:]]ecall' build/win32-gravity-rv64/adapter.dis)" -ge 2
+          grep -q 'xzfg_gravity_host_api_v1_bind_rv64' build/win32-gravity-rv64/adapter.dis
