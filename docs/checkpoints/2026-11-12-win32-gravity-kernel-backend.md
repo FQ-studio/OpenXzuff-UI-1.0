@@ -29,6 +29,11 @@ Accordingly:
 
 ## Validation
 
-The dedicated workflow was created and triggered for PR #12 at head commit `ec4096b9ef1d7bb82a7d6ae0ad0bd692e9edd8f2`. At checkpoint authoring time its status was still in progress; no PASS claim is made until the job completes successfully.
+The dedicated workflow completed successfully for PR #12 at head commit `bbbe9f01ba71fc8669140b38a45033640d0b30bd`.
+
+- GitHub Actions run: [Win32 Gaming Gravity Backend Bridge](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43207846649)
+- CMake configure: passed.
+- Build targets `win32-gravity-host-abi-test` and `win32-gravity-kernel-backend-test`: passed.
+- CTest: 2/2 passed (`win32-gravity-host-abi-contract`, `win32-gravity-kernel-backend-bridge`).
 
 The workflow tests the host ABI and C++ dispatcher bridge only. It is not an RV64/QEMU or physical-board integration test.
