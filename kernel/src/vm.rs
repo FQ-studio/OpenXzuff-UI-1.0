@@ -15,7 +15,9 @@ const X: u64 = 1 << 3;
 const U: u64 = 1 << 4;
 const A: u64 = 1 << 6;
 const D: u64 = 1 << 7;
-const SUPERVISOR_RWX: u64 = V | R | W | X | A | D;
+const SUPERVISOR_RW: u64 = V | R | W | A | D;
+const SUPERVISOR_RX: u64 = V | R | X | A;
+const SUPERVISOR_R: u64 = V | R | A;
 const SV39_MODE: usize = 8usize << 60;
 const SATP_PPN_MASK: usize = (1usize << 44) - 1;
 
@@ -24,6 +26,7 @@ struct PageTable([u64; ENTRIES]);
 
 static mut KERNEL_ROOT: PageTable = PageTable([0; ENTRIES]);
 static mut KERNEL_LEVEL1: PageTable = PageTable([0; ENTRIES]);
+static mut KERNEL_IMAGE_LEVEL0: PageTable = PageTable([0; ENTRIES]);
 static mut USER_ROOT: PageTable = PageTable([0; ENTRIES]);
 static mut USER_LEVEL1: PageTable = PageTable([0; ENTRIES]);
 static mut USER_CODE_LEVEL0: PageTable = PageTable([0; ENTRIES]);
@@ -34,7 +37,7 @@ static USER_SATP: AtomicUsize = AtomicUsize::new(0);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VmError {
     InvalidRange, OutsideBootstrapWindow, UserRegionsOverlap,
-    UserRegionTooLarge, MisalignedTable, SatpReadback,
+    UserRegionTooLarge, KernelImageTooLarge, MisalignedTable, SatpReadback,
 }
 
 fn table_pte(address: usize) -> u64 { (((address as u64) >> 12) << 10) | V }
@@ -43,18 +46,47 @@ fn pte_table_address(pte: u64) -> usize {
     (((pte >> 10) & ((1u64 << 44) - 1)) << 12) as usize
 }
 
-unsafe fn fill_user_region(
+fn overlaps_page(address: usize, page_end: usize, start: usize, end: usize) -> bool {
+    start < end && address < end && start < page_end
+}
+
+unsafe fn fill_kernel_image_region(
     table: *mut PageTable, region_base: usize,
-    code_start: usize, code_end: usize, stack_start: usize, stack_end: usize,
+    text_start: usize, text_end: usize, rodata_start: usize, rodata_end: usize,
 ) {
     for i in 0..ENTRIES {
         let address = region_base + i * PAGE;
         let page_end = address + PAGE;
-        let code_page = address < code_end && code_start < page_end;
-        let stack_page = address < stack_end && stack_start < page_end;
+        let flags = if overlaps_page(address, page_end, text_start, text_end) {
+            SUPERVISOR_RX
+        } else if overlaps_page(address, page_end, rodata_start, rodata_end) {
+            SUPERVISOR_R
+        } else {
+            SUPERVISOR_RW
+        };
+        (*table).0[i] = leaf_pte(address, flags);
+    }
+}
+
+unsafe fn fill_user_region(
+    table: *mut PageTable, region_base: usize,
+    code_start: usize, code_end: usize, stack_start: usize, stack_end: usize,
+    text_start: usize, text_end: usize, rodata_start: usize, rodata_end: usize,
+) {
+    for i in 0..ENTRIES {
+        let address = region_base + i * PAGE;
+        let page_end = address + PAGE;
+        let code_page = overlaps_page(address, page_end, code_start, code_end);
+        let stack_page = overlaps_page(address, page_end, stack_start, stack_end);
         let flags = if code_page { V | R | X | U | A }
             else if stack_page { V | R | W | U | A | D }
-            else { SUPERVISOR_RWX };
+            else if overlaps_page(address, page_end, text_start, text_end) {
+                SUPERVISOR_RX
+            } else if overlaps_page(address, page_end, rodata_start, rodata_end) {
+                SUPERVISOR_R
+            } else {
+                SUPERVISOR_RW
+            };
         (*table).0[i] = leaf_pte(address, flags);
     }
 }
@@ -79,9 +111,15 @@ pub unsafe fn enable_bootstrap(
     kernel_start: usize, kernel_end: usize, fdt_start: usize, fdt_end: usize,
     user_code_start: usize, user_code_end: usize,
     user_stack_start: usize, user_stack_end: usize,
+    text_start: usize, text_end: usize,
+    rodata_start: usize, rodata_end: usize,
+    data_start: usize, data_end: usize,
+    bss_start: usize, bss_end: usize,
 ) -> Result<(), VmError> {
     if kernel_start >= kernel_end || fdt_start >= fdt_end
-        || user_code_start >= user_code_end || user_stack_start >= user_stack_end {
+        || user_code_start >= user_code_end || user_stack_start >= user_stack_end
+        || text_start >= text_end || rodata_start > rodata_end
+        || data_start > data_end || bss_start >= bss_end {
         return Err(VmError::InvalidRange);
     }
     if user_code_start < user_stack_end && user_stack_start < user_code_end {
@@ -98,43 +136,73 @@ pub unsafe fn enable_bootstrap(
         || !in_window(user_stack_start, user_stack_end) {
         return Err(VmError::OutsideBootstrapWindow);
     }
+    let image_region = (kernel_start - base) / L1_SPAN;
+    let image_region_end = (kernel_end - 1 - base) / L1_SPAN;
     let code_region = (user_code_start - base) / L1_SPAN;
     let code_region_end = (user_code_end - 1 - base) / L1_SPAN;
     let stack_region = (user_stack_start - base) / L1_SPAN;
     let stack_region_end = (user_stack_end - 1 - base) / L1_SPAN;
-    if code_region != code_region_end || stack_region != stack_region_end {
-        return Err(VmError::UserRegionTooLarge);
+    if image_region != image_region_end
+        || code_region != code_region_end || stack_region != stack_region_end
+        || code_region != image_region || stack_region != image_region
+        || user_code_start < text_start || user_code_end > text_end
+        || user_stack_start < bss_start || user_stack_end > bss_end {
+        return Err(VmError::KernelImageTooLarge);
+    }
+    for (start, finish) in [
+        (text_start, text_end), (rodata_start, rodata_end),
+        (data_start, data_end), (bss_start, bss_end),
+    ] {
+        if start < finish
+            && (!in_window(start, finish)
+                || (start - base) / L1_SPAN != image_region
+                || (finish - 1 - base) / L1_SPAN != image_region) {
+            return Err(VmError::KernelImageTooLarge);
+        }
     }
 
     let kernel_root = core::ptr::addr_of_mut!(KERNEL_ROOT);
     let kernel_level1 = core::ptr::addr_of_mut!(KERNEL_LEVEL1);
+    let kernel_image_l0 = core::ptr::addr_of_mut!(KERNEL_IMAGE_LEVEL0);
     let user_root = core::ptr::addr_of_mut!(USER_ROOT);
     let user_level1 = core::ptr::addr_of_mut!(USER_LEVEL1);
     let code_l0 = core::ptr::addr_of_mut!(USER_CODE_LEVEL0);
     let stack_l0 = core::ptr::addr_of_mut!(USER_STACK_LEVEL0);
-    for address in [kernel_root as usize, kernel_level1 as usize, user_root as usize,
+    for address in [kernel_root as usize, kernel_level1 as usize, kernel_image_l0 as usize, user_root as usize,
         user_level1 as usize, code_l0 as usize, stack_l0 as usize] {
         if address & (PAGE - 1) != 0 { return Err(VmError::MisalignedTable); }
     }
 
     (*kernel_root).0.fill(0);
     (*kernel_level1).0.fill(0);
+    (*kernel_image_l0).0.fill(0);
     (*user_root).0.fill(0);
     (*user_level1).0.fill(0);
     (*code_l0).0.fill(0);
     (*stack_l0).0.fill(0);
 
     for i in 0..ENTRIES {
-        (*kernel_level1).0[i] = leaf_pte(base + i * L1_SPAN, SUPERVISOR_RWX);
+        (*kernel_level1).0[i] = leaf_pte(base + i * L1_SPAN, SUPERVISOR_RW);
     }
+    fill_kernel_image_region(
+        kernel_image_l0, base + image_region * L1_SPAN,
+        text_start, text_end, rodata_start, rodata_end,
+    );
+    (*kernel_level1).0[image_region] = table_pte(kernel_image_l0 as usize);
     (*user_level1).0.copy_from_slice(&(*kernel_level1).0);
 
-    fill_user_region(code_l0, base + code_region * L1_SPAN,
-        user_code_start, user_code_end, user_stack_start, user_stack_end);
+    fill_user_region(
+        code_l0, base + code_region * L1_SPAN,
+        user_code_start, user_code_end, user_stack_start, user_stack_end,
+        text_start, text_end, rodata_start, rodata_end,
+    );
     (*user_level1).0[code_region] = table_pte(code_l0 as usize);
     if stack_region != code_region {
-        fill_user_region(stack_l0, base + stack_region * L1_SPAN,
-            user_code_start, user_code_end, user_stack_start, user_stack_end);
+        fill_user_region(
+            stack_l0, base + stack_region * L1_SPAN,
+            user_code_start, user_code_end, user_stack_start, user_stack_end,
+            text_start, text_end, rodata_start, rodata_end,
+        );
         (*user_level1).0[stack_region] = table_pte(stack_l0 as usize);
     }
 
@@ -195,23 +263,36 @@ pub fn active() -> bool {
 
 fn pte_table_root(satp: usize) -> usize { (satp & SATP_PPN_MASK) << 12 }
 
-/// Verify RX U-mode text, RW U-mode stack, and supervisor-only kernel/trap pages.
+fn has_permissions(root: usize, address: usize, required: u64, forbidden: u64) -> bool {
+    lookup_flags(root, address)
+        .map(|flags| flags & required == required && flags & forbidden == 0)
+        .unwrap_or(false)
+}
+
+/// Verify W^X kernel sections plus RX/RW U-mode mappings in both address spaces.
 pub unsafe fn verify_isolation(
     user_code: usize, user_stack: usize, kernel_page: usize, supervisor_stack: usize,
+    text: usize, rodata: Option<usize>, data: usize, bss: usize,
 ) -> bool {
     let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
     let user_satp = USER_SATP.load(Ordering::Acquire);
     if kernel_satp == 0 || user_satp == 0 || kernel_satp == user_satp { return false; }
     let kernel_root = pte_table_root(kernel_satp);
     let user_root = pte_table_root(user_satp);
-    let kc = match lookup_flags(kernel_root, user_code) { Some(v) => v, None => return false };
-    let uc = match lookup_flags(user_root, user_code) { Some(v) => v, None => return false };
-    let ks = match lookup_flags(kernel_root, user_stack) { Some(v) => v, None => return false };
-    let us = match lookup_flags(user_root, user_stack) { Some(v) => v, None => return false };
-    let kp = match lookup_flags(user_root, kernel_page) { Some(v) => v, None => return false };
-    let st = match lookup_flags(user_root, supervisor_stack) { Some(v) => v, None => return false };
-    kc & U == 0 && ks & U == 0
-        && uc & (U | R | X) == (U | R | X) && uc & W == 0
-        && us & (U | R | W) == (U | R | W) && us & X == 0
-        && kp & U == 0 && st & U == 0
+    let kernel_text = has_permissions(kernel_root, text, R | X, W | U)
+        && has_permissions(user_root, text, R | X, W | U);
+    let kernel_rodata = rodata.map(|address| {
+        has_permissions(kernel_root, address, R, W | X | U)
+            && has_permissions(user_root, address, R, W | X | U)
+    }).unwrap_or(true);
+    let kernel_data = has_permissions(kernel_root, data, R | W, X | U)
+        && has_permissions(user_root, data, R | W, X | U);
+    let kernel_bss = has_permissions(kernel_root, bss, R | W, X | U)
+        && has_permissions(user_root, bss, R | W, X | U);
+    let user_text = has_permissions(user_root, user_code, U | R | X, W);
+    let user_stack_flags = has_permissions(user_root, user_stack, U | R | W, X);
+    let supervisor_only = has_permissions(user_root, kernel_page, 0, U)
+        && has_permissions(user_root, supervisor_stack, 0, U);
+    kernel_text && kernel_rodata && kernel_data && kernel_bss
+        && user_text && user_stack_flags && supervisor_only
 }
