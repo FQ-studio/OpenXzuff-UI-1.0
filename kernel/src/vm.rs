@@ -332,7 +332,7 @@ pub fn map_user_memory(
     };
 
     for offset in 0..pages {
-        let physical = match allocator.alloc() {
+        let physical = match allocator.alloc_in_range(0x8000_0000, 0xc000_0000) {
             Some(page) => page,
             None => {
                 for rollback in 0..offset {
@@ -344,8 +344,23 @@ pub fn map_user_memory(
                 return Err(VmError::NoMemory);
             }
         };
+        /* The user root remaps the heap VA region, so zero physical pages
+           under the kernel root before returning to the user address space. */
+        if !switch_to_kernel() {
+            let _ = allocator.free(physical);
+            for rollback in 0..offset {
+                let old_page = pte_table_address(table.0[first + rollback]);
+                table.0[first + rollback] = 0;
+                let _ = allocator.free(old_page);
+            }
+            let _ = switch_to_user();
+            return Err(VmError::SatpReadback);
+        }
         unsafe { core::ptr::write_bytes(physical as *mut u8, 0, PAGE); }
         table.0[first + offset] = leaf_pte(physical, flags);
+        if !switch_to_user() {
+            return Err(VmError::SatpReadback);
+        }
     }
     unsafe { asm!("sfence.vma zero, zero", options(nostack)); }
     Ok(USER_HEAP_BASE + first * PAGE)
@@ -394,7 +409,7 @@ pub fn protect_user_memory(
         return Err(VmError::AddressNotMapped);
     }
     for index in first..first + pages {
-        let physical = table.0[index] & !0xfff;
+        let physical = table.0[index] & !0x3ff;
         table.0[index] = physical | flags;
     }
     unsafe { asm!("sfence.vma zero, zero", options(nostack)); }
