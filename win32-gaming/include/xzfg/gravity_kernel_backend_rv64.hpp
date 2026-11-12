@@ -12,8 +12,9 @@ extern "C" {
 #endif
 
 /* Populate ABI v1 with callbacks that issue real U-mode ecall instructions.
- * Yield and Exit enter kernel/src/trap.rs -> gravity_u_trap_handler.
- * VM callbacks remain explicit -ENOSYS until dynamic user VM exists. */
+ * Yield, Exit, scalar IPC, and bounded user-VM calls enter the live Rust
+ * kernel/src/trap.rs -> gravity_u_trap_handler syscall path. Task creation,
+ * VFS handles, and waitables remain optional and unbound. */
 int xzfg_gravity_host_api_v1_bind_rv64(xzfg_gravity_host_api_v1 *api);
 
 #ifdef __cplusplus
