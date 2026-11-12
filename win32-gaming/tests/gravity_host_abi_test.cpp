@@ -11,6 +11,10 @@ struct MockState {
     uint64_t mapped_address{0x40000000u};
     uint64_t mapped_length{};
     uint32_t protection{};
+    uint64_t sent_to{};
+    uint64_t sent_payload{};
+    uint64_t receive_sender{7};
+    uint64_t receive_payload{0x47524156u};
 };
 
 xzfg_status mock_yield(void *context) {
@@ -40,6 +44,19 @@ xzfg_status mock_unmap(void *, uint64_t address, uint64_t length) {
     return address != 0 && length != 0
         ? XZFG_STATUS_OK : XZFG_STATUS_INVALID_ARGUMENT;
 }
+xzfg_status mock_send(void *context, uint64_t destination, uint64_t payload) {
+    auto &state = *static_cast<MockState *>(context);
+    state.sent_to = destination;
+    state.sent_payload = payload;
+    return XZFG_STATUS_OK;
+}
+xzfg_status mock_receive(void *context, uint64_t *sender, uint64_t *payload) {
+    if (sender == nullptr || payload == nullptr) return XZFG_STATUS_INVALID_ARGUMENT;
+    auto &state = *static_cast<MockState *>(context);
+    *sender = state.receive_sender;
+    *payload = state.receive_payload;
+    return XZFG_STATUS_OK;
+}
 bool check(bool value, const char *message) {
     if (!value) std::cerr << "FAIL: " << message << '\n';
     return value;
@@ -63,6 +80,8 @@ int main() {
     api.task_exit = mock_exit;
     api.memory_map = mock_map;
     api.memory_unmap = mock_unmap;
+    api.message_send = mock_send;
+    api.message_receive = mock_receive;
 
     bool ok = true;
     ok &= check(xzfg_gravity_host_api_v1_valid(&api), "valid v1 API accepted");
@@ -77,6 +96,13 @@ int main() {
     short_struct.struct_size = 4;
     ok &= check(!xzfg_gravity_host_api_v1_valid(&short_struct),
                 "truncated ABI struct rejected");
+    auto legacy_v1 = api;
+    legacy_v1.struct_size = static_cast<uint32_t>(
+        offsetof(xzfg_gravity_host_api_v1, message_send));
+    legacy_v1.message_send = nullptr;
+    legacy_v1.message_receive = nullptr;
+    ok &= check(xzfg_gravity_host_api_v1_valid(&legacy_v1),
+                "pre-extension v1 struct remains ABI-compatible");
 
     ok &= check(api.task_yield(api.context) == XZFG_STATUS_OK &&
                 state.yields == 1, "yield routed through Gravity adapter");
@@ -102,6 +128,18 @@ int main() {
                 "null map output rejected");
     ok &= check(api.memory_unmap(api.context, 0x40000000u, 4096) ==
                 XZFG_STATUS_OK, "unmap routed through Gravity adapter");
+    ok &= check(api.message_send(api.context, 3, 0x47524156u) ==
+                XZFG_STATUS_OK && state.sent_to == 3 &&
+                state.sent_payload == 0x47524156u,
+                "scalar send callback forwards task and payload");
+    uint64_t sender = 0, payload = 0;
+    ok &= check(api.message_receive(api.context, &sender, &payload) ==
+                XZFG_STATUS_OK && sender == state.receive_sender &&
+                payload == state.receive_payload,
+                "scalar receive callback returns sender and payload");
+    ok &= check(api.message_receive(api.context, nullptr, &payload) ==
+                XZFG_STATUS_INVALID_ARGUMENT,
+                "scalar receive rejects null output");
 
     if (ok) std::cout << "Win32 Gravity host ABI v1 contract tests: PASS\n";
     return ok ? 0 : 1;
