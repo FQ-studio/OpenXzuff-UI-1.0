@@ -753,3 +753,31 @@ mod task_manager_tests {
         assert_eq!(manager.wake(unknown), Err(TaskManagerError::MissingTask));
     }
 }
+
+
+#[cfg(test)]
+mod runtime_process_integration_tests {
+    use super::process::ProcessState;
+    use super::scheduler::TaskId;
+    use super::task_manager::TaskManager;
+
+    #[test]
+    fn live_runtime_scheduler_updates_process_metadata_and_exit_code() {
+        let mut manager = TaskManager::new();
+        let first_task = manager.create_runtime_task().unwrap();
+        let second_task = manager.create_runtime_task().unwrap();
+        let first_process = manager.process_for_task(first_task).unwrap();
+        let second_process = manager.process_for_task(second_task).unwrap();
+
+        assert_eq!(manager.runtime_schedule_next(), Some(first_task));
+        assert_eq!(manager.get(first_process).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.runtime_yield_current(), Ok(Some(second_task)));
+        assert_eq!(manager.get(first_process).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(second_process).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.runtime_exit_current_with_code(42), Ok(Some(first_task)));
+        let exited = manager.get(second_process).unwrap();
+        assert_eq!(exited.state, ProcessState::Exited);
+        assert_eq!(exited.exit_code, Some(42));
+        assert_eq!(manager.runtime_current(), Some(TaskId(first_task.0)));
+    }
+}
