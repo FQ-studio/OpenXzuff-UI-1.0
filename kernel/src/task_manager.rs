@@ -158,7 +158,11 @@ impl TaskManager {
     }
 
     pub fn runtime_exit_current(&mut self) -> Result<Option<TaskId>, SchedulerError> {
-        let process = self.exit_current_with_code(0).map_err(|_| SchedulerError::InvalidTask)?;
+        self.runtime_exit_current_with_code(0)
+    }
+
+    pub fn runtime_exit_current_with_code(&mut self, code: i32) -> Result<Option<TaskId>, SchedulerError> {
+        let process = self.exit_current_with_code(code).map_err(|_| SchedulerError::InvalidTask)?;
         Ok(process.and_then(|id| self.task_process.iter().position(|entry| *entry == Some(id)).map(TaskId)))
     }
 
