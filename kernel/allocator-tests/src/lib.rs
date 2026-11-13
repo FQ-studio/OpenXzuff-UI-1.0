@@ -644,15 +644,19 @@ mod vfs_tests {
 
     #[test]
     fn remove_requires_empty_directory_and_invalidates_stale_inode() {
-        let mut fs=RamFs::new(); fs.create_dir(b"/d").unwrap();
+        let mut fs=RamFs::new();
+        let dir=fs.create_dir(b"/d").unwrap();
         let file=fs.create_file(b"/d/f").unwrap();
         assert_eq!(fs.remove(b"/d"),Err(VfsError::NotEmpty));
         fs.remove(b"/d/f").unwrap();
+        assert_eq!(fs.kind_by_id(file),Err(VfsError::InvalidNode));
         assert_eq!(fs.lookup(b"/d/f"),Err(VfsError::NotFound));
         fs.remove(b"/d").unwrap();
-        fs.create_file(b"/new").unwrap();
-        assert_eq!(fs.lookup(b"/new").unwrap().0.slot,file.slot);
-        assert_ne!(fs.lookup(b"/new").unwrap().0.generation,file.generation);
+        let replacement=fs.create_file(b"/new").unwrap();
+        assert_eq!(replacement.slot,dir.slot);
+        assert_ne!(replacement.generation,dir.generation);
+        assert_eq!(fs.kind_by_id(dir),Err(VfsError::InvalidNode));
+        assert_eq!(fs.kind_by_id(replacement),Ok(NodeKind::File));
     }
 
     #[test]
