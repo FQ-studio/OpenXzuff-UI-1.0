@@ -78,8 +78,12 @@ __gravity_u_mode_ecall_probe:
     /* U-mode must not be able to read the supervisor-only kernel image. */
     la      t0, __kernel_start
     ld      t1, 0(t0)
-    /* Stay in U-mode long enough for SBI TIME to preempt this exact context. */
-    li      t2, 20000000
+    /*
+     * Cross several 10 ms scheduler quanta even on fast QEMU hosts. The
+     * timer test must observe an asynchronous U-mode preemption, not merely
+     * a cooperative yield at the following ecall.
+     */
+    li      t2, 100000000
 .Lumode_timer_wait:
     addi    t2, t2, -1
     bnez    t2, .Lumode_timer_wait
