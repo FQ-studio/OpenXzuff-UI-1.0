@@ -692,3 +692,64 @@ mod vfs_inode_tests {
         assert_eq!(fs.remove_node(inode), Err(VfsError::InvalidNode));
     }
 }
+
+
+#[path = "../../src/task_manager.rs"]
+pub mod task_manager;
+
+#[cfg(test)]
+mod task_manager_tests {
+    use super::process::{ProcessId, ProcessState};
+    use super::task_manager::{TaskManager, TaskManagerError};
+
+    #[test]
+    fn scheduler_and_process_states_advance_together() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.schedule_next().unwrap(), Some(parent));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.yield_current().unwrap(), Some(child));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Running);
+    }
+
+    #[test]
+    fn blocking_waking_and_exiting_are_reflected_in_process_table() {
+        let mut manager = TaskManager::new();
+        let first = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let second = manager.spawn(None, 0x2000, 0x9000).unwrap();
+        assert_eq!(manager.schedule_next().unwrap(), Some(first));
+        assert_eq!(manager.block_current().unwrap(), Some(second));
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Blocked);
+        assert_eq!(manager.get(second).unwrap().state, ProcessState::Running);
+        manager.wake(first).unwrap();
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.exit_current(17).unwrap(), Some(first));
+        assert_eq!(manager.get(second).unwrap().state, ProcessState::Exited);
+        assert_eq!(manager.get(second).unwrap().exit_code, Some(17));
+    }
+
+    #[test]
+    fn wait_reaps_child_and_invalidates_its_process_id() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
+        manager.schedule_next().unwrap();
+        manager.yield_current().unwrap();
+        manager.exit_current(23).unwrap();
+        assert_eq!(manager.wait(parent, Some(child)).unwrap(), (child, 23));
+        assert_eq!(manager.get(child), Err(TaskManagerError::Process(
+            super::process::ProcessError::InvalidProcess
+        )));
+        assert_eq!(manager.active_processes(), 1);
+    }
+
+    #[test]
+    fn unknown_process_cannot_be_woken() {
+        let mut manager = TaskManager::new();
+        let unknown = ProcessId { slot: 31, generation: 99 };
+        assert_eq!(manager.wake(unknown), Err(TaskManagerError::MissingTask));
+    }
+}
