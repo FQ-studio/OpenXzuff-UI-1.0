@@ -672,3 +672,23 @@ mod vfs_tests {
         assert!(fs.node_count()<=MAX_NODES);
     }
 }
+
+
+#[cfg(test)]
+mod vfs_inode_tests {
+    use super::vfs::{RamFs, VfsError};
+
+    #[test]
+    fn generation_safe_inode_io_and_removal_reject_stale_handles() {
+        let mut fs = RamFs::new();
+        let inode = fs.create_file(b"/capability-file").unwrap();
+        assert_eq!(fs.write_node(inode, 0, b"gravity"), Ok(7));
+        let mut bytes = [0u8; 7];
+        assert_eq!(fs.read_node(inode, 0, &mut bytes), Ok(7));
+        assert_eq!(&bytes, b"gravity");
+        fs.remove_node(inode).unwrap();
+        assert_eq!(fs.read_node(inode, 0, &mut bytes), Err(VfsError::InvalidNode));
+        assert_eq!(fs.write_node(inode, 0, b"stale"), Err(VfsError::InvalidNode));
+        assert_eq!(fs.remove_node(inode), Err(VfsError::InvalidNode));
+    }
+}
