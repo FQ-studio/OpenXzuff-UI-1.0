@@ -781,3 +781,29 @@ mod runtime_process_integration_tests {
         assert_eq!(manager.runtime_current(), Some(TaskId(first_task.0)));
     }
 }
+
+
+#[cfg(test)]
+mod task_manager_capacity_tests {
+    use super::process::ProcessState;
+    use super::task_manager::{TaskManager, TaskManagerError};
+    use super::scheduler::MAX_TASKS;
+
+    #[test]
+    fn failed_spawn_when_scheduler_is_full_rolls_back_process_slot() {
+        let mut manager = TaskManager::new();
+        for index in 0..MAX_TASKS {
+            manager.spawn(None, 0x1000 + index * 4, 0).unwrap();
+        }
+        assert_eq!(manager.active_processes(), MAX_TASKS);
+        assert_eq!(
+            manager.spawn(None, 0x9000, 0),
+            Err(TaskManagerError::Scheduler(
+                super::scheduler::SchedulerError::Full
+            ))
+        );
+        assert_eq!(manager.active_processes(), MAX_TASKS);
+        let first = manager.process_for_task(super::scheduler::TaskId(0)).unwrap();
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
+    }
+}
