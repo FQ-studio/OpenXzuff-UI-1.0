@@ -127,6 +127,47 @@ impl RamFs {
         node.generation = node.generation.wrapping_add(1).max(1);
         Ok(())
     }
+    /// Read through a generation-tagged inode handle (suitable for capability-backed VFS handles).
+    pub fn read_node(&self, id: NodeId, offset: usize, out: &mut [u8]) -> Result<usize, VfsError> {
+        let index = self.checked_index(id)?;
+        let node = &self.nodes[index];
+        if node.kind == NodeKind::Directory { return Err(VfsError::IsDirectory); }
+        let start = offset.min(node.data_len as usize);
+        let count = out.len().min(node.data_len as usize - start);
+        out[..count].copy_from_slice(&node.data[start..start + count]);
+        Ok(count)
+    }
+
+    /// Write through a generation-tagged inode handle.
+    pub fn write_node(&mut self, id: NodeId, offset: usize, bytes: &[u8]) -> Result<usize, VfsError> {
+        let index = self.checked_index(id)?;
+        let node = &mut self.nodes[index];
+        if node.kind == NodeKind::Directory { return Err(VfsError::IsDirectory); }
+        let end = offset.checked_add(bytes.len()).ok_or(VfsError::FileTooLarge)?;
+        if end > MAX_FILE_BYTES { return Err(VfsError::FileTooLarge); }
+        node.data[offset..end].copy_from_slice(bytes);
+        node.data_len = node.data_len.max(end as u16);
+        Ok(bytes.len())
+    }
+
+    /// Remove through a generation-tagged inode handle, rejecting stale handles.
+    pub fn remove_node(&mut self, id: NodeId) -> Result<(), VfsError> {
+        let index = self.checked_index(id)?;
+        if index == 0 { return Err(VfsError::InvalidPath); }
+        if self.nodes[index].kind == NodeKind::Directory
+            && self.nodes.iter().any(|n| n.used && n.parent as usize == index) {
+            return Err(VfsError::NotEmpty);
+        }
+        let node = &mut self.nodes[index];
+        node.used = false;
+        node.name = [0; MAX_NAME];
+        node.name_len = 0;
+        node.data = [0; MAX_FILE_BYTES];
+        node.data_len = 0;
+        node.generation = node.generation.wrapping_add(1).max(1);
+        Ok(())
+    }
+
     pub fn node_count(&self) -> usize { self.nodes.iter().filter(|n| n.used).count() }
 }
 impl Default for RamFs { fn default() -> Self { Self::new() } }
