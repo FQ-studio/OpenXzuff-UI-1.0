@@ -10,6 +10,7 @@ on:
       - "tests/**"
       - "language/**"
       - "sdk/**"
+      - "ndk/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -24,6 +25,7 @@ on:
       - "tests/**"
       - "language/**"
       - "sdk/**"
+      - "ndk/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -51,17 +53,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
-      - name: Compile Gravity SDK syscall example for RV64
+      - name: Configure Gravity RV64 NDK
+        run: |
+          cmake -S ndk/gravity-rv64/examples -B build/gravity-ndk \
+            -DCMAKE_TOOLCHAIN_FILE=ndk/gravity-rv64/toolchain.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+      - name: Build Gravity RV64 NDK example
         run: |
           set -eu
           mkdir -p build/gravity-sdk
-          riscv64-unknown-elf-gcc \
-            -std=c11 -march=rv64imac -mabi=lp64 \
-            -ffreestanding -fno-builtin -fno-pic \
-            -Wall -Wextra -Werror \
-            -Isdk/gravity/sysroot/usr/include \
-            -c sdk/gravity/examples/abi_smoke.c \
-            -o build/gravity-sdk/abi_smoke.o
+          cmake --build build/gravity-ndk --parallel 2
+          OBJECT="$(find build/gravity-ndk -type f \\( -name '*.o' -o -name '*.obj' \\) | head -n 1)"
+          test -n "$OBJECT"
+          cp "$OBJECT" build/gravity-sdk/abi_smoke.o
           riscv64-unknown-elf-objdump -d build/gravity-sdk/abi_smoke.o > build/gravity-sdk/abi_smoke.dis
           grep -q 'ecall' build/gravity-sdk/abi_smoke.dis
       - name: Install Android SDK and NDK for ARM64
@@ -125,6 +129,15 @@ jobs:
           file "$DIST/bin/xgo" "$DIST/bin/xzuff-go" "$DIST/bin/xzuff-check"
           cd dist
           zip -qr xzuff-go-toolchain-android-arm64.zip xzuff-go-toolchain-android-arm64
+      - name: Package Gravity RV64 SDK and NDK
+        run: |
+          set -eu
+          DIST="dist/gravity-rv64-sdk-ndk"
+          mkdir -p "$DIST"
+          cp -R sdk/gravity "$DIST/sdk"
+          cp -R ndk/gravity-rv64 "$DIST/ndk"
+          cd dist
+          zip -qr gravity-rv64-sdk-ndk.zip gravity-rv64-sdk-ndk
       - name: Configure Luau runtime
         run: cmake -S runtime -B runtime/build -DCMAKE_BUILD_TYPE=Release
       - name: Build Luau runtime
@@ -172,6 +185,7 @@ jobs:
             build/return_42.xexe
             build/gravity-sdk/abi_smoke.o
             build/gravity-sdk/abi_smoke.dis
+            dist/gravity-rv64-sdk-ndk.zip
             build/CliSmoke/build/CliSmoke.xexe
             runtime/build/xzuff-luau
             runtime/build/hello.lap
