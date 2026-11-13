@@ -5,7 +5,7 @@
 - Repository: `FQ-studio/OpenXzuff-UI-1.0`
 - Working branch: `feature/win32-gaming-gravity-port`
 - Open PR: [#12 — Win32 Gaming: define Linux-free Gravity-native port](https://github.com/FQ-studio/OpenXzuff-UI-1.0/pull/12)
-- Source revision used for the latest RV64/QEMU verification: `8d1f689b11f76adeeb7804bf8d837c3f0f8b758d`.
+- RV64/QEMU was first verified on `8d1f689b11f76adeeb7804bf8d837c3f0f8b758d`; follow-up verification also passed on checkpoint revision `96b0f13da7b2a5efcca6567b3f51614f3749059f`.
 - Base `main` remains at `6d39ac9c87c075f6f1105767c6d2acb49710136f`; this work has **not** been merged.
 
 ## Integration present on the branch
@@ -106,3 +106,12 @@ The U-mode timer probe's busy-wait was increased from 20,000,000 to 100,000,000 
 - Vendored Luau `Ast.h` reports two non-fatal unused-parameter warnings.
 - GitHub Actions also reports Node.js 20 deprecation warnings for third-party actions.
 - No claim of production stability, general Win32 compatibility or physical-board support is made.
+
+
+## Post-checkpoint verification update
+
+- [RV64 S-Mode Kernel run #243](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43378698356) passed on checkpoint revision `96b0f13`: RV64 adapter cross-compile, 36/36 Rust host tests, kernel ELF build and all QEMU serial assertions, including U-mode timer preemption and saved-frame resume. Artifact: [kernel ELF/binary and serial log](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43378698356/artifacts/14015334247).
+- [VisionFive 2 readiness run #151](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43378698421) passed on the checkpoint revision.
+- [Win32 Gravity bridge run #82](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43378698503) passed on the checkpoint revision.
+- [Core run #261](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43378365997) passed on revision `8d1f689`: root CTest 16/16, Xzuff Go/Android ARM64 packaging, Luau, JavaScript 2/2, Lua 2/2, OpenXzuff3D 1/1 and render smoke test.
+- Core run #262 attempt 1 encountered an upstream Lua archive HTTP 500, not a source/build error. Failed job retry attempt 2 is in progress; Core run #263 on `96b0f13` is also in progress.
