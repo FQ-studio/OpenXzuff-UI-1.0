@@ -628,6 +628,8 @@ mod vfs_tests {
         assert_eq!(fs.lookup(b"/../escape"),Err(VfsError::InvalidPath));
         assert_eq!(fs.lookup(b"/a\0b"),Err(VfsError::InvalidPath));
         assert_eq!(fs.create_file(b"/this-name-is-far-too-long-for-a-node"),Err(VfsError::NameTooLong));
+        assert_eq!(fs.create_file(b"/trailing/"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.create_dir(b"/"),Err(VfsError::InvalidPath));
     }
 
     #[test]
