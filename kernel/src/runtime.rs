@@ -182,8 +182,8 @@ pub fn start() -> ! {
     let (a, b, user) = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
         let a = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
-        let b = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
-        let user = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
+        let b = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
+        let user = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
         let stack0 = core::ptr::addr_of_mut!(TASK0_STACK);
         let stack1 = core::ptr::addr_of_mut!(TASK1_STACK);
         let frame0 = make_initial_frame(stack0, task_a);
@@ -199,7 +199,7 @@ pub fn start() -> ! {
     let first = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
         if (*scheduler).runtime_schedule_next() != Some(a) { crate::halt(); }
-        if (*scheduler).runtime_state(b).is_err() || (*scheduler).state(user).is_err() {
+        if (*scheduler).runtime_state(b).is_err() || (*scheduler).runtime_state(user).is_err() {
             crate::halt();
         }
         TASK_FRAMES[a.0] as *mut TrapFrame
@@ -226,7 +226,7 @@ pub(crate) fn current_task_id() -> Option<usize> {
 
 /// Called by both S-origin and U-origin supervisor timer traps.
 pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) => id,
         None => { crate::console_write("Scheduler timer: no current task\n"); crate::halt(); }
@@ -241,7 +241,7 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next: TaskId = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).schedule_next() {
+        match (*scheduler).runtime_schedule_next() {
             Some(id) => id,
             None => { crate::console_write("Scheduler timer: no runnable task\n"); crate::halt(); }
         }
@@ -257,7 +257,7 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
 
 /// Implement ABI v1 SendMessage=1: a0=destination task ID, a1=scalar payload.
 pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let sender = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("SendMessage: invalid sender task\n"); crate::halt(); }
@@ -269,7 +269,7 @@ pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
     } else {
         let receiver = TaskId(destination);
         let active = unsafe {
-            (*core::ptr::addr_of!(SCHEDULER)).state(receiver)
+            (*core::ptr::addr_of!(SCHEDULER)).runtime_state(receiver)
                 .map(|state| state != crate::scheduler::TaskState::Exited)
                 .unwrap_or(false)
         };
@@ -296,7 +296,7 @@ pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
 /// Implement non-blocking ABI v1 ReceiveMessage=2.
 /// Success returns payload in a0 and sender task ID in a1; empty returns -EAGAIN.
 pub fn on_user_receive_message(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let receiver = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("ReceiveMessage: invalid receiver task\n"); crate::halt(); }
@@ -428,13 +428,13 @@ pub fn user_vm_roundtrip_observed() -> bool {
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
 /// retained on the dedicated supervisor trap stack and resumed after rotation.
 pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) if id.0 < TASK_COUNT => id,
         _ => { crate::console_write("Yield syscall: no current task\n"); crate::halt(); }
     };
     unsafe {
-        if (*core::ptr::addr_of!(SCHEDULER)).state(current) != Ok(crate::scheduler::TaskState::Running) {
+        if (*core::ptr::addr_of!(SCHEDULER)).runtime_state(current) != Ok(crate::scheduler::TaskState::Running) {
             crate::console_write("Yield syscall: task is not running\n");
             crate::halt();
         }
@@ -468,7 +468,7 @@ pub fn register_context_observed() -> bool {
 
 /// Exit the current U-mode test task and schedule another runnable task.
 pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("Exit syscall: invalid current task\n"); crate::halt(); }
