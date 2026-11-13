@@ -57,7 +57,7 @@ jobs:
           set -euo pipefail
           grep -q 'boot hart ID in `a0`' boards/riscv64/visionfive2/README.md
           grep -q 'FDT address in `a1`' boards/riscv64/visionfive2/README.md
-          grep -q 'board boot is not yet verified' boards/riscv64/visionfive2/README.md
+          grep -q 'physical board boot not verified' boards/riscv64/visionfive2/README.md
           grep -q 'pub fn parse_memory' kernel/src/fdt.rs
           grep -q 'FdtError::Bounds' kernel/src/fdt.rs
           grep -q 'FdtError::Reservation' kernel/src/fdt.rs
