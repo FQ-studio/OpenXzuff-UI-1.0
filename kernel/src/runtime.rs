@@ -2,7 +2,8 @@
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::scheduler::{Scheduler, TaskId};
+use crate::scheduler::TaskId;
+use crate::task_manager::TaskManager;
 use crate::trap::TrapFrame;
 
 const TASK_COUNT: usize = 3;
@@ -20,7 +21,7 @@ struct TaskStack([u8; STACK_SIZE]);
 
 static mut TASK0_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
 static mut TASK1_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
-static mut SCHEDULER: Scheduler = Scheduler::new();
+static mut SCHEDULER: TaskManager = TaskManager::new();
 static mut TASK_FRAMES: [usize; TASK_COUNT] = [0; TASK_COUNT];
 static TIMER_INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 static TASK_A_TICKS: AtomicUsize = AtomicUsize::new(0);
@@ -180,7 +181,7 @@ extern "C" fn task_b() -> ! {
 pub fn start() -> ! {
     let (a, b, user) = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        let a = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
+        let a = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
         let b = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
         let user = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
         let stack0 = core::ptr::addr_of_mut!(TASK0_STACK);
@@ -197,8 +198,8 @@ pub fn start() -> ! {
 
     let first = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        if (*scheduler).schedule_next() != Some(a) { crate::halt(); }
-        if (*scheduler).state(b).is_err() || (*scheduler).state(user).is_err() {
+        if (*scheduler).runtime_schedule_next() != Some(a) { crate::halt(); }
+        if (*scheduler).runtime_state(b).is_err() || (*scheduler).state(user).is_err() {
             crate::halt();
         }
         TASK_FRAMES[a.0] as *mut TrapFrame
@@ -220,7 +221,7 @@ pub fn start() -> ! {
 
 /// Current scheduler task ID, used to validate ownership of U-mode trap storage.
 pub(crate) fn current_task_id() -> Option<usize> {
-    unsafe { (*core::ptr::addr_of!(SCHEDULER)).current().map(|id| id.0) }
+    unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current().map(|id| id.0) }
 }
 
 /// Called by both S-origin and U-origin supervisor timer traps.
@@ -447,7 +448,7 @@ pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).yield_current() {
+        match (*scheduler).runtime_yield_current() {
             Ok(Some(id)) => id,
             _ => { crate::console_write("Yield syscall: scheduler has no next task\n"); crate::halt(); }
         }
@@ -478,7 +479,7 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).exit_current() {
+        match (*scheduler).runtime_exit_current() {
             Ok(Some(id)) => id,
             _ => { crate::console_write("Exit syscall: scheduler has no next task\n"); crate::halt(); }
         }
