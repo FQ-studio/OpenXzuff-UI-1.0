@@ -55,7 +55,7 @@ impl TaskManager {
     }
 
     /// Select the next runnable task and mirror Running/Ready into process metadata.
-    pub fn schedule_next(&mut self) -> Result<Option<ProcessId>, TaskManagerError> {
+    pub fn schedule_next_process(&mut self) -> Result<Option<ProcessId>, TaskManagerError> {
         let previous = self.scheduler.current();
         let next = self.scheduler.schedule_next();
         if let Some(old) = previous {
@@ -76,8 +76,8 @@ impl TaskManager {
         }
     }
 
-    pub fn yield_current(&mut self) -> Result<Option<ProcessId>, TaskManagerError> {
-        self.schedule_next()
+    pub fn yield_current_process(&mut self) -> Result<Option<ProcessId>, TaskManagerError> {
+        self.schedule_next_process()
     }
 
     pub fn block_current(&mut self) -> Result<Option<ProcessId>, TaskManagerError> {
@@ -104,7 +104,7 @@ impl TaskManager {
             .map_err(TaskManagerError::Process)
     }
 
-    pub fn exit_current(&mut self, code: i32) -> Result<Option<ProcessId>, TaskManagerError> {
+    pub fn exit_current_with_code(&mut self, code: i32) -> Result<Option<ProcessId>, TaskManagerError> {
         let task = self.scheduler.current().ok_or(TaskManagerError::Scheduler(SchedulerError::NoCurrentTask))?;
         let process = self.process_for_task(task)?;
         self.processes.exit(process, code).map_err(TaskManagerError::Process)?;
@@ -130,6 +130,36 @@ impl TaskManager {
             if *entry == Some(reaped) { *entry = None; }
         }
         Ok((reaped, code))
+    }
+
+
+    /// Runtime-compatible task creation: creates both scheduler state and process metadata.
+    pub fn create_runtime_task(&mut self) -> Result<TaskId, TaskManagerError> {
+        let process = self.spawn(None, 0, 0)?;
+        self.task_process.iter().position(|entry| *entry == Some(process))
+            .map(TaskId)
+            .ok_or(TaskManagerError::MissingTask)
+    }
+
+    pub fn runtime_current(&self) -> Option<TaskId> { self.scheduler.current() }
+
+    pub fn runtime_state(&self, task: TaskId) -> Result<crate::scheduler::TaskState, SchedulerError> {
+        self.scheduler.state(task)
+    }
+
+    pub fn runtime_schedule_next(&mut self) -> Option<TaskId> {
+        let process = self.schedule_next_process().ok().flatten()?;
+        self.task_process.iter().position(|entry| *entry == Some(process)).map(TaskId)
+    }
+
+    pub fn runtime_yield_current(&mut self) -> Result<Option<TaskId>, SchedulerError> {
+        let process = self.schedule_next_process().map_err(|_| SchedulerError::InvalidTask)?;
+        Ok(process.and_then(|id| self.task_process.iter().position(|entry| *entry == Some(id)).map(TaskId)))
+    }
+
+    pub fn runtime_exit_current(&mut self) -> Result<Option<TaskId>, SchedulerError> {
+        let process = self.exit_current_with_code(0).map_err(|_| SchedulerError::InvalidTask)?;
+        Ok(process.and_then(|id| self.task_process.iter().position(|entry| *entry == Some(id)).map(TaskId)))
     }
 
     pub fn active_processes(&self) -> usize { self.processes.active_count() }
