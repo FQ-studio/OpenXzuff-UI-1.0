@@ -72,20 +72,26 @@ impl ProcessTable {
     pub fn wait(&mut self, parent: ProcessId, child: Option<ProcessId>) -> Result<(ProcessId, i32), ProcessError> {
         self.slot(parent)?;
         let mut has_child = false;
+        let mut exited_child = None;
         for slot in &self.slots {
             if let Some(info) = slot.info {
                 if info.parent == Some(parent) && child.map_or(true, |wanted| wanted == info.id) {
                     has_child = true;
                     if info.state == ProcessState::Exited {
-                        let id = info.id;
-                        let code = info.exit_code.ok_or(ProcessError::InvalidTransition)?;
-                        self.reap(id)?;
-                        return Ok((id, code));
+                        exited_child = Some((info.id, info.exit_code.ok_or(ProcessError::InvalidTransition)?));
+                        break;
                     }
                 }
             }
         }
-        if has_child { Err(ProcessError::WouldBlock) } else { Err(ProcessError::NoChild) }
+        if let Some((id, code)) = exited_child {
+            self.reap(id)?;
+            Ok((id, code))
+        } else if has_child {
+            Err(ProcessError::WouldBlock)
+        } else {
+            Err(ProcessError::NoChild)
+        }
     }
     pub fn reap(&mut self, id: ProcessId) -> Result<(), ProcessError> {
         let slot = self.slot_mut(id)?;
