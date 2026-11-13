@@ -1,21 +1,28 @@
 # StarFive VisionFive 2 — RV64 bring-up
 
 - SoC: StarFive JH7110 (RV64).
-- Console candidate: NS16550-compatible UART0 at MMIO `0x10000000`; expected console is commonly 115200 baud. Confirm from the actual firmware FDT before using it.
-- Firmware: U-Boot's documented VisionFive 2 path uses OpenSBI's generic platform. The documented build settings include `FW_TEXT_START=0x40000000` and `FW_OPTIONS=0`.
-- Boot contract: Gravity Kernel expects S-mode entry through a compatible firmware/boot stage, with boot hart ID in `a0` and the firmware-provided FDT address in `a1`. U-Boot may be an intermediate stage; do not assume OpenSBI jumps directly to Gravity Kernel.
-- Device tree: parse the actual FDT passed by the boot stage first. Do not hard-code RAM size or assume all VisionFive 2 revisions have identical DTBs.
+- UART0 DT binding: `starfive,jh7110-uart`, `snps,dw-apb-uart`.
+- UART0 candidate MMIO: `0x10000000`; use the actual firmware FDT's `reg`.
+- Register layout: `reg-io-width = 4`, `reg-shift = 2` in the JH7110 DTS.
+- Dependencies: UART core/APB clocks and resets must be enabled through the
+  platform clock/reset provider before polling I/O.
+- Interrupt controller: JH7110 PLIC compatible `starfive,jh7110-plic`,
+  `sifive,plic-1.0.0`; discover context wiring and source count from FDT.
+- Firmware: U-Boot's documented path uses OpenSBI generic platform. U-Boot may
+  be an intermediate stage; do not assume OpenSBI jumps directly to Gravity.
+- Boot contract: S-mode entry receives hart ID in `a0` and firmware FDT in `a1`.
 
-## Firmware CI artifact
+## Firmware artifact
 
-The `OpenSBI RV64 Firmware` GitHub Actions workflow builds a separate OpenSBI v1.9 `fw_dynamic` artifact with the VisionFive 2 boot-address setting. The artifact is only OpenSBI firmware; it does **not** include SPL, U-Boot, a board DTB, or Gravity Kernel.
+The OpenSBI RV64 workflow builds a separate OpenSBI v1.9 `fw_dynamic` artifact.
+It does not include SPL, U-Boot, board DTB or Gravity Kernel.
 
-## Bring-up checklist
+## Bring-up gates
 
-1. Build the VisionFive 2 OpenSBI artifact in CI.
-2. Verify the intended boot chain and board revision (v1.2a/v1.3b DTB selection can differ).
-3. Confirm the kernel receives the expected `a0`/`a1` boot parameters and parses the supplied FDT safely.
-4. Verify UART output, then timer/interrupt-controller initialization and multi-hart behavior.
-5. Record serial logs and repeat the boot smoke test before marking the board supported.
+1. Select the correct board-revision DTB and boot chain.
+2. Parse FDT compatible, status, reg, clocks, resets and interrupt-parent.
+3. Initialize clock/reset dependencies, then UART and serial smoke test.
+4. Verify SBI TIME and PLIC interrupt routing.
+5. Record physical board revision and serial log before marking support.
 
-**Status: firmware build configured; board boot is not yet verified.**
+**Status: firmware build configured; physical board boot not verified.**
