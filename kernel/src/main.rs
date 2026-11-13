@@ -12,6 +12,7 @@ mod trap;
 mod scheduler;
 mod process;
 mod handle;
+mod vfs;
 mod ipc;
 mod runtime;
 mod vm;
