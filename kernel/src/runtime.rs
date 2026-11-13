@@ -479,7 +479,7 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).runtime_exit_current() {
+        match (*scheduler).runtime_exit_current_with_code(status as i32) {
             Ok(Some(id)) => id,
             _ => { crate::console_write("Exit syscall: scheduler has no next task\n"); crate::halt(); }
         }
