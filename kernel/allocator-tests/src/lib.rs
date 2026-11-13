@@ -720,7 +720,7 @@ mod task_manager_tests {
         let mut manager = TaskManager::new();
         let first = manager.spawn(None, 0x1000, 0x8000).unwrap();
         let second = manager.spawn(None, 0x2000, 0x9000).unwrap();
-        assert_eq!(manager.schedule_next().unwrap(), Some(first));
+        assert_eq!(manager.schedule_next_process().unwrap(), Some(first));
         assert_eq!(manager.block_current().unwrap(), Some(second));
         assert_eq!(manager.get(first).unwrap().state, ProcessState::Blocked);
         assert_eq!(manager.get(second).unwrap().state, ProcessState::Running);
@@ -736,9 +736,9 @@ mod task_manager_tests {
         let mut manager = TaskManager::new();
         let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
         let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
-        manager.schedule_next().unwrap();
-        manager.yield_current().unwrap();
-        manager.exit_current(23).unwrap();
+        manager.schedule_next_process().unwrap();
+        manager.yield_current_process().unwrap();
+        manager.exit_current_with_code(23).unwrap();
         assert_eq!(manager.wait(parent, Some(child)).unwrap(), (child, 23));
         assert_eq!(manager.get(child), Err(TaskManagerError::Process(
             super::process::ProcessError::InvalidProcess
