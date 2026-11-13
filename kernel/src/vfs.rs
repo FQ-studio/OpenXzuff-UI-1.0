@@ -59,25 +59,30 @@ impl RamFs {
         }
         Ok(current)
     }
-    fn parent_and_name(&self, path: &[u8]) -> Result<(usize, &[u8]), VfsError> {
-        if path.first() != Some(&b'/') || path.contains(&0) || path.len() < 2 { return Err(VfsError::InvalidPath); }
-        let end = path.iter().rposition(|b| *b != b'/').ok_or(VfsError::InvalidPath)? + 1;
+    // Return an owned component so create_node can mutate the node table without
+    // retaining an immutable borrow into the caller's path or this filesystem.
+    fn parent_and_name(&self, path: &[u8]) -> Result<(usize, [u8; MAX_NAME], usize), VfsError> {
+        if path.first() != Some(&b'/') || path.contains(&0) || path.len() < 2
+            || path.last() == Some(&b'/') { return Err(VfsError::InvalidPath); }
+        let end = path.len();
         let start = path[..end].iter().rposition(|b| *b == b'/').ok_or(VfsError::InvalidPath)? + 1;
-        let name = &path[start..end];
-        if name.is_empty() || name == b"." || name == b".." { return Err(VfsError::InvalidPath); }
-        if name.len() > MAX_NAME { return Err(VfsError::NameTooLong); }
+        let component = &path[start..end];
+        if component.is_empty() || component == b"." || component == b".." { return Err(VfsError::InvalidPath); }
+        if component.len() > MAX_NAME { return Err(VfsError::NameTooLong); }
         let parent_end = if start == 1 { 1 } else { start - 1 };
         let parent = self.resolve(&path[..parent_end])?;
         if self.nodes[parent].kind != NodeKind::Directory { return Err(VfsError::NotDirectory); }
-        Ok((parent, name))
+        let mut name = [0; MAX_NAME];
+        name[..component.len()].copy_from_slice(component);
+        Ok((parent, name, component.len()))
     }
     fn create_node(&mut self, path: &[u8], kind: NodeKind) -> Result<NodeId, VfsError> {
-        let (parent, name) = self.parent_and_name(path)?;
-        if self.find_child(parent, name).is_some() { return Err(VfsError::AlreadyExists); }
+        let (parent, name, name_len) = self.parent_and_name(path)?;
+        if self.find_child(parent, &name[..name_len]).is_some() { return Err(VfsError::AlreadyExists); }
         let index = self.nodes.iter().position(|n| !n.used).ok_or(VfsError::NoSpace)?;
         let node = &mut self.nodes[index];
         node.used = true; node.parent = parent as u16; node.kind = kind;
-        node.name[..name.len()].copy_from_slice(name); node.name_len = name.len() as u8;
+        node.name[..name_len].copy_from_slice(&name[..name_len]); node.name_len = name_len as u8;
         node.data_len = 0;
         Ok(self.id(index))
     }
