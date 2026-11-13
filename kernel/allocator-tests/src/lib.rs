@@ -539,3 +539,55 @@ mod process_tests {
         assert_eq!(t.create(None,1,2),Err(ProcessError::Full));
     }
 }
+
+#[path = "../../src/handle.rs"]
+pub mod handle;
+
+#[cfg(test)]
+mod handle_tests {
+    use super::handle::{HandleError, HandleTable, ObjectKind, Rights, MAX_HANDLES};
+    use super::process::ProcessId;
+
+    fn process(slot: u16) -> ProcessId { ProcessId { slot, generation: 1 } }
+
+    #[test]
+    fn handle_lookup_enforces_owner_type_and_rights() {
+        let mut table = HandleTable::new();
+        let owner = process(0);
+        let id = table.insert(owner, ObjectKind::File, 0x55, Rights::READ.union(Rights::WRITE)).unwrap();
+        assert_eq!(table.get(owner, id, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(table.get(process(1), id, None, Rights::READ), Err(HandleError::WrongOwner));
+        assert_eq!(table.get(owner, id, Some(ObjectKind::Device), Rights::READ), Err(HandleError::WrongType));
+        assert_eq!(table.get(owner, id, None, Rights::EXECUTE), Err(HandleError::AccessDenied));
+    }
+
+    #[test]
+    fn duplicate_can_only_reduce_rights_and_changes_owner() {
+        let mut table = HandleTable::new();
+        let a = process(0); let b = process(1);
+        let source = table.insert(a, ObjectKind::Channel, 9, Rights::READ.union(Rights::WRITE).union(Rights::DUPLICATE)).unwrap();
+        let copy = table.duplicate(a, source, b, Rights::READ).unwrap();
+        assert_eq!(table.get(b, copy, Some(ObjectKind::Channel), Rights::READ).unwrap().object_id, 9);
+        assert_eq!(table.get(b, copy, None, Rights::WRITE), Err(HandleError::AccessDenied));
+        assert_eq!(table.get(a, copy, None, Rights::NONE), Err(HandleError::WrongOwner));
+        assert_eq!(table.duplicate(a, source, b, Rights::ALL), Err(HandleError::AccessDenied));
+    }
+
+    #[test]
+    fn close_invalidates_stale_generation_and_reuses_slot() {
+        let mut table = HandleTable::new(); let owner = process(2);
+        let old = table.insert(owner, ObjectKind::Event, 1, Rights::WAIT).unwrap();
+        table.close(owner, old).unwrap();
+        let new = table.insert(owner, ObjectKind::Event, 2, Rights::WAIT).unwrap();
+        assert_eq!(old.slot, new.slot); assert_ne!(old.generation, new.generation);
+        assert_eq!(table.get(owner, old, None, Rights::NONE), Err(HandleError::InvalidHandle));
+    }
+
+    #[test]
+    fn handle_capacity_and_per_owner_count_are_bounded() {
+        let mut table = HandleTable::new(); let owner = process(3);
+        for i in 0..MAX_HANDLES { table.insert(owner, ObjectKind::Memory, i as u64, Rights::READ).unwrap(); }
+        assert_eq!(table.open_count(owner), MAX_HANDLES);
+        assert_eq!(table.insert(owner, ObjectKind::Memory, 0, Rights::READ), Err(HandleError::Full));
+    }
+}
