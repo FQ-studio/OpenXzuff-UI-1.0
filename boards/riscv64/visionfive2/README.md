@@ -10,8 +10,7 @@
   `sifive,plic-1.0.0`; discover context wiring and source count from FDT.
 - Firmware: U-Boot's documented path uses OpenSBI generic platform. U-Boot may
   be an intermediate stage; do not assume OpenSBI jumps directly to Gravity.
-- Boot contract: S-mode entry receives the boot hart ID in `a0` and the FDT
-  address in `a1`.
+- Boot contract: S-mode entry receives the boot hart ID in `a0`; the FDT address in `a1` is passed to the kernel.
 
 ## Firmware artifact
 
