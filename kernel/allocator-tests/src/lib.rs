@@ -591,3 +591,78 @@ mod handle_tests {
         assert_eq!(table.insert(owner, ObjectKind::Memory, 0, Rights::READ), Err(HandleError::Full));
     }
 }
+
+#[path = "../../src/vfs.rs"]
+pub mod vfs;
+
+#[cfg(test)]
+mod vfs_tests {
+    use super::vfs::{NodeKind, RamFs, VfsError, MAX_FILE_BYTES, MAX_NODES};
+
+    #[test]
+    fn creates_and_resolves_nested_directories_and_files() {
+        let mut fs=RamFs::new();
+        fs.create_dir(b"/system").unwrap();
+        fs.create_dir(b"/system/bin").unwrap();
+        let (id,kind)=fs.lookup(b"/system/bin").unwrap();
+        assert_eq!(kind,NodeKind::Directory);
+        assert_eq!(fs.lookup(b"/system").unwrap().1,NodeKind::Directory);
+        assert_eq!(fs.node_count(),3);
+        assert!(id.generation>0);
+    }
+
+    #[test]
+    fn file_reads_and_writes_support_offsets_and_eof() {
+        let mut fs=RamFs::new(); fs.create_file(b"/hello").unwrap();
+        assert_eq!(fs.write(b"/hello",2,b"world"),Ok(5));
+        let mut data=[0u8;8];
+        assert_eq!(fs.read(b"/hello",0,&mut data),Ok(7));
+        assert_eq!(&data[..7],b"\0\0world");
+        assert_eq!(fs.read(b"/hello",7,&mut data),Ok(0));
+    }
+
+    #[test]
+    fn rejects_traversal_invalid_names_and_non_absolute_paths() {
+        let mut fs=RamFs::new();
+        assert_eq!(fs.lookup(b"relative"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.lookup(b"/../escape"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.lookup(b"/a\0b"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.create_file(b"/this-name-is-far-too-long-for-a-node"),Err(VfsError::NameTooLong));
+    }
+
+    #[test]
+    fn enforces_directory_file_type_and_duplicate_rules() {
+        let mut fs=RamFs::new(); fs.create_dir(b"/dir").unwrap();
+        assert_eq!(fs.create_file(b"/dir"),Err(VfsError::AlreadyExists));
+        assert_eq!(fs.create_file(b"/missing/file"),Err(VfsError::NotFound));
+        assert_eq!(fs.create_file(b"/dir/file").unwrap().generation,1);
+        let mut out=[0u8;4];
+        assert_eq!(fs.read(b"/dir",0,&mut out),Err(VfsError::IsDirectory));
+    }
+
+    #[test]
+    fn remove_requires_empty_directory_and_invalidates_stale_inode() {
+        let mut fs=RamFs::new(); fs.create_dir(b"/d").unwrap();
+        let file=fs.create_file(b"/d/f").unwrap();
+        assert_eq!(fs.remove(b"/d"),Err(VfsError::NotEmpty));
+        fs.remove(b"/d/f").unwrap();
+        assert_eq!(fs.lookup(b"/d/f"),Err(VfsError::NotFound));
+        fs.remove(b"/d").unwrap();
+        fs.create_file(b"/new").unwrap();
+        assert_eq!(fs.lookup(b"/new").unwrap().0.slot,file.slot);
+        assert_ne!(fs.lookup(b"/new").unwrap().0.generation,file.generation);
+    }
+
+    #[test]
+    fn file_size_and_filesystem_capacity_are_bounded() {
+        let mut fs=RamFs::new(); fs.create_file(b"/f").unwrap();
+        let full=[7u8;MAX_FILE_BYTES];
+        assert_eq!(fs.write(b"/f",0,&full),Ok(MAX_FILE_BYTES));
+        assert_eq!(fs.write(b"/f",MAX_FILE_BYTES,&[1]),Err(VfsError::FileTooLarge));
+        for i in 1..(MAX_NODES-1) {
+            let name=[b'/', b'x', b'0'+(i%10) as u8, b'a'+(i/10) as u8];
+            let _=fs.create_file(&name);
+        }
+        assert!(fs.node_count()<=MAX_NODES);
+    }
+}
