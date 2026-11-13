@@ -11,6 +11,7 @@ mod heap_alloc;
 mod trap;
 mod scheduler;
 mod process;
+mod handle;
 mod ipc;
 mod runtime;
 mod vm;
