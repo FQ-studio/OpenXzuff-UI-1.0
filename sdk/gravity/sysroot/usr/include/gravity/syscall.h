@@ -41,25 +41,30 @@ static inline int64_t gravity_yield(void) {
     return gravity_syscall0(GRAVITY_SYS_YIELD);
 }
 
+static inline int gravity_is_error(int64_t result) {
+    return result < 0 && result >= -4095;
+}
+
+/* ABI v1 reserves the negative errno range (-4095..-1) for syscall errors. */
 static inline int64_t gravity_send_message(uint64_t destination_task, uint64_t payload) {
+    if (gravity_is_error((int64_t)payload)) {
+        return -GRAVITY_EINVAL;
+    }
     return gravity_syscall2(GRAVITY_SYS_SEND_MESSAGE, destination_task, payload);
 }
 
 /* On success, returns the payload and writes the sender task ID when non-null.
- * On an empty non-blocking mailbox, returns -GRAVITY_EAGAIN. */
+ * On an empty non-blocking mailbox, returns -GRAVITY_EAGAIN. Payload bit
+ * patterns in the reserved negative errno range cannot be sent by this API. */
 static inline int64_t gravity_receive_message(uint64_t *sender_task) {
     register uint64_t a0 __asm__("a0") = 0;
     register uint64_t a1 __asm__("a1") = 0;
     register uint64_t a7 __asm__("a7") = GRAVITY_SYS_RECEIVE_MESSAGE;
     __asm__ volatile("ecall" : "+r"(a0), "+r"(a1) : "r"(a7) : "memory");
-    if (sender_task != 0 && (int64_t)a0 >= 0) {
+    if (sender_task != 0 && !gravity_is_error((int64_t)a0)) {
         *sender_task = a1;
     }
     return (int64_t)a0;
-}
-
-static inline int gravity_is_error(int64_t result) {
-    return result < 0 && result >= -4095;
 }
 
 #ifdef __cplusplus

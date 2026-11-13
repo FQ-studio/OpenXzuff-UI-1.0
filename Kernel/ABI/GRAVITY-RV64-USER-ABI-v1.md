@@ -17,7 +17,7 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 - a0 through a5 carry up to six arguments.
 - For a returning call, a0 carries either a non-negative result or a negative error number (-errno). Values from -1 through -4095 are reserved for errors.
 - Returning calls preserve a1 through a5 unless the syscall explicitly defines a secondary output. The caller treats a0 as clobbered.
-- ReceiveMessage returns the sender task ID in a1; all other a1-a5 registers remain unchanged.
+- ReceiveMessage returns the sender task ID in a1; all other a1-a5 registers remain unchanged. Because a0 is also the error channel, scalar payloads whose signed value is -1 through -4095 are reserved in ABI v1 and must not be sent.
 - The saved user PC advances by four bytes after the 32-bit ecall instruction.
 - -11 (-EAGAIN) means a non-blocking receive found no message or a mailbox is full; -22 (-EINVAL) means an invalid argument; -14 (-EFAULT) means an invalid user address; -38 (-ENOSYS) means unknown or not implemented.
 

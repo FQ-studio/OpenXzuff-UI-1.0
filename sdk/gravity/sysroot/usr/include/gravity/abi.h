@@ -14,7 +14,8 @@
 #define GRAVITY_SYS_MAP_MEMORY 3u
 #define GRAVITY_SYS_YIELD 4u
 
-/* Gravity ABI returns errors as negative errno values in a0. */
+/* Gravity ABI returns errors as negative errno values in a0. Payloads whose
+ * signed value is -1..-4095 are reserved to avoid colliding with errors. */
 #define GRAVITY_EAGAIN 11
 #define GRAVITY_EFAULT 14
 #define GRAVITY_EINVAL 22
