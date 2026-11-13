@@ -708,9 +708,9 @@ mod task_manager_tests {
         let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
         let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
         assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
-        assert_eq!(manager.schedule_next().unwrap(), Some(parent));
+        assert_eq!(manager.schedule_next_process().unwrap(), Some(parent));
         assert_eq!(manager.get(parent).unwrap().state, ProcessState::Running);
-        assert_eq!(manager.yield_current().unwrap(), Some(child));
+        assert_eq!(manager.yield_current_process().unwrap(), Some(child));
         assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
         assert_eq!(manager.get(child).unwrap().state, ProcessState::Running);
     }
@@ -726,7 +726,7 @@ mod task_manager_tests {
         assert_eq!(manager.get(second).unwrap().state, ProcessState::Running);
         manager.wake(first).unwrap();
         assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
-        assert_eq!(manager.exit_current(17).unwrap(), Some(first));
+        assert_eq!(manager.exit_current_with_code(17).unwrap(), Some(first));
         assert_eq!(manager.get(second).unwrap().state, ProcessState::Exited);
         assert_eq!(manager.get(second).unwrap().exit_code, Some(17));
     }
