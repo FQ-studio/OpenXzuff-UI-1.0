@@ -6,7 +6,7 @@ The initial NDK is a CMake cross-toolchain for `riscv64-unknown-elf-gcc`. It use
 
 ```sh
 cmake -S ndk/gravity-rv64/examples -B build/gravity-ndk \
-  -DCMAKE_TOOLCHAIN_FILE=ndk/gravity-rv64/toolchain.cmake
+  -DCMAKE_TOOLCHAIN_FILE="$PWD/ndk/gravity-rv64/toolchain.cmake"
 cmake --build build/gravity-ndk
 ```
 

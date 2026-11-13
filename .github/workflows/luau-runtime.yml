@@ -56,7 +56,7 @@ jobs:
       - name: Configure Gravity RV64 NDK
         run: |
           cmake -S ndk/gravity-rv64/examples -B build/gravity-ndk \
-            -DCMAKE_TOOLCHAIN_FILE=ndk/gravity-rv64/toolchain.cmake \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/ndk/gravity-rv64/toolchain.cmake" \
             -DCMAKE_BUILD_TYPE=Release
       - name: Build Gravity RV64 NDK example
         run: |
