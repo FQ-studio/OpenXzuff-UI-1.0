@@ -50,11 +50,12 @@ The loader must reject truncated files, unknown versions, wrong architecture/ABI
 
 ## Initial compiler-generated exit stub
 
-For function main() returns i32 { return N; }, where N is -2048..2047:
+For function main() returns i32 { return N; }, where N is any signed 32-bit value:
 
-1. addi a0, zero, N sets the process exit status.
-2. addi a7, zero, 0 selects Gravity Kernel Exit (syscall ID 0).
-3. ecall requests the kernel service.
+1. If N fits a signed 12-bit immediate, addi a0, zero, N sets the process exit status.
+2. Otherwise, the compiler uses lui and, when the low 12 bits are nonzero, addiw a0, a0, low. ADDIW sign-extends the resulting 32-bit value to RV64; this is required for values near INT32_MAX.
+3. addi a7, zero, 0 selects Gravity Kernel Exit (syscall ID 0).
+4. ecall requests the kernel service.
 
 The compiler does not depend on the initial value of a7. The live hardware path implements Exit for the built-in U-mode test task; general process cleanup and resource reaping remain incomplete.
 

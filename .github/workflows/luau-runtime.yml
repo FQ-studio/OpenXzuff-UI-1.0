@@ -9,6 +9,7 @@ on:
       - "gui/**"
       - "tests/**"
       - "language/**"
+      - "sdk/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -22,6 +23,7 @@ on:
       - "gui/**"
       - "tests/**"
       - "language/**"
+      - "sdk/**"
       - "CMakeLists.txt"
       - "runtime/**"
       - "graphics3d/**"
@@ -45,6 +47,23 @@ jobs:
           ./build/xexe-loader-test build/return_42.xexe
           test "$(wc -c < build/return_42.xexe)" -gt 32
           test "$(od -An -tx1 -N8 build/return_42.xexe | awk '{ $1=$1; gsub(/ /, ""); print }')" = "585a584558453100"
+      - name: Install RV64 bare-metal C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+      - name: Compile Gravity SDK syscall example for RV64
+        run: |
+          set -eu
+          mkdir -p build/gravity-sdk
+          riscv64-unknown-elf-gcc \
+            -std=c11 -march=rv64imac -mabi=lp64 \
+            -ffreestanding -fno-builtin -fno-pic \
+            -Wall -Wextra -Werror \
+            -Isdk/gravity/sysroot/usr/include \
+            -c sdk/gravity/examples/abi_smoke.c \
+            -o build/gravity-sdk/abi_smoke.o
+          riscv64-unknown-elf-objdump -d build/gravity-sdk/abi_smoke.o > build/gravity-sdk/abi_smoke.dis
+          grep -q 'ecall' build/gravity-sdk/abi_smoke.dis
       - name: Install Android SDK and NDK for ARM64
         uses: android-actions/setup-android@v3
         with:
@@ -151,6 +170,8 @@ jobs:
             build/openxzuff-os-smoke
             build/xexe-loader-test
             build/return_42.xexe
+            build/gravity-sdk/abi_smoke.o
+            build/gravity-sdk/abi_smoke.dis
             build/CliSmoke/build/CliSmoke.xexe
             runtime/build/xzuff-luau
             runtime/build/hello.lap

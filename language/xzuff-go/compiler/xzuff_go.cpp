@@ -121,8 +121,9 @@ private:
 #ifndef XZUFF_CHECKER_MODE
 std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
     // Gravity Kernel ABI v1: a0 carries the exit status; a7 carries syscall ID 0 for Exit.
-    // Build any signed i32 using LUI+ADDI, then issue Exit. This avoids silently
-    // restricting the source language's i32 return value to a 12-bit immediate.
+    // Build any signed i32 using LUI+ADDIW when the low 12 bits are nonzero.
+    // ADDIW sign-extends the resulting 32-bit value, which is essential at
+    // INT32_MAX where the rounded LUI immediate has bit 19 set.
     const std::int64_t value = returnValue;
     const std::int64_t upper = (value + 0x800) >> 12;
     const std::int64_t lower = value - (upper * 4096);
@@ -140,7 +141,7 @@ std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
         emit((upper20 << 12U) | (10U << 7U) | 0x37U); // lui a0, upper20
         if (lower != 0) {
             const auto lower12 = static_cast<std::uint32_t>(lower) & 0xFFFU;
-            emit((lower12 << 20U) | (10U << 15U) | (10U << 7U) | 0x13U); // addi a0, a0, lower
+            emit((lower12 << 20U) | (10U << 15U) | (10U << 7U) | 0x1BU); // addiw a0, a0, lower; sign-extend i32
         }
     }
     emit((17U << 7U) | 0x13U); // addi a7, zero, Exit syscall 0
@@ -197,6 +198,17 @@ int selfTest() {
     const std::vector<std::uint8_t> expectedNegative{0x37, 0x05, 0x00, 0x80, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
     if (negative != expectedNegative) {
         std::cerr << "FAIL: RV64 instruction encoding for INT32_MIN\n";
+        return 1;
+    }
+    const auto maximum = generateRv64(2147483647);
+    const std::vector<std::uint8_t> expectedMaximum{
+        0x37, 0x05, 0x00, 0x80, // lui a0, 0x80000
+        0x1B, 0x05, 0xF5, 0xFF, // addiw a0, a0, -1 (sign-extends to INT32_MAX)
+        0x93, 0x08, 0x00, 0x00, // addi a7, zero, Exit syscall 0
+        0x73, 0x00, 0x00, 0x00  // ecall
+    };
+    if (maximum != expectedMaximum) {
+        std::cerr << "FAIL: RV64 instruction encoding for INT32_MAX\\n";
         return 1;
     }
     std::cout << "Xzuff Go compiler unit self-test: PASS\n";
