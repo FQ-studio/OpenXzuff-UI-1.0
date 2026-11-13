@@ -477,7 +477,7 @@ mod fdt_compatible_tests {
     use super::fdt;
     #[test]
     fn compatible_matches_exact_nul_delimited_entries() {
-        let blob = super::tests::valid_fdt();
+        let blob = super::fdt_tests::valid_fdt();
         assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
         assert_eq!(fdt::has_compatible(&blob, b"ns16550a"), Ok(true));
         assert_eq!(fdt::has_compatible(&blob, b"16550"), Ok(false));
@@ -485,7 +485,7 @@ mod fdt_compatible_tests {
     }
     #[test]
     fn compatible_rejects_invalid_query_and_bad_header() {
-        let blob = super::tests::valid_fdt();
+        let blob = super::fdt_tests::valid_fdt();
         assert_eq!(fdt::has_compatible(&blob, b""), Err(fdt::FdtError::Structure));
         assert_eq!(fdt::has_compatible(&blob, b"bad\0query"), Err(fdt::FdtError::Structure));
         let mut corrupt = blob;
