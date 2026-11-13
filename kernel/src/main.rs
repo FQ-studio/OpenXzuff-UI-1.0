@@ -10,6 +10,7 @@ mod page_alloc;
 mod heap_alloc;
 mod trap;
 mod scheduler;
+mod process;
 mod ipc;
 mod runtime;
 mod vm;
