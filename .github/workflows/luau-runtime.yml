@@ -63,7 +63,7 @@ jobs:
           set -eu
           mkdir -p build/gravity-sdk
           cmake --build build/gravity-ndk --parallel 2
-          OBJECT="$(find build/gravity-ndk -type f \\( -name '*.o' -o -name '*.obj' \\) | head -n 1)"
+          OBJECT="$(find build/gravity-ndk -type f -name '*.o' | head -n 1)"
           test -n "$OBJECT"
           cp "$OBJECT" build/gravity-sdk/abi_smoke.o
           riscv64-unknown-elf-objdump -d build/gravity-sdk/abi_smoke.o > build/gravity-sdk/abi_smoke.dis
