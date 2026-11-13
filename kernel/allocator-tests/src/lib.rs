@@ -493,3 +493,49 @@ mod fdt_compatible_tests {
         assert_eq!(fdt::has_compatible(&corrupt, b"ns16550a"), Err(fdt::FdtError::Header));
     }
 }
+
+#[path = "../../src/process.rs"]
+pub mod process;
+
+#[cfg(test)]
+mod process_tests {
+    use super::process::{ProcessError, ProcessState, ProcessTable, MAX_PROCESSES};
+    #[test]
+    fn creates_process_with_parent_and_address_space_metadata() {
+        let mut t=ProcessTable::new(); let p=t.create(None,0x1000,0x2000).unwrap();
+        let c=t.create(Some(p),0x3000,0x4000).unwrap(); let i=t.get(c).unwrap();
+        assert_eq!(i.parent,Some(p)); assert_eq!(i.state,ProcessState::Ready);
+        assert_eq!(i.entry_pc,0x3000); assert_eq!(i.address_space_root,0x4000);
+    }
+    #[test]
+    fn lifecycle_transitions_reject_invalid_edges() {
+        let mut t=ProcessTable::new(); let id=t.create(None,1,2).unwrap();
+        assert_eq!(t.transition(id,ProcessState::Running),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Blocked),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Ready),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Exited),Err(ProcessError::InvalidTransition));
+    }
+    #[test]
+    fn wait_reports_running_child_then_reaps_exit_status() {
+        let mut t=ProcessTable::new(); let p=t.create(None,1,2).unwrap();
+        let c=t.create(Some(p),3,4).unwrap();
+        assert_eq!(t.wait(p,Some(c)),Err(ProcessError::WouldBlock));
+        t.exit(c,37).unwrap(); assert_eq!(t.wait(p,Some(c)),Ok((c,37)));
+        assert_eq!(t.get(c),Err(ProcessError::InvalidProcess));
+    }
+    #[test]
+    fn stale_generation_cannot_access_reused_slot() {
+        let mut t=ProcessTable::new(); let old=t.create(None,1,2).unwrap();
+        t.exit(old,0).unwrap(); t.reap(old).unwrap(); let new=t.create(None,3,4).unwrap();
+        assert_eq!(old.slot,new.slot); assert_ne!(old.generation,new.generation);
+        assert_eq!(t.get(old),Err(ProcessError::InvalidProcess)); assert!(t.get(new).is_ok());
+    }
+    #[test]
+    fn exit_orphans_children_and_capacity_is_bounded() {
+        let mut t=ProcessTable::new(); let p=t.create(None,1,2).unwrap();
+        let c=t.create(Some(p),3,4).unwrap(); t.exit(p,0).unwrap();
+        assert_eq!(t.get(c).unwrap().parent,None);
+        for _ in 2..MAX_PROCESSES { t.create(None,1,2).unwrap(); }
+        assert_eq!(t.create(None,1,2),Err(ProcessError::Full));
+    }
+}
