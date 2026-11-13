@@ -198,7 +198,7 @@ mod fdt_tests {
     }
 
     fn valid_fdt_with_timebase(timebase: Option<&[u8]>) -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0";
+        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0compatible\0";
         let address_cells = string_offset(strings, b"#address-cells");
         let size_cells = string_offset(strings, b"#size-cells");
         let device_type = string_offset(strings, b"device_type");
@@ -216,6 +216,7 @@ mod fdt_tests {
         push_be32(&mut structure, END_NODE);
         begin_node(&mut structure, b"memory@80000000");
         property(&mut structure, device_type, b"memory\0");
+        property(&mut structure, string_offset(strings, b"compatible"), b"test,first-uart\0ns16550a\0");
 
         let mut memory_reg = Vec::new();
         for cell in [1u32, 0x8000_0000, 1, 0x0002_0000] {
@@ -258,7 +259,7 @@ mod fdt_tests {
         blob
     }
 
-    fn valid_fdt() -> Vec<u8> {
+    pub(super) fn valid_fdt() -> Vec<u8> {
         valid_fdt_with_timebase(Some(&10_000_000u32.to_be_bytes()))
     }
 
@@ -467,5 +468,28 @@ mod syscall_abi_tests {
             ],
             [-11, -14, -12, -38, -22]
         );
+    }
+}
+
+
+#[cfg(test)]
+mod fdt_compatible_tests {
+    use super::fdt;
+    #[test]
+    fn compatible_matches_exact_nul_delimited_entries() {
+        let blob = super::tests::valid_fdt();
+        assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
+        assert_eq!(fdt::has_compatible(&blob, b"ns16550a"), Ok(true));
+        assert_eq!(fdt::has_compatible(&blob, b"16550"), Ok(false));
+        assert_eq!(fdt::has_compatible(&blob, b"missing,device"), Ok(false));
+    }
+    #[test]
+    fn compatible_rejects_invalid_query_and_bad_header() {
+        let blob = super::tests::valid_fdt();
+        assert_eq!(fdt::has_compatible(&blob, b""), Err(fdt::FdtError::Structure));
+        assert_eq!(fdt::has_compatible(&blob, b"bad\0query"), Err(fdt::FdtError::Structure));
+        let mut corrupt = blob;
+        corrupt[0..4].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(fdt::has_compatible(&corrupt, b"ns16550a"), Err(fdt::FdtError::Header));
     }
 }
