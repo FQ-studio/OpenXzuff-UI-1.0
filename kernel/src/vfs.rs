@@ -42,6 +42,12 @@ impl RamFs {
         if !n.used || n.generation != id.generation { return Err(VfsError::InvalidNode); }
         Ok(id.slot as usize)
     }
+    /// Resolve a generation-tagged inode handle without trusting a stale slot index.
+    pub fn kind_by_id(&self, id: NodeId) -> Result<NodeKind, VfsError> {
+        let index = self.checked_index(id)?;
+        Ok(self.nodes[index].kind)
+    }
+
     fn find_child(&self, parent: usize, name: &[u8]) -> Option<usize> {
         self.nodes.iter().enumerate().position(|(i, n)| i != 0 && n.used
             && n.parent as usize == parent && n.name_len as usize == name.len()
