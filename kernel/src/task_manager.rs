@@ -37,10 +37,17 @@ impl TaskManager {
         entry_pc: usize,
         address_space_root: usize,
     ) -> Result<ProcessId, TaskManagerError> {
-        let task = self.scheduler.create_task().map_err(TaskManagerError::Scheduler)?;
-        let process = match self.processes.create(parent, entry_pc, address_space_root) {
-            Ok(id) => id,
-            Err(error) => return Err(TaskManagerError::Process(error)),
+        // Allocate process metadata first. If the scheduler is full, roll the
+        // process slot back immediately so a failed spawn consumes no capacity.
+        let process = self.processes.create(parent, entry_pc, address_space_root)
+            .map_err(TaskManagerError::Process)?;
+        let task = match self.scheduler.create_task() {
+            Ok(task) => task,
+            Err(error) => {
+                self.processes.exit(process, -12).map_err(TaskManagerError::Process)?;
+                self.processes.reap(process).map_err(TaskManagerError::Process)?;
+                return Err(TaskManagerError::Scheduler(error));
+            }
         };
         self.task_process[task.0] = Some(process);
         Ok(process)
