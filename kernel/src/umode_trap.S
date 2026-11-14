@@ -78,8 +78,12 @@ __gravity_u_mode_ecall_probe:
     /* U-mode must not be able to read the supervisor-only kernel image. */
     la      t0, __kernel_start
     ld      t1, 0(t0)
-    /* Stay in U-mode long enough for SBI TIME to preempt this exact context. */
-    li      t2, 20000000
+    /*
+     * Cross several 10 ms scheduler quanta even on fast QEMU hosts. The
+     * timer test must observe an asynchronous U-mode preemption, not merely
+     * a cooperative yield at the following ecall.
+     */
+    li      t2, 100000000
 .Lumode_timer_wait:
     addi    t2, t2, -1
     bnez    t2, .Lumode_timer_wait
@@ -118,6 +122,79 @@ __gravity_u_mode_ecall_probe:
     li      t0, 0x5245504c         /* reply from task 0 */
     bne     a0, t0, .Lumode_probe_failed
     bnez    a1, .Lumode_probe_failed
+    /* Reject an invalid write-only Sv39 protection request. */
+    li      a0, 0
+    li      a1, 4096
+    li      a2, 10                 /* WRITE | USER without READ */
+    li      a7, 3                  /* MapMemory */
+    ecall
+    li      t0, -22                /* -EINVAL */
+    bne     a0, t0, .Lumode_probe_failed
+
+    li      a0, 0
+    li      a1, 4096
+    li      a2, 15                 /* READ | WRITE | EXECUTE | USER */
+    li      a7, 3
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
+    /* Allocate one real user page, write/read it, protect it read-only,
+       then unmap it back to the physical page allocator. */
+    li      a0, 0                  /* first-fit user VA */
+    li      a1, 4096
+    li      a2, 11                 /* READ | WRITE | USER */
+    li      a7, 3
+    ecall
+    bltz    a0, .Lumode_probe_failed
+    mv      s0, a0
+    li      t0, 0x47524156
+    sd      t0, 0(s0)
+    ld      t1, 0(s0)
+    bne     t1, t0, .Lumode_probe_failed
+
+    mv      a0, s0
+    li      a1, 4096
+    li      a2, 15                 /* reject READ | WRITE | EXECUTE | USER */
+    li      a7, 8                  /* ProtectMemory */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+    li      t0, 0x47524156
+    mv      a0, s0
+    li      a1, 4096
+    li      a2, 9                  /* READ | USER */
+    li      a7, 8                  /* ProtectMemory */
+    ecall
+    bnez    a0, .Lumode_probe_failed
+    ld      t1, 0(s0)
+    bne     t1, t0, .Lumode_probe_failed
+
+    mv      a0, s0
+    li      a1, 8192
+    li      a7, 7
+    ecall
+    li      t0, -14                /* -EFAULT: preflight leaves page mapped */
+    bne     a0, t0, .Lumode_probe_failed
+    ld      t1, 0(s0)
+    li      t0, 0x47524156
+    bne     t1, t0, .Lumode_probe_failed
+    mv      a0, s0
+    li      a1, 4096
+    li      a7, 7                  /* UnmapMemory */
+    ecall
+    bnez    a0, .Lumode_probe_failed
+    mv      a0, s0
+    li      a1, 4096
+    li      a7, 7
+    ecall
+    li      t0, -14
+    bne     a0, t0, .Lumode_probe_failed
+    li      a1, 0                  /* restore ABI register-preservation sentinels */
+    li      a2, 0x22
+    li      a3, 0x33
+    li      a4, 0x44
+    li      a5, 0x55
     li      a7, 0
     li      a0, 0
     ecall

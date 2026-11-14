@@ -2,7 +2,8 @@
 use core::arch::asm;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::scheduler::{Scheduler, TaskId};
+use crate::scheduler::TaskId;
+use crate::task_manager::TaskManager;
 use crate::trap::TrapFrame;
 
 const TASK_COUNT: usize = 3;
@@ -20,7 +21,7 @@ struct TaskStack([u8; STACK_SIZE]);
 
 static mut TASK0_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
 static mut TASK1_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
-static mut SCHEDULER: Scheduler = Scheduler::new();
+static mut SCHEDULER: TaskManager = TaskManager::new();
 static mut TASK_FRAMES: [usize; TASK_COUNT] = [0; TASK_COUNT];
 static TIMER_INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 static TASK_A_TICKS: AtomicUsize = AtomicUsize::new(0);
@@ -34,6 +35,10 @@ static IPC_REQUEST_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_REPLY_RECEIVED: AtomicBool = AtomicBool::new(false);
 static USER_IPC_EMPTY_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_TIMER_PREEMPTED: AtomicBool = AtomicBool::new(false);
+static USER_VM_MAP_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_PROTECT_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_UNMAP_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_VM_WX_REJECTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -176,9 +181,9 @@ extern "C" fn task_b() -> ! {
 pub fn start() -> ! {
     let (a, b, user) = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        let a = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
-        let b = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
-        let user = (*scheduler).create_task().unwrap_or_else(|_| crate::halt());
+        let a = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
+        let b = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
+        let user = (*scheduler).create_runtime_task().unwrap_or_else(|_| crate::halt());
         let stack0 = core::ptr::addr_of_mut!(TASK0_STACK);
         let stack1 = core::ptr::addr_of_mut!(TASK1_STACK);
         let frame0 = make_initial_frame(stack0, task_a);
@@ -193,8 +198,8 @@ pub fn start() -> ! {
 
     let first = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        if (*scheduler).schedule_next() != Some(a) { crate::halt(); }
-        if (*scheduler).state(b).is_err() || (*scheduler).state(user).is_err() {
+        if (*scheduler).runtime_schedule_next() != Some(a) { crate::halt(); }
+        if (*scheduler).runtime_state(b).is_err() || (*scheduler).runtime_state(user).is_err() {
             crate::halt();
         }
         TASK_FRAMES[a.0] as *mut TrapFrame
@@ -216,12 +221,12 @@ pub fn start() -> ! {
 
 /// Current scheduler task ID, used to validate ownership of U-mode trap storage.
 pub(crate) fn current_task_id() -> Option<usize> {
-    unsafe { (*core::ptr::addr_of!(SCHEDULER)).current().map(|id| id.0) }
+    unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current().map(|id| id.0) }
 }
 
 /// Called by both S-origin and U-origin supervisor timer traps.
 pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) => id,
         None => { crate::console_write("Scheduler timer: no current task\n"); crate::halt(); }
@@ -236,7 +241,7 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next: TaskId = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).schedule_next() {
+        match (*scheduler).runtime_schedule_next() {
             Some(id) => id,
             None => { crate::console_write("Scheduler timer: no runnable task\n"); crate::halt(); }
         }
@@ -252,7 +257,7 @@ pub fn on_timer(frame: *mut TrapFrame) -> *mut TrapFrame {
 
 /// Implement ABI v1 SendMessage=1: a0=destination task ID, a1=scalar payload.
 pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let sender = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("SendMessage: invalid sender task\n"); crate::halt(); }
@@ -264,7 +269,7 @@ pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
     } else {
         let receiver = TaskId(destination);
         let active = unsafe {
-            (*core::ptr::addr_of!(SCHEDULER)).state(receiver)
+            (*core::ptr::addr_of!(SCHEDULER)).runtime_state(receiver)
                 .map(|state| state != crate::scheduler::TaskState::Exited)
                 .unwrap_or(false)
         };
@@ -291,7 +296,7 @@ pub fn on_user_send_message(frame: *mut TrapFrame) -> *mut TrapFrame {
 /// Implement non-blocking ABI v1 ReceiveMessage=2.
 /// Success returns payload in a0 and sender task ID in a1; empty returns -EAGAIN.
 pub fn on_user_receive_message(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let receiver = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("ReceiveMessage: invalid receiver task\n"); crate::halt(); }
@@ -331,16 +336,105 @@ pub fn ipc_roundtrip_observed() -> bool {
         && USER_IPC_REPLY_RECEIVED.load(Ordering::Acquire)
 }
 
+fn vm_error_to_errno(error: crate::vm::VmError) -> isize {
+    match error {
+        crate::vm::VmError::NoMemory => crate::syscall_abi::ENOMEM,
+        crate::vm::VmError::AddressNotMapped => crate::syscall_abi::EFAULT,
+        _ => crate::syscall_abi::EINVAL,
+    }
+}
+
+fn finish_user_syscall(frame: *mut TrapFrame, result: isize) -> *mut TrapFrame {
+    unsafe {
+        (*frame).x[10] = result as usize;
+        (*frame).sepc = match (*frame).sepc.checked_add(4) {
+            Some(next) => next,
+            None => crate::halt(),
+        };
+    }
+    frame
+}
+
+/// ABI v1 MapMemory=3: a0=hint, a1=length, a2=protection; returns user VA.
+pub fn on_user_map_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let hint = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let protection = unsafe { (*frame).x[12] };
+    if protection > u32::MAX as usize {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let allocator = core::ptr::addr_of_mut!(crate::PAGE_ALLOCATOR);
+    let result = unsafe {
+        crate::vm::map_user_memory(&mut *allocator, hint, length, protection as u32)
+    };
+    match result {
+        Ok(address) => { USER_VM_MAP_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, address as isize) },
+        Err(crate::vm::VmError::InvalidProtection) => {
+            if crate::vm_policy::requests_write_execute(protection as u32) { USER_VM_WX_REJECTED.store(true, Ordering::Release); }
+            finish_user_syscall(frame, crate::syscall_abi::EINVAL)
+        }
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
+/// ABI extension UnmapMemory=7: a0=user VA, a1=length.
+pub fn on_user_unmap_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let address = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let allocator = core::ptr::addr_of_mut!(crate::PAGE_ALLOCATOR);
+    let result = unsafe {
+        crate::vm::unmap_user_memory(&mut *allocator, address, length)
+    };
+    match result {
+        Ok(()) => { USER_VM_UNMAP_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) },
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
+/// ABI extension ProtectMemory=8: a0=user VA, a1=length, a2=protection.
+pub fn on_user_protect_memory(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    let address = unsafe { (*frame).x[10] };
+    let length = unsafe { (*frame).x[11] };
+    let protection = unsafe { (*frame).x[12] };
+    if protection > u32::MAX as usize {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    match crate::vm::protect_user_memory(address, length, protection as u32) {
+        Ok(()) => { USER_VM_PROTECT_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) },
+        Err(crate::vm::VmError::InvalidProtection) => {
+            if crate::vm_policy::requests_write_execute(protection as u32) { USER_VM_WX_REJECTED.store(true, Ordering::Release); }
+            finish_user_syscall(frame, crate::syscall_abi::EINVAL)
+        }
+        Err(error) => finish_user_syscall(frame, vm_error_to_errno(error)),
+    }
+}
+
+pub fn user_vm_roundtrip_observed() -> bool {
+    USER_VM_MAP_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_PROTECT_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_UNMAP_OBSERVED.load(Ordering::Acquire)
+        && USER_VM_WX_REJECTED.load(Ordering::Acquire)
+}
+
 /// Implement ABI v1 Yield=4 for the current U-mode task. Its saved frame is
 /// retained on the dedicated supervisor trap stack and resumed after rotation.
 pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) if id.0 < TASK_COUNT => id,
         _ => { crate::console_write("Yield syscall: no current task\n"); crate::halt(); }
     };
     unsafe {
-        if (*core::ptr::addr_of!(SCHEDULER)).state(current) != Ok(crate::scheduler::TaskState::Running) {
+        if (*core::ptr::addr_of!(SCHEDULER)).runtime_state(current) != Ok(crate::scheduler::TaskState::Running) {
             crate::console_write("Yield syscall: task is not running\n");
             crate::halt();
         }
@@ -354,7 +448,7 @@ pub fn on_user_yield(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).yield_current() {
+        match (*scheduler).runtime_yield_current() {
             Ok(Some(id)) => id,
             _ => { crate::console_write("Yield syscall: scheduler has no next task\n"); crate::halt(); }
         }
@@ -374,7 +468,7 @@ pub fn register_context_observed() -> bool {
 
 /// Exit the current U-mode test task and schedule another runnable task.
 pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
-    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).current() };
+    let current = unsafe { (*core::ptr::addr_of!(SCHEDULER)).runtime_current() };
     let current = match current {
         Some(id) if id.0 == 2 => id,
         _ => { crate::console_write("Exit syscall: invalid current task\n"); crate::halt(); }
@@ -385,7 +479,7 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
 
     let next = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
-        match (*scheduler).exit_current() {
+        match (*scheduler).runtime_exit_current_with_code(status as i32) {
             Ok(Some(id)) => id,
             _ => { crate::console_write("Exit syscall: scheduler has no next task\n"); crate::halt(); }
         }

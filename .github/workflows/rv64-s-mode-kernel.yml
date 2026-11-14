@@ -5,11 +5,14 @@ on:
   push:
     paths:
       - 'kernel/**'
+      - 'win32-gaming/**'
+      - 'CMakeLists.txt'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/rv64-s-mode-kernel.yml'
   pull_request:
     paths:
       - 'kernel/**'
+      - 'win32-gaming/**'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/rv64-s-mode-kernel.yml'
 
@@ -27,7 +30,18 @@ jobs:
         run: |
           rustup target add riscv64imac-unknown-none-elf
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf
+          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu
+
+      - name: Compile Win32 Gravity RV64 ecall adapter
+        run: |
+          set -euo pipefail
+          riscv64-linux-gnu-g++ \
+            -std=c++20 -march=rv64imac -mabi=lp64 \
+            -ffreestanding -fno-exceptions -fno-rtti \
+            -Wall -Wextra -Wpedantic -Werror \
+            -Iwin32-gaming/include \
+            -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
+            -o build-gravity-rv64-adapter.o
 
       - name: Run host allocator tests
         run: cargo test --manifest-path kernel/allocator-tests/Cargo.toml
@@ -71,6 +85,8 @@ jobs:
           grep -q 'U-mode Exit syscall + scheduler task exit: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'RV64 IPC empty receive -EAGAIN: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'RV64 IPC mailbox send/receive round-trip: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'U-mode Sv39 memory map/protect/unmap: PASS' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'U-mode Sv39 W^X protection rejection: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode Yield syscall context switch + Sv39 isolation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode supervisor trap-stack switch + user SP preservation: PASS' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'U-mode timer preemption + saved-frame resume: PASS' build/kernel/rv64-s-mode/qemu-serial.log

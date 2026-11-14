@@ -10,11 +10,17 @@ mod page_alloc;
 mod heap_alloc;
 mod trap;
 mod scheduler;
+mod process;
+mod task_manager;
+mod handle;
+mod vfs;
 mod ipc;
 mod runtime;
 mod vm;
+mod vm_policy;
+mod syscall_abi;
 
-static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
+pub(crate) static mut PAGE_ALLOCATOR: page_alloc::PageAllocator = page_alloc::PageAllocator::new();
 static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator::new();
 #[repr(align(16))]
 struct HeapArena([u8; 64 * 1024]);

@@ -243,3 +243,76 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     }
     Ok(total)
 }
+
+
+/// Match an exact entry in a node's NUL-delimited FDT compatible string-list.
+/// This discovers a driver candidate; it does not authorize MMIO access.
+pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
+    if wanted.is_empty() || wanted.contains(&0) { return Err(FdtError::Structure); }
+    if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(blob, 4)? as usize;
+    let off_struct = be32(blob, 8)? as usize;
+    let off_strings = be32(blob, 12)? as usize;
+    let size_strings = be32(blob, 32)? as usize;
+    let size_struct = be32(blob, 36)? as usize;
+    if total < 40 || total > blob.len()
+        || off_struct.checked_add(size_struct).filter(|v| *v <= total).is_none()
+        || off_strings.checked_add(size_strings).filter(|v| *v <= total).is_none() {
+        return Err(FdtError::Bounds);
+    }
+    let strings = &blob[off_strings..off_strings + size_strings];
+    let struct_end = off_struct + size_struct;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= 32 { return Err(FdtError::Structure); }
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|b| *b == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                if depth == 0 { root_seen = true; }
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|v| *v <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                if prop_name(strings, nameoff)? == b"compatible" {
+                    let value = &blob[cursor..end];
+                    if value.is_empty() || value.last() != Some(&0) {
+                        return Err(FdtError::Structure);
+                    }
+                    let mut start = 0usize;
+                    while start < value.len() {
+                        let finish = value[start..].iter().position(|b| *b == 0)
+                            .map(|n| start + n).ok_or(FdtError::Structure)?;
+                        if finish == start { return Err(FdtError::Structure); }
+                        if &value[start..finish] == wanted { return Ok(true); }
+                        start = finish + 1;
+                    }
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => break,
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+    Ok(false)
+}

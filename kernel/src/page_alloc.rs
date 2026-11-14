@@ -70,6 +70,18 @@ impl PageAllocator {
         Some(self.free_stack[self.free_len])
     }
 
+    /// Allocate a page whose physical address is inside the kernel's
+    /// identity-mapped 1 GiB direct-map window.
+    pub fn alloc_in_range(&mut self, start: usize, end: usize) -> Option<usize> {
+        if start >= end { return None; }
+        let index = (0..self.free_len).rev()
+            .find(|&i| self.free_stack[i] >= start && self.free_stack[i] < end)?;
+        let page = self.free_stack[index];
+        self.free_len -= 1;
+        self.free_stack[index] = self.free_stack[self.free_len];
+        Some(page)
+    }
+
     pub fn free(&mut self, addr: usize) -> Result<(), AllocError> {
         if addr & (PAGE_SIZE - 1) != 0 || !self.ledger[..self.ledger_len].contains(&addr) {
             return Err(AllocError::InvalidAddress);
@@ -83,6 +95,10 @@ impl PageAllocator {
         Ok(())
     }
 
+    pub fn is_allocated(&self, addr: usize) -> bool {
+        addr & (PAGE_SIZE - 1) == 0 && self.ledger[..self.ledger_len].contains(&addr)
+            && !self.free_stack[..self.free_len].contains(&addr)
+    }
     pub fn available_pages(&self) -> usize { self.free_len }
     pub fn managed_pages(&self) -> usize { self.ledger_len }
 }
