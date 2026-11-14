@@ -171,6 +171,8 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     // Pass two: hold node properties until END_NODE so reg tuples are complete.
     let mut node_memory = [false; 32];
     let mut node_device_memory = [false; 32];
+    // A missing status means enabled; explicit non-okay states are not RAM.
+    let mut node_enabled = [true; 32];
     let mut node_reg: [Option<(usize, usize)>; 32] = [None; 32];
     cursor = off_struct; depth = 0;
     let mut found_memory = false;
@@ -183,6 +185,7 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                     .iter().position(|b| *b == 0).map(|n| cursor + n).ok_or(FdtError::Structure)?;
                 node_memory[depth] = node_is_memory(&blob[cursor..end]);
                 node_device_memory[depth] = false;
+                node_enabled[depth] = true;
                 node_reg[depth] = None;
                 cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
                 depth += 1;
@@ -190,7 +193,7 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
             END_NODE => {
                 if depth == 0 { return Err(FdtError::Structure); }
                 depth -= 1;
-                if node_memory[depth] || node_device_memory[depth] {
+                if node_enabled[depth] && (node_memory[depth] || node_device_memory[depth]) {
                     let (p, len) = node_reg[depth].ok_or(FdtError::Memory)?;
                     let tuple_cells = address_cells + size_cells;
                     let tuple_bytes = tuple_cells as usize * 4;
@@ -218,6 +221,8 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                 match prop_name(strings, nameoff)? {
                     b"reg" => node_reg[depth - 1] = Some((cursor, len)),
                     b"device_type" if name_eq(&blob[cursor..end], b"memory") => node_device_memory[depth - 1] = true,
+                    b"status" => node_enabled[depth - 1] =
+                        name_eq(&blob[cursor..end], b"okay") || name_eq(&blob[cursor..end], b"ok"),
                     _ => {}
                 }
                 cursor = align4(end)?;
