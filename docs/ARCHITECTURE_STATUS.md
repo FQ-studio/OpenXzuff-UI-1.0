@@ -80,3 +80,13 @@ A directory, host-only test, or QEMU smoke test must not be described as a compl
 - `.luap`: Lua App Package.
 
 Keep the two formats distinct and document their manifests and validation rules before implementing installation.
+
+
+## 2026-11-15 integration update — feature/win32-gaming-gravity-port
+
+- The feature branch includes a coordinated process/task metadata layer and routes the live three-task test scheduler through it. This is not yet a dynamic process engine: runtime task frames/stacks remain statically provisioned, and the user VM remains one built-in probe address space.
+- FDT RAM parsing now rejects memory nodes whose explicit `status` is not `okay` or `ok`; missing status remains enabled. Host tests cover disabled, reserved, okay and ok values. This is memory-node filtering only, not general device-node discovery or `ranges` translation.
+- The Gravity SDK starter defines the RV64 ABI v1 syscall and protection constants and provides inline wrappers for Exit, scalar IPC and Yield. The Gravity NDK starter compiles a freestanding C smoke object only; it does not link or launch applications.
+- Xzuff Go's signed-i32 exit stub uses ADDIW for sign-extension after LUI, including the INT32_MAX boundary. The compiler still supports only a single `main` returning an integer literal.
+- The Core workflow now includes the SDK/NDK compile-only check and is triggered by SDK, NDK and Win32 bridge source changes.
+- No physical-board boot, production HAL, PLIC, persistent filesystem, multi-process user VM, general executable loader, or Win32 binary execution is claimed.

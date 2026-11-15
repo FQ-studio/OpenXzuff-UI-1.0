@@ -198,57 +198,45 @@ mod fdt_tests {
     }
 
     fn valid_fdt_with_timebase(timebase: Option<&[u8]>) -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0compatible\0";
+        valid_fdt_with_timebase_and_memory_status(timebase, None)
+    }
+
+    fn valid_fdt_with_timebase_and_memory_status(
+        timebase: Option<&[u8]>, memory_status: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0compatible\0status\0";
         let address_cells = string_offset(strings, b"#address-cells");
         let size_cells = string_offset(strings, b"#size-cells");
         let device_type = string_offset(strings, b"device_type");
         let reg = string_offset(strings, b"reg");
         let timebase_frequency = string_offset(strings, b"timebase-frequency");
-
+        let compatible = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
         let mut structure = Vec::new();
         begin_node(&mut structure, b"");
         property(&mut structure, address_cells, &2u32.to_be_bytes());
         property(&mut structure, size_cells, &2u32.to_be_bytes());
         begin_node(&mut structure, b"cpus");
-        if let Some(value) = timebase {
-            property(&mut structure, timebase_frequency, value);
-        }
+        if let Some(value) = timebase { property(&mut structure, timebase_frequency, value); }
         push_be32(&mut structure, END_NODE);
         begin_node(&mut structure, b"memory@80000000");
         property(&mut structure, device_type, b"memory\0");
-        property(&mut structure, string_offset(strings, b"compatible"), b"test,first-uart\0ns16550a\0");
-
+        property(&mut structure, compatible, b"test,first-uart\0ns16550a\0");
+        if let Some(value) = memory_status { property(&mut structure, status, value); }
         let mut memory_reg = Vec::new();
-        for cell in [1u32, 0x8000_0000, 1, 0x0002_0000] {
-            push_be32(&mut memory_reg, cell);
-        }
+        for cell in [1u32, 0x8000_0000, 1, 0x0002_0000] { push_be32(&mut memory_reg, cell); }
         property(&mut structure, reg, &memory_reg);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
-
         const RESERVE_OFFSET: u32 = 40;
         const STRUCT_OFFSET: u32 = 72;
         let strings_offset = STRUCT_OFFSET + structure.len() as u32;
         let total_size = strings_offset + strings.len() as u32;
-
         let mut blob = Vec::with_capacity(total_size as usize);
-        for value in [
-            0xd00d_feed,
-            total_size,
-            STRUCT_OFFSET,
-            strings_offset,
-            RESERVE_OFFSET,
-            17,
-            16,
-            0,
-            strings.len() as u32,
-            structure.len() as u32,
-        ] {
+        for value in [0xd00d_feed,total_size,STRUCT_OFFSET,strings_offset,RESERVE_OFFSET,17,16,0,strings.len() as u32,structure.len() as u32] {
             push_be32(&mut blob, value);
         }
-
-        // One memreserve entry plus the required zero/zero terminator.
         push_be64(&mut blob, 0x1_8000_2000);
         push_be64(&mut blob, 0x1000);
         push_be64(&mut blob, 0);
@@ -298,6 +286,26 @@ mod fdt_tests {
             map.reserved_ranges().collect::<Vec<_>>(),
             vec![Range { start: 0x1_8000_2000, end: 0x1_8000_3000 }]
         );
+    }
+
+    #[test]
+    fn fdt_parser_ignores_memory_nodes_with_disabled_or_non_ready_status() {
+        for status in [b"disabled\0".as_slice(), b"reserved\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(Some(&10_000_000u32.to_be_bytes()), Some(status));
+            let mut map = MemoryMap::new();
+            assert_eq!(fdt::parse_memory(&blob, &mut map), Err(FdtError::Memory));
+            assert_eq!(map.ram_count(), 0);
+        }
+    }
+
+    #[test]
+    fn fdt_parser_accepts_okay_memory_status() {
+        for status in [b"okay\0".as_slice(), b"ok\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(Some(&10_000_000u32.to_be_bytes()), Some(status));
+            let mut map = MemoryMap::new();
+            assert_eq!(fdt::parse_memory(&blob, &mut map), Ok(blob.len()));
+            assert_eq!(map.ram_count(), 1);
+        }
     }
 
     #[test]

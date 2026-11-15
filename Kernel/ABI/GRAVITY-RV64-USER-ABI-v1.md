@@ -5,7 +5,7 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 ## Target
 
 - Architecture: RISC-V 64-bit (RV64), little-endian.
-- ISA baseline: RV64I; generated code in the initial compiler subset uses only addi and ecall.
+- ISA baseline: RV64I; the initial compiler subset emits addi, lui, addiw and ecall as required.
 - User entry: a future loader sets the PC to the executable's entry offset after mapping the code segment.
 - General register convention: standard RISC-V psABI for ordinary function calls.
 - General stack, heap, TLS, argv, and environment setup are not yet specified.
@@ -52,11 +52,12 @@ The loader must reject truncated files, unknown versions, wrong architecture/ABI
 
 ## Initial compiler-generated exit stub
 
-For function main() returns i32 { return N; }, where N is -2048..2047:
+For function `main() returns i32 { return N; }`, where N is any signed 32-bit value:
 
-1. addi a0, zero, N sets the process exit status.
-2. addi a7, zero, 0 selects Gravity Kernel Exit (syscall ID 0).
-3. ecall requests the kernel service.
+1. If N fits a signed 12-bit immediate, `addi a0, zero, N` sets the process exit status.
+2. Otherwise, the compiler uses `lui` and, when the low 12 bits are nonzero, `addiw a0, a0, low`. ADDIW sign-extends the resulting 32-bit value to RV64, including values near INT32_MAX.
+3. `addi a7, zero, 0` selects Gravity Kernel Exit (syscall ID 0).
+4. `ecall` requests the kernel service.
 
 The compiler does not depend on the initial value of a7. The live hardware path implements Exit for the built-in U-mode test task; general process cleanup and resource reaping remain incomplete.
 
@@ -67,3 +68,10 @@ The QEMU probe uses dedicated U-mode text and stack pages plus a single statical
 The built-in probe has a bounded 2 MiB heap arena. MapMemory allocates zero-filled physical frames from the active 1 GiB identity window; ProtectMemory changes permissions only on mapped heap pages; UnmapMemory preflights the full range and allocator ownership, switches to the supervisor root, clears mappings, scrubs frames, and returns them to the allocator. The heap VA is derived from the bootstrap window base plus a 256 MiB offset, rather than hard-coded to QEMU's 0x80000000 RAM base. User leaf permissions enforce W^X. The QEMU probe checks W+X rejection for both MapMemory and ProtectMemory, verifies an invalid oversized unmap leaves the first page mapped, and verifies a second unmap returns -EFAULT.
 
 This is not a general virtual-memory manager. Dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, demand paging, copyin/copyout, ASIDs, remote TLB shootdown, SMP-safe page-table mutation, blocking IPC, endpoint permissions and general task resource reaping remain unimplemented.
+
+
+## Gravity SDK and RV64 NDK starter
+
+The initial SDK headers live under `sdk/gravity/sysroot/usr/include/gravity`. They define ABI v1 syscall numbers, errno values and inline RV64 ecall wrappers for Exit, SendMessage, ReceiveMessage and Yield. IDs MapMemory (3), UnmapMemory (7) and ProtectMemory (8) are also recorded in the shared header, but the current kernel only permits those VM operations for its built-in U-mode probe task and one bounded 2 MiB heap. They are not exposed as general application wrappers until per-process address spaces and user-memory ownership are implemented.
+
+The initial NDK under `ndk/gravity-rv64` is a CMake cross-toolchain for freestanding RV64 C object files. Its compile-only `abi_smoke.c` example checks the header calling convention and emits `ecall` instructions. It has no CRT, libc, application linker, relocation pipeline or executable launcher. The Android ARM64 Xzuff Go toolchain remains a host toolchain for Termux; generated `.xexe` programs target RV64 and are not Android executables.
