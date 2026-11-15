@@ -201,7 +201,7 @@ mod fdt_tests {
         valid_fdt_with_timebase_and_memory_status(timebase, None)
     }
 
-    fn valid_fdt_with_timebase_and_memory_status(
+    pub(super) fn valid_fdt_with_timebase_and_memory_status(
         timebase: Option<&[u8]>, memory_status: Option<&[u8]>,
     ) -> Vec<u8> {
         let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0compatible\0status\0";
@@ -306,6 +306,64 @@ mod fdt_tests {
             assert_eq!(fdt::parse_memory(&blob, &mut map), Ok(blob.len()));
             assert_eq!(map.ram_count(), 1);
         }
+    }
+
+    fn fdt_with_disabled_parent_and_compatible_child() -> Vec<u8> {
+        let strings = b"compatible\0status\0";
+        let compatible = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, status, b"disabled\0");
+        begin_node(&mut structure, b"serial@1000");
+        property(&mut structure, compatible, b"test,serial\0");
+        property(&mut structure, status, b"okay\0");
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 72;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn compatible_matches_only_available_nodes() {
+        for status in [None, Some(b"okay\\0".as_slice()), Some(b"ok\\0".as_slice())] {
+            let blob = valid_fdt_with_timebase_and_memory_status(
+                Some(&10_000_000u32.to_be_bytes()), status);
+            assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
+        }
+        for status in [b"disabled\\0".as_slice(), b"reserved\\0".as_slice(), b"fail\\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(
+                Some(&10_000_000u32.to_be_bytes()), Some(status));
+            assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(false));
+        }
+    }
+
+    #[test]
+    fn compatible_rejects_malformed_status_and_inherits_disabled_parent() {
+        let malformed = valid_fdt_with_timebase_and_memory_status(
+            Some(&10_000_000u32.to_be_bytes()), Some(b"okay"));
+        assert_eq!(fdt::has_compatible(&malformed, b"test,first-uart"), Err(FdtError::Structure));
+        assert_eq!(fdt::parse_memory(&malformed, &mut MemoryMap::new()), Err(FdtError::Structure));
+
+        let child_of_disabled_bus = fdt_with_disabled_parent_and_compatible_child();
+        assert_eq!(fdt::has_compatible(&child_of_disabled_bus, b"test,serial"), Ok(false));
     }
 
     #[test]
