@@ -343,12 +343,12 @@ mod fdt_tests {
 
     #[test]
     fn compatible_matches_only_available_nodes() {
-        for status in [None, Some(b"okay\\0".as_slice()), Some(b"ok\\0".as_slice())] {
+        for status in [None, Some(b"okay\0".as_slice()), Some(b"ok\0".as_slice())] {
             let blob = valid_fdt_with_timebase_and_memory_status(
                 Some(&10_000_000u32.to_be_bytes()), status);
             assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
         }
-        for status in [b"disabled\\0".as_slice(), b"reserved\\0".as_slice(), b"fail\\0".as_slice()] {
+        for status in [b"disabled\0".as_slice(), b"reserved\0".as_slice(), b"fail\0".as_slice()] {
             let blob = valid_fdt_with_timebase_and_memory_status(
                 Some(&10_000_000u32.to_be_bytes()), Some(status));
             assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(false));
