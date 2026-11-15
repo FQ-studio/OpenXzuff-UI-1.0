@@ -9,9 +9,9 @@
 - `user/app/`: application manifests and planned Lua/Luau runtimes and installer.
 - `runtime/`, `graphics3d/`, `app-hub/`, `boot/`, `boards/`: separate runtime, renderer, service and board-support work; inspect each subsystem's own tests before treating it as integrated.
 
-## Verified RV64 kernel baseline
+## Historical RV64 kernel baseline (2026-11-12)
 
-The latest RV64-validated kernel source is commit `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`. [RV64 S-Mode Kernel run #156](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040) completed successfully on 2026-11-12.
+The RV64-validated source for this historical baseline is commit `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`. [RV64 S-Mode Kernel run #156](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040) completed successfully on 2026-11-12.
 
 That run executed:
 
@@ -36,7 +36,7 @@ The [run #156 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/ru
 
 The W^X layout and range-verification contract are documented in [RV64 Sv39 bootstrap mappings and W^X verification](design/rv64-sv39-wx.md).
 
-## Verified OpenXzuff UI Core host baseline
+## Historical OpenXzuff UI Core host baseline (2026-11-12)
 
 [OpenXzuff UI Runtime, OS Contracts and 3D run #166](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047) completed successfully on 2026-11-12 for the same source revision as the RV64 run above, `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`.
 
@@ -48,7 +48,7 @@ The W^X layout and range-verification contract are documented in [RV64 Sv39 boot
 
 [Run #166 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047/artifacts/13920654059) contains the host/runtime smoke outputs and Android ARM64 toolchain package.
 
-## VisionFive 2 host readiness
+## Historical VisionFive 2 host readiness (2026-11-12)
 
 [VisionFive 2 Kernel Readiness run #49](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461210) completed successfully on the same source revision. CMake host build, strict-warning compilation, CTest **14/14**, and board boot-contract source checks passed. The workflow explicitly notes that these checks do not prove physical board boot or full FDT correctness; no physical VisionFive 2 or LAVA result is claimed.
 
@@ -90,3 +90,63 @@ Keep the two formats distinct and document their manifests and validation rules 
 - Xzuff Go's signed-i32 exit stub uses ADDIW for sign-extension after LUI, including the INT32_MAX boundary. The compiler still supports only a single `main` returning an integer literal.
 - The Core workflow now includes the SDK/NDK compile-only check and is triggered by SDK, NDK and Win32 bridge source changes.
 - No physical-board boot, production HAL, PLIC, persistent filesystem, multi-process user VM, general executable loader, or Win32 binary execution is claimed.
+
+
+## Latest integration validation — 2026-11-15
+
+Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare reports 111 commits ahead and 0 behind. PR #12 remains open and mergeable; it has not been merged.
+
+### Gravity Kernel RV64
+
+[RV64 S-Mode Kernel run #43688775193](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193) completed successfully on the latest code commit.
+
+- Win32 Gravity RV64 adapter cross-compile: passed with the shared SDK ABI header in its include path.
+- Rust host tests: **60 passed, 0 failed**.
+- Kernel ELF cross-build: passed.
+- OpenSBI + QEMU `virt` smoke boot: passed all workflow serial assertions, including FDT RAM parsing, Sv39 W^X, S-mode trap save/restore, timer preemption/context switch, U-mode timer saved-frame resume, IPC, U-mode Map/Protect/Unmap, Yield and Exit.
+- QEMU is intentionally terminated by the workflow's 15-second timeout after all required assertions. This is not a long-duration stress or production-stability test.
+- [RV64 ELF, binary and QEMU serial-log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193/artifacts/14150434921).
+
+### Board-readiness host checks
+
+[VisionFive 2 Kernel Readiness run #43688775224](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775224) completed successfully:
+
+- Strict-warning host build: passed.
+- CTest: **16/16 passed**.
+- Documented RV64 boot-contract checks: passed.
+- This is host/contract validation only; no physical VisionFive 2 boot or LAVA hardware result is claimed.
+
+### Win32 Gravity bridge and shared SDK ABI
+
+[Win32 Gaming Gravity Backend Bridge run #43688775230](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775230) completed successfully on the latest code commit:
+
+- Host bridge CTest: **2/2 passed**.
+- RV64 adapter cross-compile: passed.
+- Adapter disassembly: **8 `ecall` instructions**.
+- `gravity_host_abi.h` now derives syscall IDs and protection flags from `sdk/gravity/sysroot/usr/include/gravity/abi.h`; CMake and both adapter workflows include the shared sysroot. Host compile-time assertions verify the mapping.
+
+These checks validate the host mock contract and adapter code generation. They do not show that the C++ adapter is linked into the kernel ELF or invoked by the built-in QEMU U-mode task.
+
+### OpenXzuff UI Core and SDK/NDK
+
+[Core run #43688540402](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402) completed successfully on the immediately preceding documentation/CI revision:
+
+- Root CTest: **16/16 passed**.
+- Xzuff Go `.xexe` fixture: 44-byte RV64 image generated; entry returns status 42; host loader validation passed.
+- Gravity RV64 NDK: freestanding C object compiled and disassembly contained `ecall`.
+- Xzuff Go / xgo Android ARM64 cross-build and package: passed.
+- Luau runtime build and source/package smoke: passed.
+- JavaScript CTest: **2/2**; standard Lua CTest: **2/2**; OpenXzuff3D CTest: **1/1**; render smoke and image verification: passed.
+- [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
+
+The newer [Core run #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201) for the shared-SDK/Win32 integration commit has already passed the host build, root CTest, `.xexe` fixture, Gravity NDK object build, Android ARM64 Xzuff Go cross-build and packaging steps. At the time this update was written, it was still building the Luau runtime; no final conclusion is recorded for that run.
+
+### Remaining integration boundary
+
+- FDT filtering now respects memory-node `status`, but general device-node discovery, inherited bus cell widths, `ranges` translation, clocks/resets and interrupt-parent routing are not complete.
+- HAL MMIO validation, UART initialization/receive/flush, PLIC routing and physical-board boot remain unverified.
+- Process/task manager coordinates metadata with a fixed-capacity scheduler, but runtime stacks/frames are static; there are not yet independent dynamic per-process Sv39 roots, safe copy-in/copy-out or full VM teardown.
+- RAM VFS is bounded and in-memory; handles are not fully backed by VFS/device objects. Persistent block storage, mounts and file permissions remain incomplete.
+- IPC remains scalar and non-blocking; no general wait queues or shared-memory IPC.
+- No general `.xexe` loader/linker, PE32/PE32+ loader, Win32 API/DLL compatibility runtime or x86/x64-to-RV64 translator exists. No Windows game is claimed to run.
+- No production stability or 100% Core completion is claimed.

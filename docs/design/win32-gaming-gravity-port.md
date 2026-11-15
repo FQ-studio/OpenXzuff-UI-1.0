@@ -139,4 +139,4 @@ The directory tree is a proposal; create source modules only after checking exis
 
 ## Current verified state
 
-This commit adds design documentation only. No Win32 runtime, Wine port, Proton port, PE loader, instruction translator, or game execution has been built or tested by this change.
+The current branch has a bounded Gravity syscall bridge, host ABI mock tests, and an RV64 adapter cross-compile. The host bridge tests passed 2/2 and the RV64 adapter disassembly contained eight `ecall` instructions in run #43688775230. The kernel's own QEMU syscall/VM probe is validated separately in run #43688775193; the C++ adapter is not linked into that kernel ELF or invoked end-to-end by QEMU. No Win32 runtime, Wine/Proton port, PE loader, x86/x64 translator, or Windows game execution has been built or tested. Syscall IDs and memory protection flags are shared with the Gravity SDK header at `sdk/gravity/sysroot/usr/include/gravity/abi.h`.
