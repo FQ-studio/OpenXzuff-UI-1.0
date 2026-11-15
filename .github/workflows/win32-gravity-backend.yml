@@ -6,6 +6,7 @@ on:
       - 'CMakeLists.txt'
       - 'Kernel/include/openxzuff/kernel/**'
       - 'Kernel/src/syscall.cpp'
+      - 'Kernel/ABI/**'
       - 'kernel/**'
       - 'win32-gaming/**'
       - 'scripts/build-kernel-rv64-s-mode.sh'
@@ -18,6 +19,8 @@ on:
       - 'CMakeLists.txt'
       - 'Kernel/include/openxzuff/kernel/**'
       - 'Kernel/src/syscall.cpp'
+      - 'Kernel/ABI/**'
+      - 'kernel/**'
       - 'win32-gaming/**'
       - '.github/workflows/win32-gravity-backend.yml'
 
