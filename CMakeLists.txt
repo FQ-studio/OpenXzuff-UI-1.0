@@ -96,6 +96,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "riscv64|riscv")
     )
     target_include_directories(xzfg_gravity_rv64_adapter PUBLIC
         win32-gaming/include
+        sdk/gravity/sysroot/usr/include
     )
     target_compile_options(xzfg_gravity_rv64_adapter PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
@@ -109,6 +110,7 @@ add_executable(win32-gravity-host-abi-test
 )
 target_include_directories(win32-gravity-host-abi-test PRIVATE
     win32-gaming/include
+        sdk/gravity/sysroot/usr/include
 )
 target_compile_options(win32-gravity-host-abi-test PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>
@@ -126,6 +128,7 @@ add_executable(win32-gravity-kernel-backend-test
 )
 target_include_directories(win32-gravity-kernel-backend-test PRIVATE
     win32-gaming/include
+        sdk/gravity/sysroot/usr/include
 )
 target_link_libraries(win32-gravity-kernel-backend-test PRIVATE xzuff_os_base)
 target_compile_options(win32-gravity-kernel-backend-test PRIVATE

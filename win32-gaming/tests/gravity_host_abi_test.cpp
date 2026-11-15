@@ -71,6 +71,17 @@ int main() {
     static_assert(XZFG_SYSCALL_YIELD == 4);
     static_assert(XZFG_SYSCALL_UNMAP_MEMORY == 7);
     static_assert(XZFG_SYSCALL_PROTECT_MEMORY == 8);
+    static_assert(XZFG_SYSCALL_EXIT == GRAVITY_SYS_EXIT);
+    static_assert(XZFG_SYSCALL_SEND_MESSAGE == GRAVITY_SYS_SEND_MESSAGE);
+    static_assert(XZFG_SYSCALL_RECEIVE_MESSAGE == GRAVITY_SYS_RECEIVE_MESSAGE);
+    static_assert(XZFG_SYSCALL_MAP_MEMORY == GRAVITY_SYS_MAP_MEMORY);
+    static_assert(XZFG_SYSCALL_YIELD == GRAVITY_SYS_YIELD);
+    static_assert(XZFG_SYSCALL_UNMAP_MEMORY == GRAVITY_SYS_UNMAP_MEMORY);
+    static_assert(XZFG_SYSCALL_PROTECT_MEMORY == GRAVITY_SYS_PROTECT_MEMORY);
+    static_assert(XZFG_MEMORY_READ == GRAVITY_PROT_READ);
+    static_assert(XZFG_MEMORY_WRITE == GRAVITY_PROT_WRITE);
+    static_assert(XZFG_MEMORY_EXECUTE == GRAVITY_PROT_EXECUTE);
+    static_assert(XZFG_MEMORY_USER == GRAVITY_PROT_USER);
     MockState state{};
     xzfg_gravity_host_api_v1 api{};
     api.abi_version = XZFG_GRAVITY_HOST_ABI_VERSION;

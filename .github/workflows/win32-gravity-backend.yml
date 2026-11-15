@@ -8,6 +8,7 @@ on:
       - 'Kernel/src/syscall.cpp'
       - 'Kernel/ABI/**'
       - 'kernel/**'
+      - 'sdk/gravity/**'
       - 'win32-gaming/**'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/win32-gravity-backend.yml'
@@ -21,6 +22,7 @@ on:
       - 'Kernel/src/syscall.cpp'
       - 'Kernel/ABI/**'
       - 'kernel/**'
+      - 'sdk/gravity/**'
       - 'win32-gaming/**'
       - '.github/workflows/win32-gravity-backend.yml'
 
@@ -65,6 +67,7 @@ jobs:
             -ffreestanding -fno-exceptions -fno-rtti \
             -march=rv64imac -mabi=lp64 \
             -I win32-gaming/include \
+            -I sdk/gravity/sysroot/usr/include \
             -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
             -o build/win32-gravity-rv64/gravity_kernel_backend_rv64.o
           llvm-objdump -d --no-show-raw-insn build/win32-gravity-rv64/gravity_kernel_backend_rv64.o > build/win32-gravity-rv64/adapter.dis

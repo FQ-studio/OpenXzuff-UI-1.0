@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - 'kernel/**'
+      - 'sdk/gravity/**'
       - 'win32-gaming/**'
       - 'CMakeLists.txt'
       - 'scripts/build-kernel-rv64-s-mode.sh'
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - 'kernel/**'
+      - 'sdk/gravity/**'
       - 'win32-gaming/**'
       - 'scripts/build-kernel-rv64-s-mode.sh'
       - '.github/workflows/rv64-s-mode-kernel.yml'
@@ -40,6 +42,7 @@ jobs:
             -ffreestanding -fno-exceptions -fno-rtti \
             -Wall -Wextra -Wpedantic -Werror \
             -Iwin32-gaming/include \
+            -Isdk/gravity/sysroot/usr/include \
             -c win32-gaming/src/gravity_kernel_backend_rv64.cpp \
             -o build-gravity-rv64-adapter.o
 
