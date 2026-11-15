@@ -221,8 +221,7 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                 match prop_name(strings, nameoff)? {
                     b"reg" => node_reg[depth - 1] = Some((cursor, len)),
                     b"device_type" if name_eq(&blob[cursor..end], b"memory") => node_device_memory[depth - 1] = true,
-                    b"status" => node_enabled[depth - 1] =
-                        name_eq(&blob[cursor..end], b"okay") || name_eq(&blob[cursor..end], b"ok"),
+                    b"status" => node_enabled[depth - 1] = status_is_enabled(&blob[cursor..end])?,
                     _ => {}
                 }
                 cursor = align4(end)?;
@@ -250,7 +249,34 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
 }
 
 
-/// Match an exact entry in a node's NUL-delimited FDT compatible string-list.
+/// Return whether an FDT status property marks a node as available.
+/// Device-tree string properties must be NUL terminated and contain one value.
+fn status_is_enabled(value: &[u8]) -> Result<bool, FdtError> {
+    if value.is_empty() || value.last() != Some(&0) || value[..value.len() - 1].contains(&0) {
+        return Err(FdtError::Structure);
+    }
+    let status = &value[..value.len() - 1];
+    Ok(status == b"okay" || status == b"ok")
+}
+
+/// Match one exact entry in a NUL-delimited FDT compatible string-list.
+fn compatible_list_contains(value: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
+    if value.is_empty() || value.last() != Some(&0) {
+        return Err(FdtError::Structure);
+    }
+    let mut start = 0usize;
+    while start < value.len() {
+        let finish = value[start..].iter().position(|b| *b == 0)
+            .map(|n| start + n).ok_or(FdtError::Structure)?;
+        if finish == start { return Err(FdtError::Structure); }
+        if &value[start..finish] == wanted { return Ok(true); }
+        start = finish + 1;
+    }
+    Ok(false)
+}
+
+/// Match an exact compatible entry on an available node.
+/// A disabled ancestor also makes its child devices unavailable.
 /// This discovers a driver candidate; it does not authorize MMIO access.
 pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
     if wanted.is_empty() || wanted.contains(&0) { return Err(FdtError::Structure); }
@@ -265,27 +291,42 @@ pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
         || off_strings.checked_add(size_strings).filter(|v| *v <= total).is_none() {
         return Err(FdtError::Bounds);
     }
+
     let strings = &blob[off_strings..off_strings + size_strings];
     let struct_end = off_struct + size_struct;
     let mut cursor = off_struct;
     let mut depth = 0usize;
     let mut root_seen = false;
+    let mut ended = false;
+    let mut found = false;
+    let mut node_enabled = [true; 32];
+    let mut node_compatible = [false; 32];
+
     while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?;
         cursor += 4;
         match token {
             BEGIN_NODE => {
-                if depth >= 32 { return Err(FdtError::Structure); }
+                if depth >= node_enabled.len() { return Err(FdtError::Structure); }
                 let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
                     .iter().position(|b| *b == 0).map(|n| cursor + n)
                     .ok_or(FdtError::Structure)?;
-                if depth == 0 { root_seen = true; }
+                if depth == 0 {
+                    root_seen = true;
+                    node_enabled[depth] = true;
+                } else {
+                    node_enabled[depth] = node_enabled[depth - 1];
+                }
+                node_compatible[depth] = false;
                 cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
                 depth += 1;
             }
             END_NODE => {
                 if depth == 0 { return Err(FdtError::Structure); }
                 depth -= 1;
+                if node_enabled[depth] && node_compatible[depth] {
+                    found = true;
+                }
             }
             PROP => {
                 if depth == 0 || cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() {
@@ -296,28 +337,30 @@ pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
                 cursor += 8;
                 let end = cursor.checked_add(len).filter(|v| *v <= struct_end)
                     .ok_or(FdtError::Bounds)?;
-                if prop_name(strings, nameoff)? == b"compatible" {
-                    let value = &blob[cursor..end];
-                    if value.is_empty() || value.last() != Some(&0) {
-                        return Err(FdtError::Structure);
+                match prop_name(strings, nameoff)? {
+                    b"compatible" => {
+                        if compatible_list_contains(&blob[cursor..end], wanted)? {
+                            node_compatible[depth - 1] = true;
+                        }
                     }
-                    let mut start = 0usize;
-                    while start < value.len() {
-                        let finish = value[start..].iter().position(|b| *b == 0)
-                            .map(|n| start + n).ok_or(FdtError::Structure)?;
-                        if finish == start { return Err(FdtError::Structure); }
-                        if &value[start..finish] == wanted { return Ok(true); }
-                        start = finish + 1;
+                    b"status" => {
+                        node_enabled[depth - 1] &= status_is_enabled(&blob[cursor..end])?;
                     }
+                    _ => {}
                 }
                 cursor = align4(end)?;
             }
             NOP => {}
-            END => break,
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
             _ => return Err(FdtError::Structure),
         }
         if cursor > struct_end { return Err(FdtError::Bounds); }
     }
-    if !root_seen || depth != 0 { return Err(FdtError::Structure); }
-    Ok(false)
+
+    if !ended { return Err(FdtError::Structure); }
+    Ok(found)
 }
