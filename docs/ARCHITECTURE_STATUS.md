@@ -94,7 +94,7 @@ Keep the two formats distinct and document their manifests and validation rules 
 
 ## Latest integration validation — 2026-11-15
 
-Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare reports 111 commits ahead and 0 behind. PR #12 remains open and mergeable; it has not been merged.
+Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare reports 113 commits ahead and 0 behind. PR #12 remains open and mergeable; it has not been merged.
 
 ### Gravity Kernel RV64
 
@@ -139,7 +139,7 @@ These checks validate the host mock contract and adapter code generation. They d
 - JavaScript CTest: **2/2**; standard Lua CTest: **2/2**; OpenXzuff3D CTest: **1/1**; render smoke and image verification: passed.
 - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
 
-The newer [Core run #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201) for the shared-SDK/Win32 integration commit has already passed the host build, root CTest, `.xexe` fixture, Gravity NDK object build, Android ARM64 Xzuff Go cross-build and packaging steps. At the time this update was written, it was still building the Luau runtime; no final conclusion is recorded for that run.
+The newer [Core run #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201) for the shared-SDK/Win32 integration commit completed successfully. Root CTest **16/16**, the 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly check, Android ARM64 Xzuff Go cross-build/package, Luau runtime/source/package smoke, JavaScript **2/2**, standard Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification all passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201/artifacts/14152110000).
 
 ### Remaining integration boundary
 

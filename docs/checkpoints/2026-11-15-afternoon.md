@@ -65,7 +65,7 @@
   - Luau build and package smoke passed; JavaScript **2/2**, Lua **2/2**, OpenXzuff3D **1/1**, render verification passed.
   - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
 
-- [Core #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201) is the follow-up run for the latest shared-SDK/Win32 integration commit. Host build, CTest, `.xexe` fixture, NDK object build, Android ARM64 cross-build and packaging steps have passed; Luau runtime build was still in progress at checkpoint time. Do not call this run complete until GitHub reports a final conclusion.
+- [Core #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201): **SUCCESS** on the latest shared-SDK/Win32 integration code commit. Root CTest **16/16**, 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly, Android ARM64 Xzuff Go cross-build/package, Luau build/source/package smoke, JavaScript **2/2**, Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201/artifacts/14152110000).
 
 ## Remaining work
 
