@@ -37,23 +37,23 @@
 
 5. **Branch synchronization**
    - Imported the six main-branch SDK/NDK/compiler workflow changes into the feature branch.
-   - Created a merge commit with main as second parent; branch compare is 111 commits ahead, 0 behind.
+   - Created a merge commit with main as second parent; branch contains the current main head (0 commits behind).
 
 ## Verified Actions evidence
 
 ### Latest Gravity Kernel code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`
 
-- [RV64 S-Mode Kernel #43688775193](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193): **SUCCESS**.
+- [RV64 S-Mode Kernel #43688778785](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785): **SUCCESS**.
   - RV64 adapter compile: passed.
   - Rust host tests: **60 passed, 0 failed**.
   - Kernel ELF build: passed.
   - OpenSBI + QEMU serial assertions: passed for FDT memory parsing, Sv39 W^X, trap save/restore, timer preemption, U-mode timer resume, IPC, Map/Protect/Unmap, Yield and Exit.
   - QEMU is stopped by the 15-second smoke-test timeout after required markers; this is not long-duration stability evidence.
-  - [Kernel ELF/binary/QEMU log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193/artifacts/14150434921).
+  - [Kernel ELF/binary/QEMU log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785/artifacts/14151163776).
 
-- [VisionFive 2 Kernel Readiness #43688775224](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775224): **SUCCESS**; strict host build and **16/16 CTest** passed. No physical board boot is claimed.
+- [VisionFive 2 Kernel Readiness #43688778856](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778856): **SUCCESS**; strict host build and **16/16 CTest** passed. No physical board boot is claimed.
 
-- [Win32 Gaming Gravity Backend Bridge #43688775230](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775230): **SUCCESS**; host bridge CTest **2/2**, RV64 adapter cross-compile passed, disassembly contains **8 ecall** instructions.
+- [Win32 Gaming Gravity Backend Bridge #43688778782](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778782): **SUCCESS**; host bridge CTest **2/2**, RV64 adapter cross-compile passed, disassembly contains **8 ecall** instructions.
 
 ### Core / SDK validation
 
@@ -65,7 +65,7 @@
   - Luau build and package smoke passed; JavaScript **2/2**, Lua **2/2**, OpenXzuff3D **1/1**, render verification passed.
   - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
 
-- [Core #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201): **SUCCESS** on the latest shared-SDK/Win32 integration code commit. Root CTest **16/16**, 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly, Android ARM64 Xzuff Go cross-build/package, Luau build/source/package smoke, JavaScript **2/2**, Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201/artifacts/14152110000).
+- [Core #43688778784](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784): **SUCCESS** on the latest shared-SDK/Win32 integration code commit. Root CTest **16/16**, 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly, Android ARM64 Xzuff Go cross-build/package, Luau build/source/package smoke, JavaScript **2/2**, Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784/artifacts/14151582419).
 
 ## Remaining work
 

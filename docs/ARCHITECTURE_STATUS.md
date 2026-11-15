@@ -94,22 +94,22 @@ Keep the two formats distinct and document their manifests and validation rules 
 
 ## Latest integration validation — 2026-11-15
 
-Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare reports 113 commits ahead and 0 behind. PR #12 remains open and mergeable; it has not been merged.
+Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare confirms 0 commits behind main; the branch contains the current main head. PR #12 remains open and mergeable; it has not been merged.
 
 ### Gravity Kernel RV64
 
-[RV64 S-Mode Kernel run #43688775193](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193) completed successfully on the latest code commit.
+[RV64 S-Mode Kernel run #43688778785](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785) completed successfully on the latest code commit.
 
 - Win32 Gravity RV64 adapter cross-compile: passed with the shared SDK ABI header in its include path.
 - Rust host tests: **60 passed, 0 failed**.
 - Kernel ELF cross-build: passed.
 - OpenSBI + QEMU `virt` smoke boot: passed all workflow serial assertions, including FDT RAM parsing, Sv39 W^X, S-mode trap save/restore, timer preemption/context switch, U-mode timer saved-frame resume, IPC, U-mode Map/Protect/Unmap, Yield and Exit.
 - QEMU is intentionally terminated by the workflow's 15-second timeout after all required assertions. This is not a long-duration stress or production-stability test.
-- [RV64 ELF, binary and QEMU serial-log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775193/artifacts/14150434921).
+- [RV64 ELF, binary and QEMU serial-log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785/artifacts/14151163776).
 
 ### Board-readiness host checks
 
-[VisionFive 2 Kernel Readiness run #43688775224](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775224) completed successfully:
+[VisionFive 2 Kernel Readiness run #43688778856](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778856) completed successfully:
 
 - Strict-warning host build: passed.
 - CTest: **16/16 passed**.
@@ -118,7 +118,7 @@ Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe3
 
 ### Win32 Gravity bridge and shared SDK ABI
 
-[Win32 Gaming Gravity Backend Bridge run #43688775230](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775230) completed successfully on the latest code commit:
+[Win32 Gaming Gravity Backend Bridge run #43688778782](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778782) completed successfully on the latest code commit:
 
 - Host bridge CTest: **2/2 passed**.
 - RV64 adapter cross-compile: passed.
@@ -139,7 +139,7 @@ These checks validate the host mock contract and adapter code generation. They d
 - JavaScript CTest: **2/2**; standard Lua CTest: **2/2**; OpenXzuff3D CTest: **1/1**; render smoke and image verification: passed.
 - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
 
-The newer [Core run #43688775201](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201) for the shared-SDK/Win32 integration commit completed successfully. Root CTest **16/16**, the 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly check, Android ARM64 Xzuff Go cross-build/package, Luau runtime/source/package smoke, JavaScript **2/2**, standard Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification all passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688775201/artifacts/14152110000).
+The newer [Core run #43688778784](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784) for the shared-SDK/Win32 integration commit completed successfully. Root CTest **16/16**, the 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly check, Android ARM64 Xzuff Go cross-build/package, Luau runtime/source/package smoke, JavaScript **2/2**, standard Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification all passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784/artifacts/14151582419).
 
 ### Remaining integration boundary
 
