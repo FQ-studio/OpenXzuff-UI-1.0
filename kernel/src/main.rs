@@ -64,6 +64,41 @@ pub(crate) fn print_hex(mut value: usize) {
     for byte in &digits[i..] { console_putchar(*byte); }
 }
 
+/// Discover a known UART node from the firmware DTB without touching MMIO.
+/// The reported register remains a parent-bus address until `ranges` is resolved.
+fn report_uart_candidate(blob: &[u8]) {
+    let compatibles: [&[u8]; 5] = [
+        b"sifive,fu740-c000-uart",
+        b"sifive,uart0",
+        b"starfive,jh7110-uart",
+        b"snps,dw-apb-uart",
+        b"ns16550a",
+    ];
+    for compatible in compatibles {
+        match fdt::find_compatible_node(blob, compatible) {
+            Ok(Some(node)) => {
+                if let Some(region) = node.reg {
+                    if let Some(size) = region.size {
+                        console_write("FDT UART compatible-node discovery: PASS; raw bus reg parsed\n");
+                        console_write("FDT UART raw bus address: ");
+                        print_hex(region.bus_address as usize);
+                        console_write("; size: ");
+                        print_hex(size as usize);
+                        console_write("\n");
+                        return;
+                    }
+                }
+            }
+            Ok(None) | Ok(Some(_)) => {}
+            Err(_) => {
+                console_write("FDT UART compatible-node discovery: ERROR\n");
+                return;
+            }
+        }
+    }
+    console_write("FDT UART compatible-node discovery: NOT FOUND\n");
+}
+
 fn be32_raw(ptr: *const u8) -> u32 {
     unsafe { u32::from_be_bytes([ptr.read(), ptr.add(1).read(), ptr.add(2).read(), ptr.add(3).read()]) }
 }
@@ -99,6 +134,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         halt();
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
+    report_uart_candidate(blob);
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
