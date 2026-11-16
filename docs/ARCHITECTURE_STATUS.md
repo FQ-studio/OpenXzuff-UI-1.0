@@ -186,7 +186,7 @@ Code revision: `66449dcb3af4ae6e9d70011e690e102ac7df7bdf` on
     `0x10000000`, size `0x100` for the `ns16550a` candidate.
   - QEMU is stopped by the 15-second smoke timeout after required markers;
     this is not long-duration stability evidence.
-  - [Kernel ELF, binary and serial log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114/artifacts/14202991420).
+  - [Kernel ELF, binary and serial log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114/artifacts/14203180179).
 - [VisionFive 2 Kernel Readiness #43816421040](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421040) — **SUCCESS**; strict-warning host build and CTest **16/16**. This is not a physical-board boot.
 - [Win32 Gravity Bridge #43816421214](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421214) — **SUCCESS**; host CTest **2/2** and RV64 adapter cross-compile passed.
 - [OpenXzuff UI Core #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) — **IN PROGRESS** at checkpoint preparation. OS contracts, Xzuff Go compiler/Coder Checker, `.xexe` fixture, Gravity RV64 NDK build, Android ARM64 Xzuff Go cross-build and packaging had passed; Luau runtime build was still running. No final Core result is claimed here.
