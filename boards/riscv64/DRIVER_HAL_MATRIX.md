@@ -48,9 +48,17 @@ parse arbitrary DTB offsets themselves or assume another board's MMIO address.
 ## Validation boundary
 
 The kernel parses FDT RAM ranges and timebase-frequency. `has_compatible`
-matches exact NUL-delimited compatible entries only on nodes whose own and
-ancestor `status` is absent or explicitly `okay`/`ok`; malformed status
-strings are rejected. The helper returns only a boolean: it does not return a
-node path or `reg` resources, and does not resolve inherited bus cell widths,
-`ranges`, MMIO translations, clocks, resets or interrupt routing. No physical
+remains a boolean exact-match helper. `find_compatible_node` now returns the
+first available node name and its first `reg` tuple, decoded using the
+parent bus's `#address-cells` and `#size-cells`. A missing `reg` is represented
+explicitly; zero size-cells yields an address with unknown size. Unselected
+buses may declare up to four address/size cells without aborting discovery,
+while a selected resource must fit the current u64 representation (one or two
+address cells and zero, one or two size cells).
+
+The returned `reg` address is still a raw parent-bus address. The parser does
+not translate ancestor `ranges`, validate a mapped MMIO window, resolve
+clocks/resets, or route interrupts. QEMU `virt` smoke boot now discovers its
+`ns16550a` UART candidate at raw bus address `0x10000000`, size `0x100`;
+this is discovery only, not UART initialization or MMIO access. No physical
 UART driver or board boot is claimed by this matrix.
