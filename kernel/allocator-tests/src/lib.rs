@@ -321,12 +321,6 @@ mod fdt_tests {
         property(&mut structure, status, b"okay\0");
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
-        // An unrelated PCIe-like bus may use three address cells. Discovery
-        // of the serial node must not reject this unselected bus.
-        begin_node(&mut structure, b"pcie@30000000");
-        property(&mut structure, address, &3u32.to_be_bytes());
-        property(&mut structure, size, &2u32.to_be_bytes());
-        push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
 
@@ -955,6 +949,12 @@ mod fdt_node_discovery_tests {
             property(&mut structure, reg, &raw);
         }
         push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        // An unrelated PCIe-like bus may use three address cells. Discovery
+        // of the serial node must not reject this unselected bus.
+        begin_node(&mut structure, b"pcie@30000000");
+        property(&mut structure, address, &3u32.to_be_bytes());
+        property(&mut structure, size, &2u32.to_be_bytes());
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
