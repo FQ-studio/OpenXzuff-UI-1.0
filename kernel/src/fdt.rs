@@ -519,13 +519,17 @@ pub fn find_compatible_node<'a>(
                     b"#address-cells" => {
                         if len != 4 { return Err(FdtError::Cells); }
                         let cells = be32(blob, cursor)?;
-                        if !(1..=2).contains(&cells) { return Err(FdtError::Cells); }
+                        // Unmatched buses may describe wider address tuples
+                        // (for example PCIe's three-cell addresses). Preserve
+                        // those widths; only a selected node's reg tuple must
+                        // fit the current u64 resource representation.
+                        if cells == 0 || cells > 4 { return Err(FdtError::Cells); }
                         child_address_cells[index] = cells;
                     }
                     b"#size-cells" => {
                         if len != 4 { return Err(FdtError::Cells); }
                         let cells = be32(blob, cursor)?;
-                        if cells > 2 { return Err(FdtError::Cells); }
+                        if cells > 4 { return Err(FdtError::Cells); }
                         child_size_cells[index] = cells;
                     }
                     b"compatible" => {
