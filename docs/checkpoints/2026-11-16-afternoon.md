@@ -63,7 +63,7 @@
 
 ### OpenXzuff UI Core
 
-[Run #43816272131](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131) — **SUCCESS** on revision `898183553f2b9dabed8bf88992b4fdd0b53fda61`. Compare from that revision to the RV64 code revision `66449dcb...` shows only `kernel/src/main.rs` changed, so Core source files were identical.
+[Run #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) — **SUCCESS** on the same integrated code revision `66449dcb3af4ae6e9d70011e690e102ac7df7bdf`.
 
 - Root CTest: **16/16 passed**.
 - Xzuff Go/Coder Checker tests passed.
@@ -72,10 +72,8 @@
 - Android ARM64 Xzuff Go / xgo cross-build and package succeeded.
 - Luau runtime build, source smoke and `.lap` pack/load smoke passed.
 - JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**, render smoke and image verification passed.
-- [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131/artifacts/14202826104).
+- [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109/artifacts/14202259895).
 - Vendored Luau emitted non-fatal bidi-character and unused-parameter warnings.
-
-A duplicate Core run on revision `66449dcb...` was still in progress at checkpoint update time; the successful run above covers identical Core source files.
 
 ## Failures diagnosed and corrected
 
