@@ -873,3 +873,194 @@ mod task_manager_capacity_tests {
         assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
     }
 }
+
+
+#[cfg(test)]
+mod fdt_node_discovery_tests {
+    use super::fdt::{self, FdtError, FdtNode, FdtRegion};
+
+    const BEGIN_NODE: u32 = 1;
+    const END_NODE: u32 = 2;
+    const PROP: u32 = 3;
+    const END: u32 = 9;
+
+    fn push_be32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn push_be64(out: &mut Vec<u8>, value: u64) {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn pad4(out: &mut Vec<u8>) {
+        while out.len() % 4 != 0 { out.push(0); }
+    }
+
+    fn begin_node(out: &mut Vec<u8>, name: &[u8]) {
+        push_be32(out, BEGIN_NODE);
+        out.extend_from_slice(name);
+        out.push(0);
+        pad4(out);
+    }
+
+    fn property(out: &mut Vec<u8>, name_offset: u32, value: &[u8]) {
+        push_be32(out, PROP);
+        push_be32(out, value.len() as u32);
+        push_be32(out, name_offset);
+        out.extend_from_slice(value);
+        pad4(out);
+    }
+
+    fn string_offset(strings: &[u8], name: &[u8]) -> u32 {
+        strings.windows(name.len() + 1)
+            .position(|window| window == [name, &[0]].concat())
+            .expect("FDT property name exists") as u32
+    }
+
+    fn device_tree(
+        parent_status: Option<&[u8]>,
+        child_status: Option<&[u8]>,
+        address_cells: u32,
+        size_cells: u32,
+        reg_cells: Option<&[u32]>,
+        compatible: &[u8],
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0status\0reg\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible_name = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
+        let reg = string_offset(strings, b"reg");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &address_cells.to_be_bytes());
+        property(&mut structure, size, &size_cells.to_be_bytes());
+        if let Some(value) = parent_status { property(&mut structure, status, value); }
+        begin_node(&mut structure, b"serial@1000");
+        property(&mut structure, compatible_name, compatible);
+        if let Some(value) = child_status { property(&mut structure, status, value); }
+        if let Some(values) = reg_cells {
+            let mut raw = Vec::new();
+            for value in values { push_be32(&mut raw, *value); }
+            property(&mut structure, reg, &raw);
+        }
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 72;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn compatible_node_returns_parent_bus_address_and_size() {
+        let blob = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0ns16550a\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"ns16550a"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_reads_two_cell_64_bit_addresses() {
+        let blob = device_tree(
+            None, None, 2, 2,
+            Some(&[1, 0x2345, 0, 0x100]),
+            b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion {
+                    bus_address: 0x1_0000_2345,
+                    size: Some(0x100),
+                }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_honours_disabled_ancestors_and_default_status() {
+        let disabled = device_tree(
+            Some(b"disabled\0"), Some(b"okay\0"), 1, 1,
+            Some(&[0x1000, 0x100]), b"test,serial\0",
+        );
+        assert_eq!(fdt::find_compatible_node(&disabled, b"test,serial"), Ok(None));
+
+        let enabled = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&enabled, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_reports_missing_reg_and_zero_size_cells() {
+        let missing = device_tree(None, None, 1, 1, None, b"test,serial\0");
+        assert_eq!(
+            fdt::find_compatible_node(&missing, b"test,serial"),
+            Ok(Some(FdtNode { name: b"serial@1000", reg: None }))
+        );
+
+        let address_only = device_tree(
+            None, None, 1, 0, Some(&[0x2000]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&address_only, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x2000, size: None }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_rejects_malformed_reg_and_compatible_lists() {
+        let bad_reg = device_tree(
+            None, None, 1, 1, Some(&[0x1000]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&bad_reg, b"test,serial"),
+            Err(FdtError::Cells)
+        );
+
+        let bad_compatible = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&bad_compatible, b"test,serial"),
+            Err(FdtError::Structure)
+        );
+    }
+}
