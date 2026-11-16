@@ -523,7 +523,7 @@ pub fn find_compatible_node<'a>(
                         // (for example PCIe's three-cell addresses). Preserve
                         // those widths; only a selected node's reg tuple must
                         // fit the current u64 resource representation.
-                        if cells == 0 || cells > 4 { return Err(FdtError::Cells); }
+                        if cells > 4 { return Err(FdtError::Cells); }
                         child_address_cells[index] = cells;
                     }
                     b"#size-cells" => {
