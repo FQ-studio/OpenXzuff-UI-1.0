@@ -90,8 +90,19 @@ fn report_uart_candidate(blob: &[u8]) {
                 }
             }
             Ok(None) => {}
-            Err(_) => {
-                console_write("FDT UART compatible-node discovery: ERROR\n");
+            Err(error) => {
+                let code = match error {
+                    fdt::FdtError::Header => 1,
+                    fdt::FdtError::Bounds => 2,
+                    fdt::FdtError::Structure => 3,
+                    fdt::FdtError::Cells => 4,
+                    fdt::FdtError::Memory => 5,
+                    fdt::FdtError::Reservation => 6,
+                    fdt::FdtError::Timebase => 7,
+                };
+                console_write("FDT UART compatible-node discovery: ERROR code=");
+                print_hex(code);
+                console_write("\n");
                 return;
             }
         }
