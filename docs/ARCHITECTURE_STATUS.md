@@ -189,15 +189,14 @@ Code revision: `66449dcb3af4ae6e9d70011e690e102ac7df7bdf` on
   - [Kernel ELF, binary and serial log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114/artifacts/14203180179).
 - [VisionFive 2 Kernel Readiness #43816421040](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421040) — **SUCCESS**; strict-warning host build and CTest **16/16**. This is not a physical-board boot.
 - [Win32 Gravity Bridge #43816421214](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421214) — **SUCCESS**; host CTest **2/2** and RV64 adapter cross-compile passed.
-- [OpenXzuff UI Core #43816272131](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131) — **SUCCESS** on revision `898183553f2b9dabed8bf88992b4fdd0b53fda61`. GitHub compare from that revision to the RV64 code revision `66449dcb...` shows only `kernel/src/main.rs` changed, so the Core source inputs were unchanged.
+- [OpenXzuff UI Core #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) — **SUCCESS** on the same code revision `66449dcb3af4ae6e9d70011e690e102ac7df7bdf`.
   - Root CTest: **16/16 passed**.
   - Xzuff Go/Coder Checker tests passed; compiler produced a 44-byte RV64 `.xexe` fixture whose entry exits with status 42; host-loader validation passed.
   - Gravity RV64 NDK example compiled; Android ARM64 Xzuff Go/xgo cross-build and package succeeded.
   - Luau runtime build, source smoke and `.lap` pack/load smoke passed.
   - JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**, render smoke and image verification passed.
-  - [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131/artifacts/14202826104).
-  - Vendored Luau emits non-fatal bidi-character and unused-parameter warnings; the workflow completed successfully.
-- A duplicate Core run on revision `66449dcb...` was still running at checkpoint time; the successful Core run above covers identical Core source files.
+  - [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109/artifacts/14202259895).
+  - Vendored Luau emitted non-fatal bidi-character and unused-parameter warnings.
 
 ### Remaining boundaries
 
