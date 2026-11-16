@@ -230,7 +230,7 @@ mod fdt_tests {
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
         const RESERVE_OFFSET: u32 = 40;
-        const STRUCT_OFFSET: u32 = 56;
+        const STRUCT_OFFSET: u32 = 72;
         let strings_offset = STRUCT_OFFSET + structure.len() as u32;
         let total_size = strings_offset + strings.len() as u32;
         let mut blob = Vec::with_capacity(total_size as usize);
@@ -954,7 +954,7 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END);
 
         const RESERVE_OFFSET: u32 = 40;
-        const STRUCT_OFFSET: u32 = 72;
+        const STRUCT_OFFSET: u32 = 56;
         let strings_offset = STRUCT_OFFSET + structure.len() as u32;
         let total_size = strings_offset + strings.len() as u32;
         let mut blob = Vec::with_capacity(total_size as usize);
