@@ -274,6 +274,35 @@ mod fdt_tests {
     }
 
     #[test]
+    fn fdt_timebase_and_memory_parsers_reject_incomplete_structure_blocks() {
+        fn replace_final_structure_token(blob: &mut [u8], token: u32) {
+            let start = u32::from_be_bytes(blob[8..12].try_into().unwrap()) as usize;
+            let size = u32::from_be_bytes(blob[36..40].try_into().unwrap()) as usize;
+            let end = start + size;
+            blob[end - 4..end].copy_from_slice(&token.to_be_bytes());
+        }
+
+        // A valid timebase appears before this token. The parser must still
+        // validate the complete structure instead of returning early.
+        let mut missing_end = valid_fdt();
+        replace_final_structure_token(&mut missing_end, 4); // NOP, no FDT_END
+        assert_eq!(fdt::timebase_frequency(&missing_end), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&missing_end, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+
+        // An extra END_NODE after the root has closed is structurally invalid.
+        let mut unbalanced = valid_fdt();
+        replace_final_structure_token(&mut unbalanced, END_NODE);
+        assert_eq!(fdt::timebase_frequency(&unbalanced), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&unbalanced, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+    }
+
+    #[test]
     fn fdt_parser_extracts_ram_and_memreserve_ranges() {
         let blob = valid_fdt();
         let mut map = MemoryMap::new();
