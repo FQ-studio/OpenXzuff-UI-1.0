@@ -150,3 +150,58 @@ The newer [Core run #43688778784](https://github.com/FQ-studio/OpenXzuff-UI-1.0/
 - IPC remains scalar and non-blocking; no general wait queues or shared-memory IPC.
 - No general `.xexe` loader/linker, PE32/PE32+ loader, Win32 API/DLL compatibility runtime or x86/x64-to-RV64 translator exists. No Windows game is claimed to run.
 - No production stability or 100% Core completion is claimed.
+
+
+## 2026-11-16 afternoon — FDT node discovery and QEMU integration
+
+Code revision: `66449dcb3af4ae6e9d70011e690e102ac7df7bdf` on
+`feature/win32-gaming-gravity-port`.
+
+### FDT discovery
+
+- Added `find_compatible_node`, which selects the first node whose exact
+  NUL-delimited compatible list matches and whose own/ancestor status is
+  available.
+- Returns the borrowed node name and first `reg` tuple. The tuple is decoded
+  using the parent bus's `#address-cells` and `#size-cells`; size is optional
+  when the bus declares zero size cells.
+- Unselected buses can declare up to four address/size cells without aborting
+  discovery. A selected resource must fit the current u64 decoder (one/two
+  address cells, zero/one/two size cells).
+- The result remains a raw parent-bus address. Ancestor `ranges` translation,
+  validated MMIO mapping, clocks, resets and interrupt routing are not
+  implemented by this change.
+- Boot diagnostics probe the three board families' UART compatible candidates
+  plus the QEMU `ns16550a` fallback. This does not initialize or access UART
+  MMIO.
+
+### Evidence on code revision
+
+- [RV64 S-Mode Kernel run #43816421114](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114) — **SUCCESS**.
+  - Host Rust tests: **67 passed, 0 failed**.
+  - Win32 Gravity RV64 adapter cross-compile: passed.
+  - RV64 kernel ELF build: passed.
+  - OpenSBI + QEMU `virt`: all required serial assertions passed, including
+    FDT UART compatible-node discovery. QEMU reported raw bus address
+    `0x10000000`, size `0x100` for the `ns16550a` candidate.
+  - QEMU is stopped by the 15-second smoke timeout after required markers;
+    this is not long-duration stability evidence.
+  - [Kernel ELF, binary and serial log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114/artifacts/14202991420).
+- [VisionFive 2 Kernel Readiness #43816421040](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421040) — **SUCCESS**; strict-warning host build and CTest **16/16**. This is not a physical-board boot.
+- [Win32 Gravity Bridge #43816421214](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421214) — **SUCCESS**; host CTest **2/2** and RV64 adapter cross-compile passed.
+- [OpenXzuff UI Core #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) — **IN PROGRESS** at checkpoint preparation. OS contracts, Xzuff Go compiler/Coder Checker, `.xexe` fixture, Gravity RV64 NDK build, Android ARM64 Xzuff Go cross-build and packaging had passed; Luau runtime build was still running. No final Core result is claimed here.
+
+### Remaining boundaries
+
+- No ancestor `ranges` translation or validated MMIO region; UART is discovered,
+  not initialized or read/written by the kernel driver.
+- HAL, physical UART, PLIC, clocks/resets, physical-board boot and LAVA remain
+  incomplete.
+- Runtime tasks/stacks are still statically provisioned; independent
+  per-process Sv39 roots, general VM teardown and safe user-buffer copies remain
+  incomplete.
+- VFS remains bounded RAM-only; persistent storage, mount integration and
+  handle-backed filesystem objects remain incomplete.
+- IPC remains scalar and non-blocking. No general Win32 PE/DLL loader or
+  x86/x64-to-RV64 execution layer exists.
+- No production-stability or 100% Core completion claim is made.
