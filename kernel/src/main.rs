@@ -89,7 +89,7 @@ fn report_uart_candidate(blob: &[u8]) {
                     }
                 }
             }
-            Ok(None) | Ok(Some(_)) => {}
+            Ok(None) => {}
             Err(_) => {
                 console_write("FDT UART compatible-node discovery: ERROR\n");
                 return;
