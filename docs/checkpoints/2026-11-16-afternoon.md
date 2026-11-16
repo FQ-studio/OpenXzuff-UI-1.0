@@ -63,16 +63,19 @@
 
 ### OpenXzuff UI Core
 
-[Run #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) is **IN PROGRESS** at checkpoint creation.
+[Run #43816272131](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131) — **SUCCESS** on revision `898183553f2b9dabed8bf88992d2bf0b53fda61`. Compare from that revision to the RV64 code revision `66449dcb...` shows only `kernel/src/main.rs` changed, so Core source files were identical.
 
-Completed successfully:
-- OS contract and Xzuff Go compiler/Coder Checker tests.
-- 44-byte RV64 `.xexe` fixture compile and host-loader validation.
-- Gravity RV64 NDK example build.
-- Android ARM64 Xzuff Go / xgo cross-compile and package.
-- Gravity SDK/NDK package.
+- Root CTest: **16/16 passed**.
+- Xzuff Go/Coder Checker tests passed.
+- Compiler produced a 44-byte RV64 `.xexe` fixture whose entry exits with status 42; host-loader validation passed.
+- Gravity RV64 NDK example compiled.
+- Android ARM64 Xzuff Go / xgo cross-build and package succeeded.
+- Luau runtime build, source smoke and `.lap` pack/load smoke passed.
+- JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**, render smoke and image verification passed.
+- [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131/artifacts/14202826104).
+- Vendored Luau emitted non-fatal bidi-character and unused-parameter warnings.
 
-The Luau runtime build step is still running. JavaScript, standard Lua and OpenXzuff3D smoke tests have not yet been reported by this run. Do not claim the Core workflow complete until it finishes.
+A duplicate Core run on revision `66449dcb...` was still in progress at checkpoint update time; the successful run above covers identical Core source files.
 
 ## Failures diagnosed and corrected
 
