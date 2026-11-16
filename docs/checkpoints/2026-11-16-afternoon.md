@@ -63,7 +63,7 @@
 
 ### OpenXzuff UI Core
 
-[Run #43816272131](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131) — **SUCCESS** on revision `898183553f2b9dabed8bf88992d2bf0b53fda61`. Compare from that revision to the RV64 code revision `66449dcb...` shows only `kernel/src/main.rs` changed, so Core source files were identical.
+[Run #43816272131](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816272131) — **SUCCESS** on revision `898183553f2b9dabed8bf88992b4fdd0b53fda61`. Compare from that revision to the RV64 code revision `66449dcb...` shows only `kernel/src/main.rs` changed, so Core source files were identical.
 
 - Root CTest: **16/16 passed**.
 - Xzuff Go/Coder Checker tests passed.
