@@ -143,7 +143,7 @@ The newer [Core run #43688778784](https://github.com/FQ-studio/OpenXzuff-UI-1.0/
 
 ### Remaining integration boundary
 
-- FDT filtering now respects memory-node `status`, but general device-node discovery, inherited bus cell widths, `ranges` translation, clocks/resets and interrupt-parent routing are not complete.
+- FDT RAM parsing rejects unavailable memory nodes; `has_compatible` now matches exact compatible entries only on nodes whose own and ancestor `status` is absent or `okay`/`ok`, and rejects malformed status strings. It still returns only a boolean: node paths, `reg` resources, inherited bus cell widths, `ranges` translation, clocks/resets and interrupt-parent routing are not complete.
 - HAL MMIO validation, UART initialization/receive/flush, PLIC routing and physical-board boot remain unverified.
 - Process/task manager coordinates metadata with a fixed-capacity scheduler, but runtime stacks/frames are static; there are not yet independent dynamic per-process Sv39 roots, safe copy-in/copy-out or full VM teardown.
 - RAM VFS is bounded and in-memory; handles are not fully backed by VFS/device objects. Persistent block storage, mounts and file permissions remain incomplete.
