@@ -265,14 +265,15 @@ fn compatible_list_contains(value: &[u8], wanted: &[u8]) -> Result<bool, FdtErro
         return Err(FdtError::Structure);
     }
     let mut start = 0usize;
+    let mut found = false;
     while start < value.len() {
         let finish = value[start..].iter().position(|b| *b == 0)
             .map(|n| start + n).ok_or(FdtError::Structure)?;
         if finish == start { return Err(FdtError::Structure); }
-        if &value[start..finish] == wanted { return Ok(true); }
+        found |= &value[start..finish] == wanted;
         start = finish + 1;
     }
-    Ok(false)
+    Ok(found)
 }
 
 /// Match an exact compatible entry on an available node.
@@ -363,4 +364,194 @@ pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
 
     if !ended { return Err(FdtError::Structure); }
     Ok(found)
+}
+
+
+/// A raw device-tree register tuple. The address is still in the parent bus
+/// address space; it must not be used for MMIO until every ancestor `ranges`
+/// mapping and platform resource constraint has been resolved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtRegion {
+    pub bus_address: u64,
+    pub size: Option<u64>,
+}
+
+/// A compatible node selected from the FDT. `name` borrows the node name from
+/// the original blob. `reg` is the first tuple in the node's `reg` property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtNode<'a> {
+    pub name: &'a [u8],
+    pub reg: Option<FdtRegion>,
+}
+
+/// Find the first available node matching an exact compatible-list entry.
+///
+/// This parses the node's `reg` tuple using the *parent bus*
+/// `#address-cells` and `#size-cells`. The returned address is deliberately
+/// untranslated: this routine does not apply ancestor `ranges`, clocks,
+/// resets, interrupt-parent or MMIO mapping policy.
+pub fn find_compatible_node<'a>(
+    blob: &'a [u8],
+    wanted: &[u8],
+) -> Result<Option<FdtNode<'a>>, FdtError> {
+    if wanted.is_empty() || wanted.contains(&0) { return Err(FdtError::Structure); }
+    if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(blob, 4)? as usize;
+    let off_struct = be32(blob, 8)? as usize;
+    let off_strings = be32(blob, 12)? as usize;
+    let size_strings = be32(blob, 32)? as usize;
+    let size_struct = be32(blob, 36)? as usize;
+    if total < 40 || total > blob.len()
+        || off_struct.checked_add(size_struct).filter(|v| *v <= total).is_none()
+        || off_strings.checked_add(size_strings).filter(|v| *v <= total).is_none() {
+        return Err(FdtError::Bounds);
+    }
+
+    let strings = &blob[off_strings..off_strings + size_strings];
+    let struct_end = off_struct + size_struct;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    let mut ended = false;
+
+    let mut enabled = [true; 32];
+    let mut compatible = [false; 32];
+    let mut saw_child = [false; 32];
+    let mut names: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut regs: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut child_address_cells = [2u32; 32];
+    let mut child_size_cells = [1u32; 32];
+    let mut reg_address_cells = [2u32; 32];
+    let mut reg_size_cells = [1u32; 32];
+    let mut result: Option<FdtNode<'a>> = None;
+
+    while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= enabled.len() { return Err(FdtError::Structure); }
+                if depth > 0 {
+                    saw_child[depth - 1] = true;
+                    enabled[depth] = enabled[depth - 1];
+                    reg_address_cells[depth] = child_address_cells[depth - 1];
+                    reg_size_cells[depth] = child_size_cells[depth - 1];
+                } else {
+                    root_seen = true;
+                    enabled[depth] = true;
+                    reg_address_cells[depth] = 2;
+                    reg_size_cells[depth] = 1;
+                }
+                let start = cursor;
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|b| *b == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                names[depth] = Some((start, end - start));
+                compatible[depth] = false;
+                saw_child[depth] = false;
+                regs[depth] = None;
+                child_address_cells[depth] = 2;
+                child_size_cells[depth] = 1;
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+                if enabled[depth] && compatible[depth] {
+                    let name_range = names[depth].ok_or(FdtError::Structure)?;
+                    let reg = if let Some((reg_start, reg_len)) = regs[depth] {
+                        let address_cells = reg_address_cells[depth];
+                        let size_cells = reg_size_cells[depth];
+                        if !(1..=2).contains(&address_cells) || size_cells > 2 {
+                            return Err(FdtError::Cells);
+                        }
+                        let tuple_cells = address_cells.checked_add(size_cells)
+                            .ok_or(FdtError::Cells)?;
+                        let tuple_bytes = tuple_cells as usize * 4;
+                        if reg_len == 0 || reg_len % tuple_bytes != 0 {
+                            return Err(FdtError::Cells);
+                        }
+                        let mut offset = 0usize;
+                        let mut first = None;
+                        while offset < reg_len {
+                            let address = read_cells(blob, reg_start + offset, address_cells)?;
+                            let size = if size_cells == 0 {
+                                None
+                            } else {
+                                let size_offset = reg_start + offset + address_cells as usize * 4;
+                                let value = read_cells(blob, size_offset, size_cells)?;
+                                if value == 0 { return Err(FdtError::Memory); }
+                                address.checked_add(value).ok_or(FdtError::Bounds)?;
+                                Some(value)
+                            };
+                            if first.is_none() {
+                                first = Some(FdtRegion { bus_address: address, size });
+                            }
+                            offset += tuple_bytes;
+                        }
+                        first
+                    } else {
+                        None
+                    };
+                    if result.is_none() {
+                        result = Some(FdtNode {
+                            name: &blob[name_range.0..name_range.0 + name_range.1],
+                            reg,
+                        });
+                    }
+                }
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let index = depth - 1;
+                // Device-tree node properties precede subnodes. Enforce this so
+                // parent bus cell widths are known before parsing child reg data.
+                if saw_child[index] { return Err(FdtError::Structure); }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|v| *v <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                match prop_name(strings, nameoff)? {
+                    b"#address-cells" => {
+                        if len != 4 { return Err(FdtError::Cells); }
+                        let cells = be32(blob, cursor)?;
+                        if !(1..=2).contains(&cells) { return Err(FdtError::Cells); }
+                        child_address_cells[index] = cells;
+                    }
+                    b"#size-cells" => {
+                        if len != 4 { return Err(FdtError::Cells); }
+                        let cells = be32(blob, cursor)?;
+                        if cells > 2 { return Err(FdtError::Cells); }
+                        child_size_cells[index] = cells;
+                    }
+                    b"compatible" => {
+                        if compatible_list_contains(&blob[cursor..end], wanted)? {
+                            compatible[index] = true;
+                        }
+                    }
+                    b"status" => {
+                        enabled[index] &= status_is_enabled(&blob[cursor..end])?;
+                    }
+                    b"reg" => regs[index] = Some((cursor, len)),
+                    _ => {}
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+
+    if !ended { return Err(FdtError::Structure); }
+    Ok(result)
 }
