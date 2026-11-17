@@ -588,7 +588,7 @@ fn find_compatible_node_inner<'a>(
     let mut child_size_cells = [1u32; 32];
     let mut reg_address_cells = [2u32; 32];
     let mut reg_size_cells = [1u32; 32];
-    let mut result: Option<FdtNode<'a>> = None;
+    let mut result: Option<FdtMappedNode<'a>> = None;
 
     while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?;
