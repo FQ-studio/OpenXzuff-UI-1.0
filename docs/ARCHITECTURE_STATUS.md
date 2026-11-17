@@ -212,3 +212,47 @@ Code revision: `66449dcb3af4ae6e9d70011e690e102ac7df7bdf` on
 - IPC remains scalar and non-blocking. No general Win32 PE/DLL loader or
   x86/x64-to-RV64 execution layer exists.
 - No production-stability or 100% Core completion claim is made.
+
+## 2026-11-17 afternoon — FDT structure hardening and regression validation
+
+Validated code revision: `12c5d4dab3dd08a1cfcd56b878d1ed05d73c33f8` on
+`feature/win32-gaming-gravity-port`.
+
+### FDT changes
+
+- Merged stacked PR #14, `Validate complete FDT structure before using boot metadata`,
+  into this integration branch (squash merge `72390f313645c5eeb55fdcf7bce21c09bf886719`).
+- `timebase_frequency` and both passes of `parse_memory` require a single root,
+  balanced node depth and a terminal `FDT_END`; duplicate
+  `/cpus/timebase-frequency` properties are rejected.
+- Extended the same single-root invariant to `has_compatible` and
+  `find_compatible_node`. These device-discovery scanners now reject a second
+  root instead of accepting a compatible result from an invalid structure.
+- Added a malformed multi-root FDT fixture and regression assertions for
+  `timebase_frequency`, `parse_memory`, `has_compatible` and
+  `find_compatible_node`.
+- The parser still does not translate ancestor `ranges`, validate/map MMIO,
+  resolve clocks/resets or route interrupts.
+
+### Validation evidence on code revision
+
+- [RV64 S-Mode Kernel push run #44032452966](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452966) — **SUCCESS**.
+  - Host Rust tests: **69 passed, 0 failed**.
+  - Win32 Gravity RV64 ecall adapter cross-compile: success.
+  - RV64 kernel ELF build: success; ELF identified as 64-bit RISC-V, statically linked.
+  - OpenSBI + QEMU `virt` smoke boot: success; required serial assertions passed,
+    including FDT UART discovery at raw parent-bus address `0x10000000`,
+    size `0x100`, and U-mode timer preemption/saved-frame resume.
+  - QEMU uses the workflow's 15-second smoke timeout; this is not long-duration
+    stability or physical-board evidence.
+  - [Kernel ELF, binary and QEMU serial artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452966/artifacts/14304799721).
+- [VisionFive 2 host readiness #44032452935](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452935) — **SUCCESS**; strict-warning host build and CTest **16/16**. No physical board boot is claimed.
+- [Win32 Gravity Bridge #44032452878](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452878) — **SUCCESS**; host bridge test job and real RV64 adapter cross-compile completed.
+- OpenXzuff Core #44032452849 and PR run #44032458405 had completed OS contract/compiler, RV64 NDK example and Android ARM64 xgo toolchain steps, but the Luau runtime build was still in progress at checkpoint creation. No Core workflow PASS is claimed for this revision.
+
+### Repository integration
+
+- PR #14 was squash-merged into the feature branch; this did not merge the broader integration into `main`.
+- PR #12 remains open and targets `main`.
+- The latest code revision above is the revision covered by the listed push workflows. Documentation/checkpoint commits may follow without changing that tested code.
+- No physical-board boot, production stability, Windows game execution or 100% Core completion is claimed.
