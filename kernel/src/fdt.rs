@@ -356,6 +356,7 @@ pub fn has_compatible(blob: &[u8], wanted: &[u8]) -> Result<bool, FdtError> {
                     .iter().position(|b| *b == 0).map(|n| cursor + n)
                     .ok_or(FdtError::Structure)?;
                 if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
                     root_seen = true;
                     node_enabled[depth] = true;
                 } else {
@@ -480,6 +481,7 @@ pub fn find_compatible_node<'a>(
                     reg_address_cells[depth] = child_address_cells[depth - 1];
                     reg_size_cells[depth] = child_size_cells[depth - 1];
                 } else {
+                    if root_seen { return Err(FdtError::Structure); }
                     root_seen = true;
                     enabled[depth] = true;
                     reg_address_cells[depth] = 2;
