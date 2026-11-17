@@ -8,7 +8,7 @@ const NOP: u32 = 4;
 const END: u32 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase }
+pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase, Translation }
 
 fn be32(b: &[u8], p: usize) -> Result<u32, FdtError> {
     let s = b.get(p..p.checked_add(4).ok_or(FdtError::Bounds)?).ok_or(FdtError::Bounds)?;
@@ -420,24 +420,143 @@ pub struct FdtRegion {
     pub size: Option<u64>,
 }
 
-/// A compatible node selected from the FDT. `name` borrows the node name from
-/// the original blob. `reg` is the first tuple in the node's `reg` property.
+
+fn address_fits_cells(address: u64, cells: u32) -> bool {
+    match cells {
+        1 => address <= u32::MAX as u64,
+        2 => true,
+        _ => false,
+    }
+}
+
+/// Translate a resource from its immediate parent bus to the root address
+/// space. Each bus contributes one child-to-parent mapping via `ranges`.
+fn translate_region_to_root(
+    blob: &[u8],
+    mut region: FdtRegion,
+    node_index: usize,
+    ranges: &[Option<(usize, usize)>; 32],
+    ranges_seen: &[bool; 32],
+    child_address_cells: &[u32; 32],
+    child_size_cells: &[u32; 32],
+    parent_address_cells: &[u32; 32],
+) -> Result<FdtRegion, FdtError> {
+    let access_size = region.size.unwrap_or(1);
+    if access_size == 0 { return Err(FdtError::Translation); }
+    let mut bus_index = node_index.checked_sub(1).ok_or(FdtError::Structure)?;
+
+    while bus_index > 0 {
+        if !ranges_seen[bus_index] { return Err(FdtError::Translation); }
+        let (ranges_start, ranges_len) = ranges[bus_index].ok_or(FdtError::Structure)?;
+        let child_cells = child_address_cells[bus_index];
+        let parent_cells = parent_address_cells[bus_index];
+        if !(1..=2).contains(&child_cells) || !(1..=2).contains(&parent_cells) {
+            return Err(FdtError::Cells);
+        }
+
+        let access_end = region.bus_address
+            .checked_add(access_size)
+            .ok_or(FdtError::Translation)?;
+
+        // An explicitly empty ranges property declares identity translation.
+        if ranges_len == 0 {
+            if !address_fits_cells(region.bus_address, parent_cells)
+                || !address_fits_cells(access_end - 1, parent_cells) {
+                return Err(FdtError::Translation);
+            }
+        } else {
+            let size_cells = child_size_cells[bus_index];
+            if !(1..=2).contains(&size_cells) { return Err(FdtError::Cells); }
+            let tuple_cells = child_cells.checked_add(parent_cells)
+                .and_then(|n| n.checked_add(size_cells))
+                .ok_or(FdtError::Cells)?;
+            let tuple_bytes = (tuple_cells as usize).checked_mul(4)
+                .ok_or(FdtError::Bounds)?;
+            if ranges_len == 0 || ranges_len % tuple_bytes != 0 {
+                return Err(FdtError::Cells);
+            }
+
+            let mut offset = 0usize;
+            let mut translated = None;
+            while offset < ranges_len {
+                let child_base = read_cells(blob, ranges_start + offset, child_cells)?;
+                let parent_offset = offset + child_cells as usize * 4;
+                let parent_base = read_cells(blob, ranges_start + parent_offset, parent_cells)?;
+                let size_offset = parent_offset + parent_cells as usize * 4;
+                let window_size = read_cells(blob, ranges_start + size_offset, size_cells)?;
+                if window_size == 0 { return Err(FdtError::Translation); }
+                let child_end = child_base.checked_add(window_size)
+                    .ok_or(FdtError::Translation)?;
+
+                if region.bus_address >= child_base && access_end <= child_end {
+                    if translated.is_some() { return Err(FdtError::Translation); }
+                    let delta = region.bus_address - child_base;
+                    let root_address = parent_base.checked_add(delta)
+                        .ok_or(FdtError::Translation)?;
+                    let root_end = root_address.checked_add(access_size)
+                        .ok_or(FdtError::Translation)?;
+                    let parent_end = parent_base.checked_add(window_size)
+                        .ok_or(FdtError::Translation)?;
+                    if root_end > parent_end
+                        || !address_fits_cells(root_address, parent_cells)
+                        || !address_fits_cells(root_end - 1, parent_cells) {
+                        return Err(FdtError::Translation);
+                    }
+                    translated = Some(root_address);
+                }
+                offset += tuple_bytes;
+            }
+            region.bus_address = translated.ok_or(FdtError::Translation)?;
+        }
+
+        bus_index -= 1;
+    }
+
+    Ok(region)
+}
+
+/// A compatible node selected from the FDT. `reg` is the first tuple in
+/// the node's parent-bus address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FdtNode<'a> {
     pub name: &'a [u8],
     pub reg: Option<FdtRegion>,
 }
 
-/// Find the first available node matching an exact compatible-list entry.
-///
-/// This parses the node's `reg` tuple using the *parent bus*
-/// `#address-cells` and `#size-cells`. The returned address is deliberately
-/// untranslated: this routine does not apply ancestor `ranges`, clocks,
-/// resets, interrupt-parent or MMIO mapping policy.
+/// A compatible node with both its raw parent-bus resource and its address
+/// translated through every ancestor bus `ranges` property to the root bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtMappedNode<'a> {
+    pub name: &'a [u8],
+    pub bus_reg: Option<FdtRegion>,
+    pub root_reg: Option<FdtRegion>,
+}
+
+/// Find the first available compatible node and return its untranslated reg.
 pub fn find_compatible_node<'a>(
     blob: &'a [u8],
     wanted: &[u8],
 ) -> Result<Option<FdtNode<'a>>, FdtError> {
+    let mapped = find_compatible_node_inner(blob, wanted, false)?;
+    Ok(mapped.map(|node| FdtNode { name: node.name, reg: node.bus_reg }))
+}
+
+/// Find the first available compatible node and translate its first reg tuple
+/// through each ancestor bus to the root address space. A missing `ranges`
+/// property on an intermediate bus is not treated as identity; only an
+/// explicitly empty `ranges` property means identity translation.
+pub fn find_compatible_node_translated<'a>(
+    blob: &'a [u8],
+    wanted: &[u8],
+) -> Result<Option<FdtMappedNode<'a>>, FdtError> {
+    find_compatible_node_inner(blob, wanted, true)
+}
+
+fn find_compatible_node_inner<'a>(
+    blob: &'a [u8],
+    wanted: &[u8],
+    translate: bool,
+) -> Result<Option<FdtMappedNode<'a>>, FdtError> {
     if wanted.is_empty() || wanted.contains(&0) { return Err(FdtError::Structure); }
     if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
     let total = be32(blob, 4)? as usize;
@@ -463,6 +582,8 @@ pub fn find_compatible_node<'a>(
     let mut saw_child = [false; 32];
     let mut names: [Option<(usize, usize)>; 32] = [None; 32];
     let mut regs: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ranges: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ranges_seen = [false; 32];
     let mut child_address_cells = [2u32; 32];
     let mut child_size_cells = [1u32; 32];
     let mut reg_address_cells = [2u32; 32];
@@ -495,6 +616,8 @@ pub fn find_compatible_node<'a>(
                 compatible[depth] = false;
                 saw_child[depth] = false;
                 regs[depth] = None;
+                ranges[depth] = None;
+                ranges_seen[depth] = false;
                 child_address_cells[depth] = 2;
                 child_size_cells[depth] = 1;
                 cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
@@ -540,9 +663,27 @@ pub fn find_compatible_node<'a>(
                         None
                     };
                     if result.is_none() {
-                        result = Some(FdtNode {
+                        let root_reg = if translate {
+                            match reg {
+                                Some(region) => Some(translate_region_to_root(
+                                    blob,
+                                    region,
+                                    depth,
+                                    &ranges,
+                                    &ranges_seen,
+                                    &child_address_cells,
+                                    &child_size_cells,
+                                    &reg_address_cells,
+                                )?),
+                                None => None,
+                            }
+                        } else {
+                            None
+                        };
+                        result = Some(FdtMappedNode {
                             name: &blob[name_range.0..name_range.0 + name_range.1],
-                            reg,
+                            bus_reg: reg,
+                            root_reg,
                         });
                     }
                 }
@@ -586,6 +727,11 @@ pub fn find_compatible_node<'a>(
                         enabled[index] &= status_is_enabled(&blob[cursor..end])?;
                     }
                     b"reg" => regs[index] = Some((cursor, len)),
+                    b"ranges" => {
+                        if ranges_seen[index] { return Err(FdtError::Structure); }
+                        ranges_seen[index] = true;
+                        ranges[index] = Some((cursor, len));
+                    }
                     _ => {}
                 }
                 cursor = align4(end)?;
