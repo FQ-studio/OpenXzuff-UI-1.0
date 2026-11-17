@@ -273,7 +273,7 @@ mod fdt_tests {
         assert_eq!(fdt::timebase_frequency(&missing), Err(FdtError::Timebase));
     }
 
-    fn fdt_with_second_root(mut blob: Vec<u8>) -> Vec<u8> {
+    fn fdt_with_second_root(blob: Vec<u8>) -> Vec<u8> {
         let read = |offset: usize, bytes: &[u8]| {
             u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap())
         };
@@ -299,7 +299,6 @@ mod fdt_tests {
         malformed[4..8].copy_from_slice(&total.to_be_bytes());
         malformed[12..16].copy_from_slice(&strings_offset.to_be_bytes());
         malformed[36..40].copy_from_slice(&new_structure_size.to_be_bytes());
-        blob.clear();
         malformed
     }
 
