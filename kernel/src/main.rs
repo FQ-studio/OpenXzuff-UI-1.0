@@ -75,13 +75,15 @@ fn report_uart_candidate(blob: &[u8]) {
         b"ns16550a",
     ];
     for compatible in compatibles {
-        match fdt::find_compatible_node(blob, compatible) {
+        match fdt::find_compatible_node_translated(blob, compatible) {
             Ok(Some(node)) => {
-                if let Some(region) = node.reg {
-                    if let Some(size) = region.size {
-                        console_write("FDT UART compatible-node discovery: PASS; raw bus reg parsed\n");
-                        console_write("FDT UART raw bus address: ");
-                        print_hex(region.bus_address as usize);
+                if let (Some(bus), Some(root)) = (node.bus_reg, node.root_reg) {
+                    if let Some(size) = root.size {
+                        console_write("FDT UART compatible-node discovery: PASS; ancestor ranges translated\n");
+                        console_write("FDT UART bus address: ");
+                        print_hex(bus.bus_address as usize);
+                        console_write("; root address: ");
+                        print_hex(root.bus_address as usize);
                         console_write("; size: ");
                         print_hex(size as usize);
                         console_write("\n");
@@ -99,6 +101,7 @@ fn report_uart_candidate(blob: &[u8]) {
                     fdt::FdtError::Memory => 5,
                     fdt::FdtError::Reservation => 6,
                     fdt::FdtError::Timebase => 7,
+                    fdt::FdtError::Translation => 8,
                 };
                 console_write("FDT UART compatible-node discovery: ERROR code=");
                 print_hex(code);
