@@ -63,6 +63,9 @@ pub fn timebase_frequency(blob: &[u8]) -> Result<usize, FdtError> {
     let mut cursor = off_struct;
     let mut depth = 0usize;
     let mut cpus_node = [false; 32];
+    let mut root_seen = false;
+    let mut ended = false;
+    let mut frequency = None;
 
     while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?;
@@ -70,6 +73,10 @@ pub fn timebase_frequency(blob: &[u8]) -> Result<usize, FdtError> {
         match token {
             BEGIN_NODE => {
                 if depth >= cpus_node.len() { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                }
                 let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
                     .iter().position(|b| *b == 0).map(|n| cursor + n).ok_or(FdtError::Structure)?;
                 let name = blob.get(cursor..end).ok_or(FdtError::Bounds)?;
@@ -91,24 +98,32 @@ pub fn timebase_frequency(blob: &[u8]) -> Result<usize, FdtError> {
                 let nameoff = be32(blob, cursor + 4)?;
                 cursor += 8;
                 let end = cursor.checked_add(len).filter(|v| *v <= struct_end).ok_or(FdtError::Bounds)?;
-                if depth == 2 && cpus_node[1] && prop_name(strings, nameoff)? == b"timebase-frequency" {
-                    let frequency = match len {
+                let name = prop_name(strings, nameoff)?;
+                if depth == 2 && cpus_node[1] && name == b"timebase-frequency" {
+                    if frequency.is_some() { return Err(FdtError::Timebase); }
+                    let value = match len {
                         4 => be32(blob, cursor)? as u64,
                         8 => read_cells(blob, cursor, 2)?,
                         _ => return Err(FdtError::Timebase),
                     };
-                    if frequency == 0 { return Err(FdtError::Timebase); }
-                    return usize::try_from(frequency).map_err(|_| FdtError::Timebase);
+                    if value == 0 { return Err(FdtError::Timebase); }
+                    frequency = Some(value);
                 }
                 cursor = align4(end)?;
             }
             NOP => {}
-            END => break,
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
             _ => return Err(FdtError::Structure),
         }
         if cursor > struct_end { return Err(FdtError::Bounds); }
     }
-    Err(FdtError::Timebase)
+    if !ended { return Err(FdtError::Structure); }
+    let frequency = frequency.ok_or(FdtError::Timebase)?;
+    usize::try_from(frequency).map_err(|_| FdtError::Timebase)
 }
 
 /// Parse firmware FDT into usable RAM ranges and apply its memreserve entries.
@@ -128,22 +143,32 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     let strings = &blob[off_strings..off_strings + size_strings];
     let struct_end = off_struct + size_struct;
 
-    // Pass one: root cell widths define each memory reg tuple.
+    // Pass one: root cell widths define each memory reg tuple. Validate the
+    // complete structure block before trusting any RAM description.
     let (mut address_cells, mut size_cells) = (2u32, 1u32);
-    let (mut cursor, mut depth, mut root_seen) = (off_struct, 0usize, false);
-    while cursor + 4 <= struct_end {
+    let (mut cursor, mut depth, mut root_seen, mut ended) = (off_struct, 0usize, false, false);
+    while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?; cursor += 4;
         match token {
             BEGIN_NODE => {
+                if depth >= 32 { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                }
                 let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
                     .iter().position(|b| *b == 0).map(|n| cursor + n).ok_or(FdtError::Structure)?;
-                if depth == 0 { root_seen = true; }
                 cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
                 depth += 1;
             }
-            END_NODE => { if depth == 0 { return Err(FdtError::Structure); } depth -= 1; }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+            }
             PROP => {
-                if cursor + 8 > struct_end || depth == 0 { return Err(FdtError::Structure); }
+                if cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() || depth == 0 {
+                    return Err(FdtError::Structure);
+                }
                 let len = be32(blob, cursor)? as usize;
                 let nameoff = be32(blob, cursor + 4)?;
                 cursor += 8;
@@ -159,12 +184,17 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                 cursor = align4(value_end)?;
             }
             NOP => {}
-            END => break,
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
             _ => return Err(FdtError::Structure),
         }
         if cursor > struct_end { return Err(FdtError::Bounds); }
     }
-    if !root_seen || !(1..=2).contains(&address_cells) || !(1..=2).contains(&size_cells) {
+    if !ended { return Err(FdtError::Structure); }
+    if !(1..=2).contains(&address_cells) || !(1..=2).contains(&size_cells) {
         return Err(FdtError::Cells);
     }
 
@@ -174,13 +204,20 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     // A missing status means enabled; only "okay" and "ok" nodes contribute RAM.
     let mut node_enabled = [true; 32];
     let mut node_reg: [Option<(usize, usize)>; 32] = [None; 32];
-    cursor = off_struct; depth = 0;
+    cursor = off_struct;
+    depth = 0;
+    let mut root_seen = false;
+    let mut ended = false;
     let mut found_memory = false;
-    while cursor + 4 <= struct_end {
+    while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?; cursor += 4;
         match token {
             BEGIN_NODE => {
                 if depth >= 32 { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                }
                 let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
                     .iter().position(|b| *b == 0).map(|n| cursor + n).ok_or(FdtError::Structure)?;
                 node_memory[depth] = node_is_memory(&blob[cursor..end]);
@@ -213,7 +250,9 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                 }
             }
             PROP => {
-                if cursor + 8 > struct_end || depth == 0 { return Err(FdtError::Structure); }
+                if cursor.checked_add(8).filter(|v| *v <= struct_end).is_none() || depth == 0 {
+                    return Err(FdtError::Structure);
+                }
                 let len = be32(blob, cursor)? as usize;
                 let nameoff = be32(blob, cursor + 4)?;
                 cursor += 8;
@@ -227,11 +266,16 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
                 cursor = align4(end)?;
             }
             NOP => {}
-            END => break,
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
             _ => return Err(FdtError::Structure),
         }
         if cursor > struct_end { return Err(FdtError::Bounds); }
     }
+    if !ended { return Err(FdtError::Structure); }
     if !found_memory { return Err(FdtError::Memory); }
 
     cursor = off_reserve;
@@ -247,7 +291,6 @@ pub fn parse_memory(blob: &[u8], map: &mut MemoryMap) -> Result<usize, FdtError>
     }
     Ok(total)
 }
-
 
 /// Return whether an FDT status property marks a node as available.
 /// Device-tree string properties must be NUL terminated and contain one value.
