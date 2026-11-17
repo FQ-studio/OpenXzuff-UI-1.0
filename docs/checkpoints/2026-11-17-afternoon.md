@@ -4,10 +4,10 @@
 
 - Repository: `FQ-studio/OpenXzuff-UI-1.0`
 - Working branch: `feature/win32-gaming-gravity-port`
-- Latest documentation head at checkpoint: `481df53cb24ff1a8f1449618360f7151f8634c4c`
 - Latest code revision covered by validation: `12c5d4dab3dd08a1cfcd56b878d1ed05d73c33f8`
 - PR #12 remains open against `main`; no merge to `main` was performed.
 - Stacked PR #14 was squash-merged into the feature branch as `72390f313645c5eeb55fdcf7bce21c09bf886719`.
+- Documentation and checkpoint commits were added after the validated code revision; the exact validation SHA is recorded below.
 
 ## Implemented this session
 
