@@ -273,6 +273,36 @@ mod fdt_tests {
         assert_eq!(fdt::timebase_frequency(&missing), Err(FdtError::Timebase));
     }
 
+    fn fdt_with_second_root(mut blob: Vec<u8>) -> Vec<u8> {
+        let read = |offset: usize, bytes: &[u8]| {
+            u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap())
+        };
+        let structure_start = read(8, &blob) as usize;
+        let structure_size = read(36, &blob) as usize;
+        let structure_end = structure_start + structure_size;
+        let end_token = structure_end - 4;
+        assert_eq!(read(end_token, &blob), END);
+
+        // Replace the original FDT_END with a second, empty root followed by
+        // FDT_END. The structure grows by 12 bytes and the later strings block
+        // moves accordingly.
+        let mut malformed = Vec::with_capacity(blob.len() + 12);
+        malformed.extend_from_slice(&blob[..end_token]);
+        for token in [BEGIN_NODE, 0, 0, 0, END_NODE, END] {
+            malformed.extend_from_slice(&token.to_be_bytes());
+        }
+        malformed.extend_from_slice(&blob[structure_end..]);
+
+        let total = read(4, &blob) + 12;
+        let strings_offset = read(12, &blob) + 12;
+        let new_structure_size = read(36, &blob) + 12;
+        malformed[4..8].copy_from_slice(&total.to_be_bytes());
+        malformed[12..16].copy_from_slice(&strings_offset.to_be_bytes());
+        malformed[36..40].copy_from_slice(&new_structure_size.to_be_bytes());
+        blob.clear();
+        malformed
+    }
+
     #[test]
     fn fdt_timebase_and_memory_parsers_reject_incomplete_structure_blocks() {
         fn replace_final_structure_token(blob: &mut [u8], token: u32) {
@@ -298,6 +328,21 @@ mod fdt_tests {
         assert_eq!(fdt::timebase_frequency(&unbalanced), Err(FdtError::Structure));
         assert_eq!(
             fdt::parse_memory(&unbalanced, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+    }
+
+    #[test]
+    fn all_fdt_metadata_scanners_reject_a_second_root_node() {
+        let malformed = fdt_with_second_root(valid_fdt());
+        assert_eq!(fdt::timebase_frequency(&malformed), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&malformed, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+        assert_eq!(fdt::has_compatible(&malformed, b"ns16550a"), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::find_compatible_node(&malformed, b"ns16550a"),
             Err(FdtError::Structure)
         );
     }
