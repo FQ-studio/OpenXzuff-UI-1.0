@@ -248,7 +248,14 @@ Validated code revision: `12c5d4dab3dd08a1cfcd56b878d1ed05d73c33f8` on
   - [Kernel ELF, binary and QEMU serial artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452966/artifacts/14304799721).
 - [VisionFive 2 host readiness #44032452935](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452935) — **SUCCESS**; strict-warning host build and CTest **16/16**. No physical board boot is claimed.
 - [Win32 Gravity Bridge #44032452878](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452878) — **SUCCESS**; host bridge test job and real RV64 adapter cross-compile completed.
-- OpenXzuff Core #44032452849 and PR run #44032458405 had completed OS contract/compiler, RV64 NDK example and Android ARM64 xgo toolchain steps, but the Luau runtime build was still in progress at checkpoint creation. No Core workflow PASS is claimed for this revision.
+- [OpenXzuff Core push run #44032452849](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849) — **SUCCESS**.
+  - Root CTest: **16/16 passed, 0 failed**; OS contracts, Xzuff Go compiler, Coder Checker and `.xexe` fixture validation passed.
+  - Gravity RV64 NDK example compiled and SDK/NDK packages were produced.
+  - Xzuff Go / xgo cross-compiled for Android ARM64 and the Termux command-line toolchain package was produced (not an APK).
+  - Luau runtime built; `hello.luau` execution and `.lap` pack/load smoke both printed the expected output.
+  - JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**; rendered-scene image verification and artifact upload succeeded.
+  - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849/artifacts/14306160591).
+- PR-triggered Core run #44032458405 was still in progress at the last check; the successful push run above is the completed validation evidence for the same code revision.
 
 ### Repository integration
 
