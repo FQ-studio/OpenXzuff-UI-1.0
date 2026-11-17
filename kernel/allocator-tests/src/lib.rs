@@ -950,7 +950,7 @@ mod task_manager_capacity_tests {
 
 #[cfg(test)]
 mod fdt_node_discovery_tests {
-    use super::fdt::{self, FdtError, FdtNode, FdtRegion};
+    use super::fdt::{self, FdtError, FdtMappedNode, FdtNode, FdtRegion};
 
     const BEGIN_NODE: u32 = 1;
     const END_NODE: u32 = 2;
@@ -1142,4 +1142,194 @@ mod fdt_node_discovery_tests {
             Err(FdtError::Structure)
         );
     }
+    fn mapped_device_tree(ranges_cells: Option<&[u32]>, reg_cells: &[u32]) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        if let Some(cells) = ranges_cells {
+            let mut raw = Vec::new();
+            for cell in cells { push_be32(&mut raw, *cell); }
+            property(&mut structure, ranges, &raw);
+        }
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in reg_cells { push_be32(&mut raw_reg, *cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    fn nested_mapped_device_tree() -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut soc_ranges = Vec::new();
+        for cell in [0x2000, 0, 0x8000, 0x2000] { push_be32(&mut soc_ranges, cell); }
+        property(&mut structure, ranges, &soc_ranges);
+        begin_node(&mut structure, b"bridge@2000");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut bridge_ranges = Vec::new();
+        for cell in [0x1000, 0x2000, 0x1000] { push_be32(&mut bridge_ranges, cell); }
+        property(&mut structure, ranges, &bridge_ranges);
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in [0x1100, 0x100] { push_be32(&mut raw_reg, cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn translated_node_treats_explicit_empty_ranges_as_identity() {
+        let blob = mapped_device_tree(Some(&[]), &[0x1000, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_applies_child_to_parent_ranges_offset() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x1000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_walks_multiple_ancestor_ranges() {
+        let blob = nested_mapped_device_tree();
+        let node = fdt::find_compatible_node_translated(&blob, b"test,serial")
+            .unwrap().unwrap();
+        assert_eq!(node.bus_reg, Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }));
+        assert_eq!(node.root_reg, Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }));
+    }
+
+    #[test]
+    fn translated_node_fails_closed_when_ranges_is_absent() {
+        let blob = mapped_device_tree(None, &[0x1100, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"test,serial").unwrap().unwrap().reg,
+            Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) })
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_resources_outside_ranges_and_malformed_tuples() {
+        let outside = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x100]),
+            &[0x10f0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&outside, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+
+        let malformed = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&malformed, b"test,serial"),
+            Err(FdtError::Cells)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_ambiguous_overlapping_ranges() {
+        let blob = mapped_device_tree(
+            Some(&[
+                0x1000, 0, 0x8000, 0x1000,
+                0x1000, 0, 0x9000, 0x1000,
+            ]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
 }
