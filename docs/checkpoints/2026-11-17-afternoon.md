@@ -59,10 +59,15 @@
 
 ### OpenXzuff UI Core
 
-- [Push run #44032452849](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849) was still **IN PROGRESS** when this checkpoint was created.
-- Completed steps included OS contract/compiler tests, Xzuff Go `.xexe` fixture, Gravity RV64 NDK example, Android ARM64 xgo cross-build and package, and Gravity SDK/NDK packaging.
-- Luau runtime build was still running; downstream Lua/JS/3D smoke tests and artifact upload had not yet completed.
-- No Core workflow PASS is claimed at this checkpoint. PR-triggered Core run #44032458405 was also still running.
+[Push run #44032452849](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849) — **SUCCESS**.
+
+- Root CTest: **16/16 passed, 0 failed**; OS contracts, Xzuff Go compiler, Coder Checker and `.xexe` fixture validation passed.
+- Gravity RV64 NDK example compiled; SDK/NDK packages were produced.
+- Xzuff Go / xgo cross-compiled for Android ARM64 and the Termux command-line toolchain package was produced (not an APK).
+- Luau runtime built; `hello.luau` execution and `.lap` pack/load smoke both printed expected output.
+- JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**; rendered-scene image verification and artifact upload succeeded.
+- [Core smoke artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849/artifacts/14306160591).
+- PR-triggered Core run #44032458405 remained in progress at the last check; the completed push run above is the evidence for this code revision.
 
 ## Remaining work — not complete
 
