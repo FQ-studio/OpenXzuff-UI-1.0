@@ -58,7 +58,13 @@ address cells and zero, one or two size cells).
 
 The returned `reg` address is still a raw parent-bus address. The parser does
 not translate ancestor `ranges`, validate a mapped MMIO window, resolve
-clocks/resets, or route interrupts. QEMU `virt` smoke boot now discovers its
-`ns16550a` UART candidate at raw bus address `0x10000000`, size `0x100`;
-this is discovery only, not UART initialization or MMIO access. No physical
-UART driver or board boot is claimed by this matrix.
+clocks/resets, or route interrupts. The metadata scanners require one root
+node, balanced nesting and a terminal `FDT_END`; the timebase scanner also
+rejects duplicate `/cpus/timebase-frequency` properties. Regression coverage
+rejects a second root through `timebase_frequency`, `parse_memory`,
+`has_compatible` and `find_compatible_node`.
+
+QEMU `virt` smoke boot discovers its `ns16550a` UART candidate at raw bus
+address `0x10000000`, size `0x100`; this is discovery only, not UART
+initialization or MMIO access. No physical UART driver or board boot is
+claimed by this matrix.
