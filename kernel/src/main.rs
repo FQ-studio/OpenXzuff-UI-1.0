@@ -79,27 +79,31 @@ fn report_uart_candidate(blob: &[u8]) {
         match fdt::find_compatible_node_translated(blob, compatible) {
             Ok(Some(node)) => {
                 if let (Some(bus), Some(root)) = (node.bus_reg, node.root_reg) {
-                    let region = match mmio::MmioRegion::from_translated_fdt_region(root, 4, 4) {
-                        Ok(region) => region,
-                        Err(_) => {
+                    // A size-less candidate cannot be validated as an MMIO
+                    // window; preserve fallback matching for later compatibles.
+                    if root.size.is_some() {
+                        let region = match mmio::MmioRegion::from_translated_fdt_region(root, 4, 4) {
+                            Ok(region) => region,
+                            Err(_) => {
+                                console_write("FDT UART MMIO window: REJECTED; not mapped\n");
+                                return;
+                            }
+                        };
+                        if region.register_address(0, 4).is_err() {
                             console_write("FDT UART MMIO window: REJECTED; not mapped\n");
                             return;
                         }
-                    };
-                    if region.register_address(0, 4).is_err() {
-                        console_write("FDT UART MMIO window: REJECTED; not mapped\n");
+                        console_write("FDT UART compatible-node discovery: PASS; ancestor ranges translated\n");
+                        console_write("FDT UART bus address: ");
+                        print_hex(bus.bus_address as usize);
+                        console_write("; root address: ");
+                        print_hex(region.base() as usize);
+                        console_write("; size: ");
+                        print_hex(region.size() as usize);
+                        console_write("\n");
+                        console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; not mapped\n");
                         return;
                     }
-                    console_write("FDT UART compatible-node discovery: PASS; ancestor ranges translated\n");
-                    console_write("FDT UART bus address: ");
-                    print_hex(bus.bus_address as usize);
-                    console_write("; root address: ");
-                    print_hex(region.base() as usize);
-                    console_write("; size: ");
-                    print_hex(region.size() as usize);
-                    console_write("\n");
-                    console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; not mapped\n");
-                    return;
                 }
             }
             Ok(None) => {}
