@@ -1,6 +1,8 @@
 //! Host-side tests for the exact allocator and FDT modules used by the RV64 kernel.
 #[path = "../../src/fdt.rs"]
 pub mod fdt;
+#[path = "../../src/mmio.rs"]
+pub mod mmio;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]
@@ -1367,4 +1369,111 @@ mod fdt_node_discovery_tests {
         );
     }
 
+}
+
+
+#[cfg(test)]
+mod mmio_tests {
+    use super::{fdt::FdtRegion, mmio::{MmioError, MmioRegion}};
+
+    fn translated_region(base: u64, size: Option<u64>) -> FdtRegion {
+        FdtRegion { bus_address: base, size }
+    }
+
+    #[test]
+    fn mmio_region_accepts_translated_window_and_bounds_register_access() {
+        let region = MmioRegion::from_translated_fdt_region(
+            translated_region(0x1000, Some(0x100)), 4, 4,
+        ).unwrap();
+        assert_eq!(region.base(), 0x1000);
+        assert_eq!(region.size(), 0x100);
+        assert_eq!(region.end(), 0x1100);
+        assert_eq!(region.alignment(), 4);
+        assert_eq!(region.register_address(0, 4), Ok(0x1000));
+        assert_eq!(region.register_address(0xfc, 4), Ok(0x10fc));
+    }
+
+    #[test]
+    fn mmio_region_rejects_unknown_empty_and_short_resources() {
+        assert_eq!(
+            MmioRegion::from_translated_fdt_region(translated_region(0x1000, None), 4, 4),
+            Err(MmioError::UnknownSize),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0, 4, 4),
+            Err(MmioError::Empty),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 3, 4, 4),
+            Err(MmioError::TooSmall),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 4, 0, 4),
+            Err(MmioError::InvalidMinimumSize),
+        );
+    }
+
+    #[test]
+    fn mmio_region_requires_power_of_two_alignment_and_aligned_base() {
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 0),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 3),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1002, 0x100, 4, 4),
+            Err(MmioError::MisalignedBase),
+        );
+    }
+
+    #[test]
+    fn mmio_region_rejects_exclusive_end_overflow() {
+        assert_eq!(
+            MmioRegion::new(u64::MAX - 3, 4, 4, 1),
+            Err(MmioError::AddressOverflow),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_requires_supported_width_and_natural_alignment() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 1).unwrap();
+        assert_eq!(
+            region.register_address(0, 3),
+            Err(MmioError::UnsupportedAccessWidth),
+        );
+        assert_eq!(
+            region.register_address(2, 4),
+            Err(MmioError::MisalignedOffset),
+        );
+        assert_eq!(
+            region.register_address(0, 8),
+            Ok(0x1000),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_must_fit_entirely_inside_window() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert_eq!(
+            region.register_address(0x100, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
+            region.register_address(u64::MAX, 8),
+            Err(MmioError::OutOfBounds),
+        );
+    }
+
+    #[test]
+    fn mmio_region_contains_only_nonempty_nonoverflowing_subranges() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert!(region.contains_range(0x1000, 4));
+        assert!(region.contains_range(0x10fc, 4));
+        assert!(!region.contains_range(0x10fc, 8));
+        assert!(!region.contains_range(0x1000, 0));
+        assert!(!region.contains_range(u64::MAX - 1, 8));
+    }
 }
