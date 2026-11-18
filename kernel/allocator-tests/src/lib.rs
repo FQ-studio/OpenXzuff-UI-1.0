@@ -1334,7 +1334,7 @@ mod fdt_node_discovery_tests {
     #[test]
     fn translated_node_rejects_child_window_exceeding_one_cell_address_space() {
         let blob = mapped_device_tree(
-            Some(&[0xffff_fff0, 0, 0x20]),
+            Some(&[0xffff_fff0, 0, 0, 0x20]),
             &[0xffff_fff0, 0x10],
         );
         assert_eq!(
