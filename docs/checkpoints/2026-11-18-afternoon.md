@@ -50,3 +50,10 @@ PR #15 is not merged because its latest RV64/QEMU and Core checks are pending. T
 - Full GUI, input/audio and service integration.
 
 No 100% completion, production stability, physical-board boot or Windows game execution is claimed.
+
+
+## Update after checkpoint creation
+
+- Latest PR #15 OpenXzuff UI Core check [run #44251245070](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44251245070) completed **SUCCESS** on head `787d564`: root CTest **16/16**, .xexe fixture validation, Gravity RV64 NDK example, Android ARM64 xgo cross-build/package, Luau runtime and .lap smoke, JavaScript **2/2**, standard Lua **2/2**, OpenXzuff3D **1/1**, render/image verification and artifacts all succeeded.
+- Latest PR #15 VisionFive 2 #44251247177 and Win32 Bridge #44251245058 completed **SUCCESS**; bridge host and RV64 cross-compile jobs succeeded.
+- RV64 PR check #44251245074 remained **IN PROGRESS** at this update in the Install Rust target and QEMU step. Latest 78-host-test expectation and QEMU results are not yet verified. The earlier 77/1 failure was the malformed test fixture described above.
