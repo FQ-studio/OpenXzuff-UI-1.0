@@ -457,6 +457,10 @@ fn translate_region_to_root(
         let access_end = region.bus_address
             .checked_add(access_size)
             .ok_or(FdtError::Translation)?;
+        if !address_fits_cells(region.bus_address, child_cells)
+            || !address_fits_cells(access_end - 1, child_cells) {
+            return Err(FdtError::Translation);
+        }
 
         // An explicitly empty ranges property declares identity translation.
         if ranges_len == 0 {
@@ -487,6 +491,14 @@ fn translate_region_to_root(
                 if window_size == 0 { return Err(FdtError::Translation); }
                 let child_end = child_base.checked_add(window_size)
                     .ok_or(FdtError::Translation)?;
+                let parent_end = parent_base.checked_add(window_size)
+                    .ok_or(FdtError::Translation)?;
+                if !address_fits_cells(child_base, child_cells)
+                    || !address_fits_cells(child_end - 1, child_cells)
+                    || !address_fits_cells(parent_base, parent_cells)
+                    || !address_fits_cells(parent_end - 1, parent_cells) {
+                    return Err(FdtError::Translation);
+                }
 
                 if region.bus_address >= child_base && access_end <= child_end {
                     if translated.is_some() { return Err(FdtError::Translation); }
@@ -494,8 +506,6 @@ fn translate_region_to_root(
                     let root_address = parent_base.checked_add(delta)
                         .ok_or(FdtError::Translation)?;
                     let root_end = root_address.checked_add(access_size)
-                        .ok_or(FdtError::Translation)?;
-                    let parent_end = parent_base.checked_add(window_size)
                         .ok_or(FdtError::Translation)?;
                     if root_end > parent_end
                         || !address_fits_cells(root_address, parent_cells)
