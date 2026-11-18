@@ -1331,5 +1331,40 @@ mod fdt_node_discovery_tests {
             Err(FdtError::Translation)
         );
     }
+    #[test]
+    fn translated_node_rejects_child_window_exceeding_one_cell_address_space() {
+        let blob = mapped_device_tree(
+            Some(&[0xffff_fff0, 0, 0x20]),
+            &[0xffff_fff0, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_identity_rejects_resource_exceeding_child_address_width() {
+        let blob = mapped_device_tree(
+            Some(&[]),
+            &[0xffff_fff0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_parent_window_u64_overflow() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0xffff_ffff, 0xffff_fff0, 0x20]),
+            &[0x1000, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
 
 }
