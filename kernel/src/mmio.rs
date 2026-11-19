@@ -84,12 +84,14 @@ impl MmioRegion {
         if !matches!(access_width, 1 | 2 | 4 | 8) {
             return Err(MmioError::UnsupportedAccessWidth);
         }
-        if offset % access_width != 0 {
-            return Err(MmioError::MisalignedOffset);
-        }
+        // Establish the complete access is in-bounds before reporting alignment.
+        // This also makes offsets near u64::MAX fail closed as OutOfBounds.
         let access_end = offset.checked_add(access_width).ok_or(MmioError::OutOfBounds)?;
         if access_end > self.size {
             return Err(MmioError::OutOfBounds);
+        }
+        if offset % access_width != 0 {
+            return Err(MmioError::MisalignedOffset);
         }
         let address = self.base.checked_add(offset).ok_or(MmioError::AddressOverflow)?;
         if address % access_width != 0 {
