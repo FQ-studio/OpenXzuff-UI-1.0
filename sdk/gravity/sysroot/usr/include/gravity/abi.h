@@ -13,6 +13,13 @@
 #define GRAVITY_SYS_RECEIVE_MESSAGE 2u
 #define GRAVITY_SYS_MAP_MEMORY 3u
 #define GRAVITY_SYS_YIELD 4u
+#define GRAVITY_SYS_UNMAP_MEMORY 7u
+#define GRAVITY_SYS_PROTECT_MEMORY 8u
+
+#define GRAVITY_PROT_READ 1u
+#define GRAVITY_PROT_WRITE 2u
+#define GRAVITY_PROT_EXECUTE 4u
+#define GRAVITY_PROT_USER 8u
 
 /* Gravity ABI returns errors as negative errno values in a0. Payloads whose
  * signed value is -1..-4095 are reserved to avoid colliding with errors. */

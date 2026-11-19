@@ -5,7 +5,7 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 ## Target
 
 - Architecture: RISC-V 64-bit (RV64), little-endian.
-- ISA baseline: RV64I; generated code in the initial compiler subset uses only addi and ecall.
+- ISA baseline: RV64I; the initial compiler subset emits addi, lui, addiw and ecall as required.
 - User entry: a future loader sets the PC to the executable's entry offset after mapping the code segment.
 - General register convention: standard RISC-V psABI for ordinary function calls.
 - General stack, heap, TLS, argv, and environment setup are not yet specified.
@@ -26,8 +26,10 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 | 0 | Exit | Implemented for the current U-mode test task; marks it Exited and schedules the next task. General resource reaping is not implemented |
 | 1 | SendMessage | Implemented for the built-in U-mode probe task; sends one scalar machine word to a task FIFO mailbox and returns 0, -EAGAIN, or -EINVAL |
 | 2 | ReceiveMessage | Implemented as non-blocking receive; returns payload in a0 and sender task ID in a1, or -EAGAIN when empty |
-| 3 | MapMemory | -ENOSYS |
+| 3 | MapMemory | Implemented for the built-in U-mode probe: first-fit or hinted mapping in a bounded 2 MiB heap; zero-filled frames; READ/WRITE/EXECUTE/USER flags; W+X and write-only requests rejected |
 | 4 | Yield | Implemented for the current U-mode test task; saves its trap frame, rotates the run queue, and resumes it later |
+| 7 | UnmapMemory | Implemented for pages in the built-in 2 MiB user heap; preflights ownership, invalidates mappings, scrubs frames and returns them to the physical allocator |
+| 8 | ProtectMemory | Implemented for mapped heap pages; accepts R, RW or X user permissions and rejects W+X |
 
 The host-testable C++ dispatcher in Kernel/src/syscall.cpp remains a policy boundary with injected hooks. The live RV64 implementation is the Rust trap path in kernel/src/trap.rs and kernel/src/runtime.rs.
 
@@ -50,15 +52,26 @@ The loader must reject truncated files, unknown versions, wrong architecture/ABI
 
 ## Initial compiler-generated exit stub
 
-For function main() returns i32 { return N; }, where N is any signed 32-bit value:
+For function `main() returns i32 { return N; }`, where N is any signed 32-bit value:
 
-1. If N fits a signed 12-bit immediate, addi a0, zero, N sets the process exit status.
-2. Otherwise, the compiler uses lui and, when the low 12 bits are nonzero, addiw a0, a0, low. ADDIW sign-extends the resulting 32-bit value to RV64; this is required for values near INT32_MAX.
-3. addi a7, zero, 0 selects Gravity Kernel Exit (syscall ID 0).
-4. ecall requests the kernel service.
+1. If N fits a signed 12-bit immediate, `addi a0, zero, N` sets the process exit status.
+2. Otherwise, the compiler uses `lui` and, when the low 12 bits are nonzero, `addiw a0, a0, low`. ADDIW sign-extends the resulting 32-bit value to RV64, including values near INT32_MAX.
+3. `addi a7, zero, 0` selects Gravity Kernel Exit (syscall ID 0).
+4. `ecall` requests the kernel service.
 
 The compiler does not depend on the initial value of a7. The live hardware path implements Exit for the built-in U-mode test task; general process cleanup and resource reaping remain incomplete.
 
 ## Implementation boundary
 
-The QEMU probe uses a dedicated U-mode text page and user stack. The bootstrap now builds two distinct Sv39 roots: a supervisor-only kernel root and a probe-user root that shares supervisor identity mappings but grants U permission only to the probe RX text and RW stack leaves. The linked kernel image uses section-aware W^X leaves in both roots: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss; the remaining bootstrap identity map is supervisor RW/NX. The scheduler switches `satp` to the selected task's root before restoring its frame. The probe verifies that U-mode cannot load from the supervisor-only kernel image or access the supervisor trap stack, is preempted by the SBI timer, sends one scalar request through a bounded FIFO mailbox to task 0, yields to let task 0 receive it and enqueue a reply, then receives that reply before Exit. Mailboxes hold eight machine-word messages per task and are protected against same-hart timer preemption while being mutated. The user root is still a statically provisioned single test address space: dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, user-buffer copying, blocking IPC, endpoint permissions, SMP-safe queue locking, MapMemory syscall, and general task resource reaping are not implemented.
+The QEMU probe uses dedicated U-mode text and stack pages plus a single statically provisioned user address space. The kernel and probe roots share supervisor identity mappings, while U permission is granted only to the probe's RX text, RW stack and explicitly allocated heap leaves. The linked kernel image uses section-aware W^X permissions: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss.
+
+The built-in probe has a bounded 2 MiB heap arena. MapMemory allocates zero-filled physical frames from the active 1 GiB identity window; ProtectMemory changes permissions only on mapped heap pages; UnmapMemory preflights the full range and allocator ownership, switches to the supervisor root, clears mappings, scrubs frames, and returns them to the allocator. The heap VA is derived from the bootstrap window base plus a 256 MiB offset, rather than hard-coded to QEMU's 0x80000000 RAM base. User leaf permissions enforce W^X. The QEMU probe checks W+X rejection for both MapMemory and ProtectMemory, verifies an invalid oversized unmap leaves the first page mapped, and verifies a second unmap returns -EFAULT.
+
+This is not a general virtual-memory manager. Dynamic per-process roots, page-table-page allocation/reclamation, arbitrary process mappings, demand paging, copyin/copyout, ASIDs, remote TLB shootdown, SMP-safe page-table mutation, blocking IPC, endpoint permissions and general task resource reaping remain unimplemented.
+
+
+## Gravity SDK and RV64 NDK starter
+
+The initial SDK headers live under `sdk/gravity/sysroot/usr/include/gravity`. They define ABI v1 syscall numbers, errno values and inline RV64 ecall wrappers for Exit, SendMessage, ReceiveMessage and Yield. IDs MapMemory (3), UnmapMemory (7) and ProtectMemory (8) are also recorded in the shared header, but the current kernel only permits those VM operations for its built-in U-mode probe task and one bounded 2 MiB heap. They are not exposed as general application wrappers until per-process address spaces and user-memory ownership are implemented.
+
+The initial NDK under `ndk/gravity-rv64` is a CMake cross-toolchain for freestanding RV64 C object files. Its compile-only `abi_smoke.c` example checks the header calling convention and emits `ecall` instructions. It has no CRT, libc, application linker, relocation pipeline or executable launcher. The Android ARM64 Xzuff Go toolchain remains a host toolchain for Termux; generated `.xexe` programs target RV64 and are not Android executables.

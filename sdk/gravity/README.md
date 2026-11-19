@@ -9,7 +9,7 @@ The project-specific sysroot headers are under `sysroot/usr/include/gravity/`:
 - `abi.h` — Gravity ABI v1 constants, syscall IDs, and negative errno values.
 - `syscall.h` — freestanding RV64 inline wrappers for the currently specified syscall calling convention.
 
-The header currently exposes Exit (0), SendMessage (1), ReceiveMessage (2), and Yield (4). MapMemory (3) is intentionally not wrapped as a working API because the live kernel reports it as `-ENOSYS`. ABI v1 reserves payload bit patterns that are interpreted as signed -1 through -4095, because those values collide with the syscall error channel in `a0`; the SDK rejects those values in `gravity_send_message`.
+The inline wrappers currently expose Exit (0), SendMessage (1), ReceiveMessage (2), and Yield (4). The shared ABI header also defines MapMemory (3), UnmapMemory (7), ProtectMemory (8), and the user protection flags. The current kernel's VM handlers accept those three VM operations only for its built-in U-mode probe task and its single bounded 2 MiB heap; they are deliberately not exposed as general application wrappers while per-process address spaces and memory ownership are absent. ABI v1 reserves payload bit patterns interpreted as signed -1 through -4095 because they collide with the syscall error channel in `a0`; the SDK rejects those values in `gravity_send_message`.
 
 ## Compile smoke example
 

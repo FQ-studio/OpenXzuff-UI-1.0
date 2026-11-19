@@ -27,6 +27,21 @@ mod tests {
     }
 
     #[test]
+    fn alloc_in_range_only_returns_direct_mapped_pages() {
+        let mut map = MemoryMap::new();
+        map.add(0x8000_0000, 0x8000_8000).unwrap();
+        let mut pages = PageAllocator::new();
+        assert_eq!(pages.init(&map).unwrap(), 8);
+
+        for _ in 0..4 {
+            let page = pages.alloc_in_range(0x8000_2000, 0x8000_6000).unwrap();
+            assert!((0x8000_2000..0x8000_6000).contains(&page));
+        }
+        assert_eq!(pages.alloc_in_range(0x8000_2000, 0x8000_6000), None);
+        assert_eq!(pages.available_pages(), 4);
+    }
+
+    #[test]
     fn alloc_free_restores_capacity() {
         let mut map = MemoryMap::new();
         map.add(0x1000, 0x5000).unwrap();
@@ -40,6 +55,20 @@ mod tests {
         assert_eq!(p.available_pages(), before);
     }
 
+    #[test]
+    fn allocation_state_tracks_alloc_and_free() {
+        let mut map = MemoryMap::new(); map.add(0x1000, 0x3000).unwrap();
+        let mut p = PageAllocator::new(); p.init(&map).unwrap();
+        let addr = p.alloc().unwrap(); assert!(p.is_allocated(addr));
+        p.free(addr).unwrap(); assert!(!p.is_allocated(addr));
+    }
+    #[test]
+    fn ranged_allocation_never_returns_a_page_outside_the_window() {
+        let mut map = MemoryMap::new(); map.add(0x1000, 0x9000).unwrap();
+        let mut p = PageAllocator::new(); p.init(&map).unwrap();
+        let page = p.alloc_in_range(0x4000, 0x8000).unwrap();
+        assert!((0x4000..0x8000).contains(&page)); assert!(p.is_allocated(page));
+    }
     #[test]
     fn double_free_is_rejected() {
         let mut map = MemoryMap::new();
@@ -169,56 +198,45 @@ mod fdt_tests {
     }
 
     fn valid_fdt_with_timebase(timebase: Option<&[u8]>) -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0";
+        valid_fdt_with_timebase_and_memory_status(timebase, None)
+    }
+
+    pub(super) fn valid_fdt_with_timebase_and_memory_status(
+        timebase: Option<&[u8]>, memory_status: Option<&[u8]>,
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0device_type\0reg\0timebase-frequency\0compatible\0status\0";
         let address_cells = string_offset(strings, b"#address-cells");
         let size_cells = string_offset(strings, b"#size-cells");
         let device_type = string_offset(strings, b"device_type");
         let reg = string_offset(strings, b"reg");
         let timebase_frequency = string_offset(strings, b"timebase-frequency");
-
+        let compatible = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
         let mut structure = Vec::new();
         begin_node(&mut structure, b"");
         property(&mut structure, address_cells, &2u32.to_be_bytes());
         property(&mut structure, size_cells, &2u32.to_be_bytes());
         begin_node(&mut structure, b"cpus");
-        if let Some(value) = timebase {
-            property(&mut structure, timebase_frequency, value);
-        }
+        if let Some(value) = timebase { property(&mut structure, timebase_frequency, value); }
         push_be32(&mut structure, END_NODE);
         begin_node(&mut structure, b"memory@80000000");
         property(&mut structure, device_type, b"memory\0");
-
+        property(&mut structure, compatible, b"test,first-uart\0ns16550a\0");
+        if let Some(value) = memory_status { property(&mut structure, status, value); }
         let mut memory_reg = Vec::new();
-        for cell in [1u32, 0x8000_0000, 1, 0x0002_0000] {
-            push_be32(&mut memory_reg, cell);
-        }
+        for cell in [1u32, 0x8000_0000, 1, 0x0002_0000] { push_be32(&mut memory_reg, cell); }
         property(&mut structure, reg, &memory_reg);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
-
         const RESERVE_OFFSET: u32 = 40;
         const STRUCT_OFFSET: u32 = 72;
         let strings_offset = STRUCT_OFFSET + structure.len() as u32;
         let total_size = strings_offset + strings.len() as u32;
-
         let mut blob = Vec::with_capacity(total_size as usize);
-        for value in [
-            0xd00d_feed,
-            total_size,
-            STRUCT_OFFSET,
-            strings_offset,
-            RESERVE_OFFSET,
-            17,
-            16,
-            0,
-            strings.len() as u32,
-            structure.len() as u32,
-        ] {
+        for value in [0xd00d_feed,total_size,STRUCT_OFFSET,strings_offset,RESERVE_OFFSET,17,16,0,strings.len() as u32,structure.len() as u32] {
             push_be32(&mut blob, value);
         }
-
-        // One memreserve entry plus the required zero/zero terminator.
         push_be64(&mut blob, 0x1_8000_2000);
         push_be64(&mut blob, 0x1000);
         push_be64(&mut blob, 0);
@@ -229,7 +247,7 @@ mod fdt_tests {
         blob
     }
 
-    fn valid_fdt() -> Vec<u8> {
+    pub(super) fn valid_fdt() -> Vec<u8> {
         valid_fdt_with_timebase(Some(&10_000_000u32.to_be_bytes()))
     }
 
@@ -255,6 +273,79 @@ mod fdt_tests {
         assert_eq!(fdt::timebase_frequency(&missing), Err(FdtError::Timebase));
     }
 
+    fn fdt_with_second_root(blob: Vec<u8>) -> Vec<u8> {
+        let read = |offset: usize, bytes: &[u8]| {
+            u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap())
+        };
+        let structure_start = read(8, &blob) as usize;
+        let structure_size = read(36, &blob) as usize;
+        let structure_end = structure_start + structure_size;
+        let end_token = structure_end - 4;
+        assert_eq!(read(end_token, &blob), END);
+
+        // Replace the original FDT_END with a second, empty root followed by
+        // FDT_END. The structure grows by 12 bytes and the later strings block
+        // moves accordingly.
+        let mut malformed = Vec::with_capacity(blob.len() + 12);
+        malformed.extend_from_slice(&blob[..end_token]);
+        for token in [BEGIN_NODE, 0, 0, 0, END_NODE, END] {
+            malformed.extend_from_slice(&token.to_be_bytes());
+        }
+        malformed.extend_from_slice(&blob[structure_end..]);
+
+        let total = read(4, &blob) + 12;
+        let strings_offset = read(12, &blob) + 12;
+        let new_structure_size = read(36, &blob) + 12;
+        malformed[4..8].copy_from_slice(&total.to_be_bytes());
+        malformed[12..16].copy_from_slice(&strings_offset.to_be_bytes());
+        malformed[36..40].copy_from_slice(&new_structure_size.to_be_bytes());
+        malformed
+    }
+
+    #[test]
+    fn fdt_timebase_and_memory_parsers_reject_incomplete_structure_blocks() {
+        fn replace_final_structure_token(blob: &mut [u8], token: u32) {
+            let start = u32::from_be_bytes(blob[8..12].try_into().unwrap()) as usize;
+            let size = u32::from_be_bytes(blob[36..40].try_into().unwrap()) as usize;
+            let end = start + size;
+            blob[end - 4..end].copy_from_slice(&token.to_be_bytes());
+        }
+
+        // A valid timebase appears before this token. The parser must still
+        // validate the complete structure instead of returning early.
+        let mut missing_end = valid_fdt();
+        replace_final_structure_token(&mut missing_end, 4); // NOP, no FDT_END
+        assert_eq!(fdt::timebase_frequency(&missing_end), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&missing_end, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+
+        // An extra END_NODE after the root has closed is structurally invalid.
+        let mut unbalanced = valid_fdt();
+        replace_final_structure_token(&mut unbalanced, END_NODE);
+        assert_eq!(fdt::timebase_frequency(&unbalanced), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&unbalanced, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+    }
+
+    #[test]
+    fn all_fdt_metadata_scanners_reject_a_second_root_node() {
+        let malformed = fdt_with_second_root(valid_fdt());
+        assert_eq!(fdt::timebase_frequency(&malformed), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::parse_memory(&malformed, &mut MemoryMap::new()),
+            Err(FdtError::Structure)
+        );
+        assert_eq!(fdt::has_compatible(&malformed, b"ns16550a"), Err(FdtError::Structure));
+        assert_eq!(
+            fdt::find_compatible_node(&malformed, b"ns16550a"),
+            Err(FdtError::Structure)
+        );
+    }
+
     #[test]
     fn fdt_parser_extracts_ram_and_memreserve_ranges() {
         let blob = valid_fdt();
@@ -268,6 +359,84 @@ mod fdt_tests {
             map.reserved_ranges().collect::<Vec<_>>(),
             vec![Range { start: 0x1_8000_2000, end: 0x1_8000_3000 }]
         );
+    }
+
+    #[test]
+    fn fdt_parser_ignores_memory_nodes_with_disabled_or_non_ready_status() {
+        for status in [b"disabled\0".as_slice(), b"reserved\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(Some(&10_000_000u32.to_be_bytes()), Some(status));
+            let mut map = MemoryMap::new();
+            assert_eq!(fdt::parse_memory(&blob, &mut map), Err(FdtError::Memory));
+            assert_eq!(map.ram_count(), 0);
+        }
+    }
+
+    #[test]
+    fn fdt_parser_accepts_okay_memory_status() {
+        for status in [b"okay\0".as_slice(), b"ok\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(Some(&10_000_000u32.to_be_bytes()), Some(status));
+            let mut map = MemoryMap::new();
+            assert_eq!(fdt::parse_memory(&blob, &mut map), Ok(blob.len()));
+            assert_eq!(map.ram_count(), 1);
+        }
+    }
+
+    fn fdt_with_disabled_parent_and_compatible_child() -> Vec<u8> {
+        let strings = b"compatible\0status\0";
+        let compatible = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, status, b"disabled\0");
+        begin_node(&mut structure, b"serial@1000");
+        property(&mut structure, compatible, b"test,serial\0");
+        property(&mut structure, status, b"okay\0");
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn compatible_matches_only_available_nodes() {
+        for status in [None, Some(b"okay\0".as_slice()), Some(b"ok\0".as_slice())] {
+            let blob = valid_fdt_with_timebase_and_memory_status(
+                Some(&10_000_000u32.to_be_bytes()), status);
+            assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
+        }
+        for status in [b"disabled\0".as_slice(), b"reserved\0".as_slice(), b"fail\0".as_slice()] {
+            let blob = valid_fdt_with_timebase_and_memory_status(
+                Some(&10_000_000u32.to_be_bytes()), Some(status));
+            assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(false));
+        }
+    }
+
+    #[test]
+    fn compatible_rejects_malformed_status_and_inherits_disabled_parent() {
+        let malformed = valid_fdt_with_timebase_and_memory_status(
+            Some(&10_000_000u32.to_be_bytes()), Some(b"okay"));
+        assert_eq!(fdt::has_compatible(&malformed, b"test,first-uart"), Err(FdtError::Structure));
+        assert_eq!(fdt::parse_memory(&malformed, &mut MemoryMap::new()), Err(FdtError::Structure));
+
+        let child_of_disabled_bus = fdt_with_disabled_parent_and_compatible_child();
+        assert_eq!(fdt::has_compatible(&child_of_disabled_bus, b"test,serial"), Ok(false));
     }
 
     #[test]
@@ -351,6 +520,10 @@ mod scheduler_tests {
 
 #[path = "../../src/ipc.rs"]
 pub mod ipc;
+#[path = "../../src/syscall_abi.rs"]
+pub mod syscall_abi;
+#[path = "../../src/vm_policy.rs"]
+pub mod vm_policy;
 
 #[cfg(test)]
 mod ipc_tests {
@@ -399,5 +572,574 @@ mod ipc_tests {
         assert_eq!(mailboxes.send(TaskId(0), invalid, 1), Err(IpcError::InvalidTask));
         assert_eq!(mailboxes.receive(invalid), Err(IpcError::InvalidTask));
         assert_eq!(mailboxes.pending(invalid), Err(IpcError::InvalidTask));
+    }
+}
+
+#[cfg(test)]
+mod syscall_abi_tests {
+    use super::syscall_abi;
+
+    #[test]
+    fn public_syscall_numbers_match_win32_gravity_abi_v1() {
+        assert_eq!(
+            [
+                syscall_abi::EXIT,
+                syscall_abi::SEND_MESSAGE,
+                syscall_abi::RECEIVE_MESSAGE,
+                syscall_abi::MAP_MEMORY,
+                syscall_abi::YIELD,
+                syscall_abi::UNMAP_MEMORY,
+                syscall_abi::PROTECT_MEMORY,
+            ],
+            [0, 1, 2, 3, 4, 7, 8]
+        );
+    }
+
+    #[test]
+    fn errno_values_match_the_c_host_abi() {
+        assert_eq!(
+            [
+                syscall_abi::EAGAIN,
+                syscall_abi::EFAULT,
+                syscall_abi::ENOMEM,
+                syscall_abi::ENOSYS,
+                syscall_abi::EINVAL,
+            ],
+            [-11, -14, -12, -38, -22]
+        );
+    }
+}
+
+
+#[cfg(test)]
+mod fdt_compatible_tests {
+    use super::fdt;
+    #[test]
+    fn compatible_matches_exact_nul_delimited_entries() {
+        let blob = super::fdt_tests::valid_fdt();
+        assert_eq!(fdt::has_compatible(&blob, b"test,first-uart"), Ok(true));
+        assert_eq!(fdt::has_compatible(&blob, b"ns16550a"), Ok(true));
+        assert_eq!(fdt::has_compatible(&blob, b"16550"), Ok(false));
+        assert_eq!(fdt::has_compatible(&blob, b"missing,device"), Ok(false));
+    }
+    #[test]
+    fn compatible_rejects_invalid_query_and_bad_header() {
+        let blob = super::fdt_tests::valid_fdt();
+        assert_eq!(fdt::has_compatible(&blob, b""), Err(fdt::FdtError::Structure));
+        assert_eq!(fdt::has_compatible(&blob, b"bad\0query"), Err(fdt::FdtError::Structure));
+        let mut corrupt = blob;
+        corrupt[0..4].copy_from_slice(&0u32.to_be_bytes());
+        assert_eq!(fdt::has_compatible(&corrupt, b"ns16550a"), Err(fdt::FdtError::Header));
+    }
+}
+
+#[path = "../../src/process.rs"]
+pub mod process;
+
+#[cfg(test)]
+mod process_tests {
+    use super::process::{ProcessError, ProcessState, ProcessTable, MAX_PROCESSES};
+    #[test]
+    fn creates_process_with_parent_and_address_space_metadata() {
+        let mut t=ProcessTable::new(); let p=t.create(None,0x1000,0x2000).unwrap();
+        let c=t.create(Some(p),0x3000,0x4000).unwrap(); let i=t.get(c).unwrap();
+        assert_eq!(i.parent,Some(p)); assert_eq!(i.state,ProcessState::Ready);
+        assert_eq!(i.entry_pc,0x3000); assert_eq!(i.address_space_root,0x4000);
+    }
+    #[test]
+    fn lifecycle_transitions_reject_invalid_edges() {
+        let mut t=ProcessTable::new(); let id=t.create(None,1,2).unwrap();
+        assert_eq!(t.transition(id,ProcessState::Running),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Blocked),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Ready),Ok(()));
+        assert_eq!(t.transition(id,ProcessState::Exited),Err(ProcessError::InvalidTransition));
+    }
+    #[test]
+    fn wait_reports_running_child_then_reaps_exit_status() {
+        let mut t=ProcessTable::new(); let p=t.create(None,1,2).unwrap();
+        let c=t.create(Some(p),3,4).unwrap();
+        assert_eq!(t.wait(p,Some(c)),Err(ProcessError::WouldBlock));
+        t.exit(c,37).unwrap(); assert_eq!(t.wait(p,Some(c)),Ok((c,37)));
+        assert_eq!(t.get(c),Err(ProcessError::InvalidProcess));
+    }
+    #[test]
+    fn stale_generation_cannot_access_reused_slot() {
+        let mut t=ProcessTable::new(); let old=t.create(None,1,2).unwrap();
+        t.exit(old,0).unwrap(); t.reap(old).unwrap(); let new=t.create(None,3,4).unwrap();
+        assert_eq!(old.slot,new.slot); assert_ne!(old.generation,new.generation);
+        assert_eq!(t.get(old),Err(ProcessError::InvalidProcess)); assert!(t.get(new).is_ok());
+    }
+    #[test]
+    fn exit_orphans_children_and_capacity_is_bounded() {
+        let mut t=ProcessTable::new(); let p=t.create(None,1,2).unwrap();
+        let c=t.create(Some(p),3,4).unwrap(); t.exit(p,0).unwrap();
+        assert_eq!(t.get(c).unwrap().parent,None);
+        for _ in 2..MAX_PROCESSES { t.create(None,1,2).unwrap(); }
+        assert_eq!(t.create(None,1,2),Err(ProcessError::Full));
+    }
+}
+
+#[path = "../../src/handle.rs"]
+pub mod handle;
+
+#[cfg(test)]
+mod handle_tests {
+    use super::handle::{HandleError, HandleTable, ObjectKind, Rights, MAX_HANDLES};
+    use super::process::ProcessId;
+
+    fn process(slot: u16) -> ProcessId { ProcessId { slot, generation: 1 } }
+
+    #[test]
+    fn handle_lookup_enforces_owner_type_and_rights() {
+        let mut table = HandleTable::new();
+        let owner = process(0);
+        let id = table.insert(owner, ObjectKind::File, 0x55, Rights::READ.union(Rights::WRITE)).unwrap();
+        assert_eq!(table.get(owner, id, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(table.get(process(1), id, None, Rights::READ), Err(HandleError::WrongOwner));
+        assert_eq!(table.get(owner, id, Some(ObjectKind::Device), Rights::READ), Err(HandleError::WrongType));
+        assert_eq!(table.get(owner, id, None, Rights::EXECUTE), Err(HandleError::AccessDenied));
+    }
+
+    #[test]
+    fn duplicate_can_only_reduce_rights_and_changes_owner() {
+        let mut table = HandleTable::new();
+        let a = process(0); let b = process(1);
+        let source = table.insert(a, ObjectKind::Channel, 9, Rights::READ.union(Rights::WRITE).union(Rights::DUPLICATE)).unwrap();
+        let copy = table.duplicate(a, source, b, Rights::READ).unwrap();
+        assert_eq!(table.get(b, copy, Some(ObjectKind::Channel), Rights::READ).unwrap().object_id, 9);
+        assert_eq!(table.get(b, copy, None, Rights::WRITE), Err(HandleError::AccessDenied));
+        assert_eq!(table.get(a, copy, None, Rights::NONE), Err(HandleError::WrongOwner));
+        assert_eq!(table.duplicate(a, source, b, Rights::ALL), Err(HandleError::AccessDenied));
+    }
+
+    #[test]
+    fn close_invalidates_stale_generation_and_reuses_slot() {
+        let mut table = HandleTable::new(); let owner = process(2);
+        let old = table.insert(owner, ObjectKind::Event, 1, Rights::WAIT).unwrap();
+        table.close(owner, old).unwrap();
+        let new = table.insert(owner, ObjectKind::Event, 2, Rights::WAIT).unwrap();
+        assert_eq!(old.slot, new.slot); assert_ne!(old.generation, new.generation);
+        assert_eq!(table.get(owner, old, None, Rights::NONE), Err(HandleError::InvalidHandle));
+    }
+
+    #[test]
+    fn handle_capacity_and_per_owner_count_are_bounded() {
+        let mut table = HandleTable::new(); let owner = process(3);
+        for i in 0..MAX_HANDLES { table.insert(owner, ObjectKind::Memory, i as u64, Rights::READ).unwrap(); }
+        assert_eq!(table.open_count(owner), MAX_HANDLES);
+        assert_eq!(table.insert(owner, ObjectKind::Memory, 0, Rights::READ), Err(HandleError::Full));
+    }
+}
+
+#[path = "../../src/vfs.rs"]
+pub mod vfs;
+
+#[cfg(test)]
+mod vfs_tests {
+    use super::vfs::{NodeKind, RamFs, VfsError, MAX_FILE_BYTES, MAX_NODES};
+
+    #[test]
+    fn creates_and_resolves_nested_directories_and_files() {
+        let mut fs=RamFs::new();
+        fs.create_dir(b"/system").unwrap();
+        fs.create_dir(b"/system/bin").unwrap();
+        let (id,kind)=fs.lookup(b"/system/bin").unwrap();
+        assert_eq!(kind,NodeKind::Directory);
+        assert_eq!(fs.lookup(b"/system").unwrap().1,NodeKind::Directory);
+        assert_eq!(fs.node_count(),3);
+        assert!(id.generation>0);
+    }
+
+    #[test]
+    fn file_reads_and_writes_support_offsets_and_eof() {
+        let mut fs=RamFs::new(); fs.create_file(b"/hello").unwrap();
+        assert_eq!(fs.write(b"/hello",2,b"world"),Ok(5));
+        let mut data=[0u8;8];
+        assert_eq!(fs.read(b"/hello",0,&mut data),Ok(7));
+        assert_eq!(&data[..7],b"\0\0world");
+        assert_eq!(fs.read(b"/hello",7,&mut data),Ok(0));
+    }
+
+    #[test]
+    fn rejects_traversal_invalid_names_and_non_absolute_paths() {
+        let mut fs=RamFs::new();
+        assert_eq!(fs.lookup(b"relative"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.lookup(b"/../escape"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.lookup(b"/a\0b"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.create_file(b"/this-name-is-far-too-long-for-a-node"),Err(VfsError::NameTooLong));
+        assert_eq!(fs.create_file(b"/trailing/"),Err(VfsError::InvalidPath));
+        assert_eq!(fs.create_dir(b"/"),Err(VfsError::InvalidPath));
+    }
+
+    #[test]
+    fn enforces_directory_file_type_and_duplicate_rules() {
+        let mut fs=RamFs::new(); fs.create_dir(b"/dir").unwrap();
+        assert_eq!(fs.create_file(b"/dir"),Err(VfsError::AlreadyExists));
+        assert_eq!(fs.create_file(b"/missing/file"),Err(VfsError::NotFound));
+        assert_eq!(fs.create_file(b"/dir/file").unwrap().generation,1);
+        let mut out=[0u8;4];
+        assert_eq!(fs.read(b"/dir",0,&mut out),Err(VfsError::IsDirectory));
+    }
+
+    #[test]
+    fn remove_requires_empty_directory_and_invalidates_stale_inode() {
+        let mut fs=RamFs::new();
+        let dir=fs.create_dir(b"/d").unwrap();
+        let file=fs.create_file(b"/d/f").unwrap();
+        assert_eq!(fs.remove(b"/d"),Err(VfsError::NotEmpty));
+        fs.remove(b"/d/f").unwrap();
+        assert_eq!(fs.kind_by_id(file),Err(VfsError::InvalidNode));
+        assert_eq!(fs.lookup(b"/d/f"),Err(VfsError::NotFound));
+        fs.remove(b"/d").unwrap();
+        let replacement=fs.create_file(b"/new").unwrap();
+        assert_eq!(replacement.slot,dir.slot);
+        assert_ne!(replacement.generation,dir.generation);
+        assert_eq!(fs.kind_by_id(dir),Err(VfsError::InvalidNode));
+        assert_eq!(fs.kind_by_id(replacement),Ok(NodeKind::File));
+    }
+
+    #[test]
+    fn file_size_and_filesystem_capacity_are_bounded() {
+        let mut fs=RamFs::new(); fs.create_file(b"/f").unwrap();
+        let full=[7u8;MAX_FILE_BYTES];
+        assert_eq!(fs.write(b"/f",0,&full),Ok(MAX_FILE_BYTES));
+        assert_eq!(fs.write(b"/f",MAX_FILE_BYTES,&[1]),Err(VfsError::FileTooLarge));
+        for i in 1..(MAX_NODES-1) {
+            let name=[b'/', b'x', b'0'+(i%10) as u8, b'a'+(i/10) as u8];
+            let _=fs.create_file(&name);
+        }
+        assert!(fs.node_count()<=MAX_NODES);
+    }
+}
+
+
+#[cfg(test)]
+mod vfs_inode_tests {
+    use super::vfs::{RamFs, VfsError};
+
+    #[test]
+    fn generation_safe_inode_io_and_removal_reject_stale_handles() {
+        let mut fs = RamFs::new();
+        let inode = fs.create_file(b"/capability-file").unwrap();
+        assert_eq!(fs.write_node(inode, 0, b"gravity"), Ok(7));
+        let mut bytes = [0u8; 7];
+        assert_eq!(fs.read_node(inode, 0, &mut bytes), Ok(7));
+        assert_eq!(&bytes, b"gravity");
+        fs.remove_node(inode).unwrap();
+        assert_eq!(fs.read_node(inode, 0, &mut bytes), Err(VfsError::InvalidNode));
+        assert_eq!(fs.write_node(inode, 0, b"stale"), Err(VfsError::InvalidNode));
+        assert_eq!(fs.remove_node(inode), Err(VfsError::InvalidNode));
+    }
+}
+
+
+#[path = "../../src/task_manager.rs"]
+pub mod task_manager;
+
+#[cfg(test)]
+mod task_manager_tests {
+    use super::process::{ProcessId, ProcessState};
+    use super::task_manager::{TaskManager, TaskManagerError};
+
+    #[test]
+    fn scheduler_and_process_states_advance_together() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.schedule_next_process().unwrap(), Some(parent));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.yield_current_process().unwrap(), Some(child));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Running);
+    }
+
+    #[test]
+    fn blocking_waking_and_exiting_are_reflected_in_process_table() {
+        let mut manager = TaskManager::new();
+        let first = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let second = manager.spawn(None, 0x2000, 0x9000).unwrap();
+        assert_eq!(manager.schedule_next_process().unwrap(), Some(first));
+        assert_eq!(manager.block_current().unwrap(), Some(second));
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Blocked);
+        assert_eq!(manager.get(second).unwrap().state, ProcessState::Running);
+        manager.wake(first).unwrap();
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.exit_current_with_code(17).unwrap(), Some(first));
+        assert_eq!(manager.get(second).unwrap().state, ProcessState::Exited);
+        assert_eq!(manager.get(second).unwrap().exit_code, Some(17));
+    }
+
+    #[test]
+    fn wait_reaps_child_and_invalidates_its_process_id() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x8000).unwrap();
+        let child = manager.spawn(Some(parent), 0x2000, 0x9000).unwrap();
+        manager.schedule_next_process().unwrap();
+        manager.yield_current_process().unwrap();
+        manager.exit_current_with_code(23).unwrap();
+        assert_eq!(manager.wait(parent, Some(child)).unwrap(), (child, 23));
+        assert_eq!(manager.get(child), Err(TaskManagerError::Process(
+            super::process::ProcessError::InvalidProcess
+        )));
+        assert_eq!(manager.active_processes(), 1);
+    }
+
+    #[test]
+    fn unknown_process_cannot_be_woken() {
+        let mut manager = TaskManager::new();
+        let unknown = ProcessId { slot: 31, generation: 99 };
+        assert_eq!(manager.wake(unknown), Err(TaskManagerError::MissingTask));
+    }
+}
+
+
+#[cfg(test)]
+mod runtime_process_integration_tests {
+    use super::process::ProcessState;
+    use super::scheduler::TaskId;
+    use super::task_manager::TaskManager;
+
+    #[test]
+    fn live_runtime_scheduler_updates_process_metadata_and_exit_code() {
+        let mut manager = TaskManager::new();
+        let first_task = manager.create_runtime_task().unwrap();
+        let second_task = manager.create_runtime_task().unwrap();
+        let first_process = manager.process_for_task(first_task).unwrap();
+        let second_process = manager.process_for_task(second_task).unwrap();
+
+        assert_eq!(manager.runtime_schedule_next(), Some(first_task));
+        assert_eq!(manager.get(first_process).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.runtime_yield_current(), Ok(Some(second_task)));
+        assert_eq!(manager.get(first_process).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(second_process).unwrap().state, ProcessState::Running);
+        assert_eq!(manager.runtime_exit_current_with_code(42), Ok(Some(first_task)));
+        let exited = manager.get(second_process).unwrap();
+        assert_eq!(exited.state, ProcessState::Exited);
+        assert_eq!(exited.exit_code, Some(42));
+        assert_eq!(manager.runtime_current(), Some(TaskId(first_task.0)));
+    }
+}
+
+
+#[cfg(test)]
+mod task_manager_capacity_tests {
+    use super::process::ProcessState;
+    use super::task_manager::{TaskManager, TaskManagerError};
+    use super::scheduler::MAX_TASKS;
+
+    #[test]
+    fn failed_spawn_when_scheduler_is_full_rolls_back_process_slot() {
+        let mut manager = TaskManager::new();
+        for index in 0..MAX_TASKS {
+            manager.spawn(None, 0x1000 + index * 4, 0).unwrap();
+        }
+        assert_eq!(manager.active_processes(), MAX_TASKS);
+        assert_eq!(
+            manager.spawn(None, 0x9000, 0),
+            Err(TaskManagerError::Scheduler(
+                super::scheduler::SchedulerError::Full
+            ))
+        );
+        assert_eq!(manager.active_processes(), MAX_TASKS);
+        let first = manager.process_for_task(super::scheduler::TaskId(0)).unwrap();
+        assert_eq!(manager.get(first).unwrap().state, ProcessState::Ready);
+    }
+}
+
+
+#[cfg(test)]
+mod fdt_node_discovery_tests {
+    use super::fdt::{self, FdtError, FdtNode, FdtRegion};
+
+    const BEGIN_NODE: u32 = 1;
+    const END_NODE: u32 = 2;
+    const PROP: u32 = 3;
+    const END: u32 = 9;
+
+    fn push_be32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn push_be64(out: &mut Vec<u8>, value: u64) {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+
+    fn pad4(out: &mut Vec<u8>) {
+        while out.len() % 4 != 0 { out.push(0); }
+    }
+
+    fn begin_node(out: &mut Vec<u8>, name: &[u8]) {
+        push_be32(out, BEGIN_NODE);
+        out.extend_from_slice(name);
+        out.push(0);
+        pad4(out);
+    }
+
+    fn property(out: &mut Vec<u8>, name_offset: u32, value: &[u8]) {
+        push_be32(out, PROP);
+        push_be32(out, value.len() as u32);
+        push_be32(out, name_offset);
+        out.extend_from_slice(value);
+        pad4(out);
+    }
+
+    fn string_offset(strings: &[u8], name: &[u8]) -> u32 {
+        strings.windows(name.len() + 1)
+            .position(|window| window == [name, &[0]].concat())
+            .expect("FDT property name exists") as u32
+    }
+
+    fn device_tree(
+        parent_status: Option<&[u8]>,
+        child_status: Option<&[u8]>,
+        address_cells: u32,
+        size_cells: u32,
+        reg_cells: Option<&[u32]>,
+        compatible: &[u8],
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0status\0reg\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible_name = string_offset(strings, b"compatible");
+        let status = string_offset(strings, b"status");
+        let reg = string_offset(strings, b"reg");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &address_cells.to_be_bytes());
+        property(&mut structure, size, &size_cells.to_be_bytes());
+        if let Some(value) = parent_status { property(&mut structure, status, value); }
+        begin_node(&mut structure, b"serial@1000");
+        property(&mut structure, compatible_name, compatible);
+        if let Some(value) = child_status { property(&mut structure, status, value); }
+        if let Some(values) = reg_cells {
+            let mut raw = Vec::new();
+            for value in values { push_be32(&mut raw, *value); }
+            property(&mut structure, reg, &raw);
+        }
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        // An unrelated PCIe-like bus may use three address cells. Discovery
+        // of the serial node must not reject this unselected bus.
+        begin_node(&mut structure, b"pcie@30000000");
+        property(&mut structure, address, &3u32.to_be_bytes());
+        property(&mut structure, size, &2u32.to_be_bytes());
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn compatible_node_returns_parent_bus_address_and_size() {
+        let blob = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0ns16550a\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"ns16550a"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_reads_two_cell_64_bit_addresses() {
+        let blob = device_tree(
+            None, None, 2, 2,
+            Some(&[1, 0x2345, 0, 0x100]),
+            b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion {
+                    bus_address: 0x1_0000_2345,
+                    size: Some(0x100),
+                }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_honours_disabled_ancestors_and_default_status() {
+        let disabled = device_tree(
+            Some(b"disabled\0"), Some(b"okay\0"), 1, 1,
+            Some(&[0x1000, 0x100]), b"test,serial\0",
+        );
+        assert_eq!(fdt::find_compatible_node(&disabled, b"test,serial"), Ok(None));
+
+        let enabled = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&enabled, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_reports_missing_reg_and_zero_size_cells() {
+        let missing = device_tree(None, None, 1, 1, None, b"test,serial\0");
+        assert_eq!(
+            fdt::find_compatible_node(&missing, b"test,serial"),
+            Ok(Some(FdtNode { name: b"serial@1000", reg: None }))
+        );
+
+        let address_only = device_tree(
+            None, None, 1, 0, Some(&[0x2000]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&address_only, b"test,serial"),
+            Ok(Some(FdtNode {
+                name: b"serial@1000",
+                reg: Some(FdtRegion { bus_address: 0x2000, size: None }),
+            }))
+        );
+    }
+
+    #[test]
+    fn compatible_node_rejects_malformed_reg_and_compatible_lists() {
+        let bad_reg = device_tree(
+            None, None, 1, 1, Some(&[0x1000]), b"test,serial\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&bad_reg, b"test,serial"),
+            Err(FdtError::Cells)
+        );
+
+        let bad_compatible = device_tree(
+            None, None, 1, 1, Some(&[0x1000, 0x100]), b"test,serial\0\0",
+        );
+        assert_eq!(
+            fdt::find_compatible_node(&bad_compatible, b"test,serial"),
+            Err(FdtError::Structure)
+        );
     }
 }

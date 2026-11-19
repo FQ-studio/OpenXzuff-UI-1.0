@@ -9,9 +9,9 @@
 - `user/app/`: application manifests and planned Lua/Luau runtimes and installer.
 - `runtime/`, `graphics3d/`, `app-hub/`, `boot/`, `boards/`: separate runtime, renderer, service and board-support work; inspect each subsystem's own tests before treating it as integrated.
 
-## Verified RV64 kernel baseline
+## Historical RV64 kernel baseline (2026-11-12)
 
-The latest RV64-validated kernel source is commit `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`. [RV64 S-Mode Kernel run #156](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040) completed successfully on 2026-11-12.
+The RV64-validated source for this historical baseline is commit `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`. [RV64 S-Mode Kernel run #156](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461040) completed successfully on 2026-11-12.
 
 That run executed:
 
@@ -36,7 +36,7 @@ The [run #156 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/ru
 
 The W^X layout and range-verification contract are documented in [RV64 Sv39 bootstrap mappings and W^X verification](design/rv64-sv39-wx.md).
 
-## Verified OpenXzuff UI Core host baseline
+## Historical OpenXzuff UI Core host baseline (2026-11-12)
 
 [OpenXzuff UI Runtime, OS Contracts and 3D run #166](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047) completed successfully on 2026-11-12 for the same source revision as the RV64 run above, `0f8d39591b6b8b9a650fe3ea8c17a647b9984d7d`.
 
@@ -48,7 +48,7 @@ The W^X layout and range-verification contract are documented in [RV64 Sv39 boot
 
 [Run #166 artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461047/artifacts/13920654059) contains the host/runtime smoke outputs and Android ARM64 toolchain package.
 
-## VisionFive 2 host readiness
+## Historical VisionFive 2 host readiness (2026-11-12)
 
 [VisionFive 2 Kernel Readiness run #49](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43168461210) completed successfully on the same source revision. CMake host build, strict-warning compilation, CTest **14/14**, and board boot-contract source checks passed. The workflow explicitly notes that these checks do not prove physical board boot or full FDT correctness; no physical VisionFive 2 or LAVA result is claimed.
 
@@ -80,3 +80,186 @@ A directory, host-only test, or QEMU smoke test must not be described as a compl
 - `.luap`: Lua App Package.
 
 Keep the two formats distinct and document their manifests and validation rules before implementing installation.
+
+
+## 2026-11-15 integration update — feature/win32-gaming-gravity-port
+
+- The feature branch includes a coordinated process/task metadata layer and routes the live three-task test scheduler through it. This is not yet a dynamic process engine: runtime task frames/stacks remain statically provisioned, and the user VM remains one built-in probe address space.
+- FDT RAM parsing now rejects memory nodes whose explicit `status` is not `okay` or `ok`; missing status remains enabled. Host tests cover disabled, reserved, okay and ok values. This is memory-node filtering only, not general device-node discovery or `ranges` translation.
+- The Gravity SDK starter defines the RV64 ABI v1 syscall and protection constants and provides inline wrappers for Exit, scalar IPC and Yield. The Gravity NDK starter compiles a freestanding C smoke object only; it does not link or launch applications.
+- Xzuff Go's signed-i32 exit stub uses ADDIW for sign-extension after LUI, including the INT32_MAX boundary. The compiler still supports only a single `main` returning an integer literal.
+- The Core workflow now includes the SDK/NDK compile-only check and is triggered by SDK, NDK and Win32 bridge source changes.
+- No physical-board boot, production HAL, PLIC, persistent filesystem, multi-process user VM, general executable loader, or Win32 binary execution is claimed.
+
+
+## Latest integration validation — 2026-11-15
+
+Source branch: `feature/win32-gaming-gravity-port`, latest code commit `4fcb7fe34da3d984de5a46a29a110bd1c525dd10`. The branch has been synchronized with `main` at `ead5ccec0d675dd6274b814379219ec05ba0fdd6`; GitHub compare confirms 0 commits behind main; the branch contains the current main head. PR #12 remains open and mergeable; it has not been merged.
+
+### Gravity Kernel RV64
+
+[RV64 S-Mode Kernel run #43688778785](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785) completed successfully on the latest code commit.
+
+- Win32 Gravity RV64 adapter cross-compile: passed with the shared SDK ABI header in its include path.
+- Rust host tests: **60 passed, 0 failed**.
+- Kernel ELF cross-build: passed.
+- OpenSBI + QEMU `virt` smoke boot: passed all workflow serial assertions, including FDT RAM parsing, Sv39 W^X, S-mode trap save/restore, timer preemption/context switch, U-mode timer saved-frame resume, IPC, U-mode Map/Protect/Unmap, Yield and Exit.
+- QEMU is intentionally terminated by the workflow's 15-second timeout after all required assertions. This is not a long-duration stress or production-stability test.
+- [RV64 ELF, binary and QEMU serial-log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778785/artifacts/14151163776).
+
+### Board-readiness host checks
+
+[VisionFive 2 Kernel Readiness run #43688778856](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778856) completed successfully:
+
+- Strict-warning host build: passed.
+- CTest: **16/16 passed**.
+- Documented RV64 boot-contract checks: passed.
+- This is host/contract validation only; no physical VisionFive 2 boot or LAVA hardware result is claimed.
+
+### Win32 Gravity bridge and shared SDK ABI
+
+[Win32 Gaming Gravity Backend Bridge run #43688778782](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778782) completed successfully on the latest code commit:
+
+- Host bridge CTest: **2/2 passed**.
+- RV64 adapter cross-compile: passed.
+- Adapter disassembly: **8 `ecall` instructions**.
+- `gravity_host_abi.h` now derives syscall IDs and protection flags from `sdk/gravity/sysroot/usr/include/gravity/abi.h`; CMake and both adapter workflows include the shared sysroot. Host compile-time assertions verify the mapping.
+
+These checks validate the host mock contract and adapter code generation. They do not show that the C++ adapter is linked into the kernel ELF or invoked by the built-in QEMU U-mode task.
+
+### OpenXzuff UI Core and SDK/NDK
+
+[Core run #43688540402](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402) completed successfully on the immediately preceding documentation/CI revision:
+
+- Root CTest: **16/16 passed**.
+- Xzuff Go `.xexe` fixture: 44-byte RV64 image generated; entry returns status 42; host loader validation passed.
+- Gravity RV64 NDK: freestanding C object compiled and disassembly contained `ecall`.
+- Xzuff Go / xgo Android ARM64 cross-build and package: passed.
+- Luau runtime build and source/package smoke: passed.
+- JavaScript CTest: **2/2**; standard Lua CTest: **2/2**; OpenXzuff3D CTest: **1/1**; render smoke and image verification: passed.
+- [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688540402/artifacts/14150619731).
+
+The newer [Core run #43688778784](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784) for the shared-SDK/Win32 integration commit completed successfully. Root CTest **16/16**, the 44-byte `.xexe` return-42 fixture and host loader validation, Gravity NDK object build plus `ecall` disassembly check, Android ARM64 Xzuff Go cross-build/package, Luau runtime/source/package smoke, JavaScript **2/2**, standard Lua **2/2**, OpenXzuff3D **1/1**, render smoke and image verification all passed. [Latest Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43688778784/artifacts/14151582419).
+
+### Remaining integration boundary
+
+- FDT RAM parsing rejects unavailable memory nodes; `has_compatible` now matches exact compatible entries only on nodes whose own and ancestor `status` is absent or `okay`/`ok`, and rejects malformed status strings. It still returns only a boolean: node paths, `reg` resources, inherited bus cell widths, `ranges` translation, clocks/resets and interrupt-parent routing are not complete.
+- HAL MMIO validation, UART initialization/receive/flush, PLIC routing and physical-board boot remain unverified.
+- Process/task manager coordinates metadata with a fixed-capacity scheduler, but runtime stacks/frames are static; there are not yet independent dynamic per-process Sv39 roots, safe copy-in/copy-out or full VM teardown.
+- RAM VFS is bounded and in-memory; handles are not fully backed by VFS/device objects. Persistent block storage, mounts and file permissions remain incomplete.
+- IPC remains scalar and non-blocking; no general wait queues or shared-memory IPC.
+- No general `.xexe` loader/linker, PE32/PE32+ loader, Win32 API/DLL compatibility runtime or x86/x64-to-RV64 translator exists. No Windows game is claimed to run.
+- No production stability or 100% Core completion is claimed.
+
+
+## 2026-11-16 afternoon — FDT node discovery and QEMU integration
+
+Code revision: `66449dcb3af4ae6e9d70011e690e102ac7df7bdf` on
+`feature/win32-gaming-gravity-port`.
+
+### FDT discovery
+
+- Added `find_compatible_node`, which selects the first node whose exact
+  NUL-delimited compatible list matches and whose own/ancestor status is
+  available.
+- Returns the borrowed node name and first `reg` tuple. The tuple is decoded
+  using the parent bus's `#address-cells` and `#size-cells`; size is optional
+  when the bus declares zero size cells.
+- Unselected buses can declare up to four address/size cells without aborting
+  discovery. A selected resource must fit the current u64 decoder (one/two
+  address cells, zero/one/two size cells).
+- The result remains a raw parent-bus address. Ancestor `ranges` translation,
+  validated MMIO mapping, clocks, resets and interrupt routing are not
+  implemented by this change.
+- Boot diagnostics probe the three board families' UART compatible candidates
+  plus the QEMU `ns16550a` fallback. This does not initialize or access UART
+  MMIO.
+
+### Evidence on code revision
+
+- [RV64 S-Mode Kernel run #43816421114](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114) — **SUCCESS**.
+  - Host Rust tests: **67 passed, 0 failed**.
+  - Win32 Gravity RV64 adapter cross-compile: passed.
+  - RV64 kernel ELF build: passed.
+  - OpenSBI + QEMU `virt`: all required serial assertions passed, including
+    FDT UART compatible-node discovery. QEMU reported raw bus address
+    `0x10000000`, size `0x100` for the `ns16550a` candidate.
+  - QEMU is stopped by the 15-second smoke timeout after required markers;
+    this is not long-duration stability evidence.
+  - [Kernel ELF, binary and serial log artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421114/artifacts/14203180179).
+- [VisionFive 2 Kernel Readiness #43816421040](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421040) — **SUCCESS**; strict-warning host build and CTest **16/16**. This is not a physical-board boot.
+- [Win32 Gravity Bridge #43816421214](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421214) — **SUCCESS**; host CTest **2/2** and RV64 adapter cross-compile passed.
+- [OpenXzuff UI Core #43816421109](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109) — **SUCCESS** on the same code revision `66449dcb3af4ae6e9d70011e690e102ac7df7bdf`.
+  - Root CTest: **16/16 passed**.
+  - Xzuff Go/Coder Checker tests passed; compiler produced a 44-byte RV64 `.xexe` fixture whose entry exits with status 42; host-loader validation passed.
+  - Gravity RV64 NDK example compiled; Android ARM64 Xzuff Go/xgo cross-build and package succeeded.
+  - Luau runtime build, source smoke and `.lap` pack/load smoke passed.
+  - JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**, render smoke and image verification passed.
+  - [Core smoke-test artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/43816421109/artifacts/14202259895).
+  - Vendored Luau emitted non-fatal bidi-character and unused-parameter warnings.
+
+### Remaining boundaries
+
+- No ancestor `ranges` translation or validated MMIO region; UART is discovered,
+  not initialized or read/written by the kernel driver.
+- HAL, physical UART, PLIC, clocks/resets, physical-board boot and LAVA remain
+  incomplete.
+- Runtime tasks/stacks are still statically provisioned; independent
+  per-process Sv39 roots, general VM teardown and safe user-buffer copies remain
+  incomplete.
+- VFS remains bounded RAM-only; persistent storage, mount integration and
+  handle-backed filesystem objects remain incomplete.
+- IPC remains scalar and non-blocking. No general Win32 PE/DLL loader or
+  x86/x64-to-RV64 execution layer exists.
+- No production-stability or 100% Core completion claim is made.
+
+## 2026-11-17 afternoon — FDT structure hardening and regression validation
+
+Validated code revision: `12c5d4dab3dd08a1cfcd56b878d1ed05d73c33f8` on
+`feature/win32-gaming-gravity-port`.
+
+### FDT changes
+
+- Merged stacked PR #14, `Validate complete FDT structure before using boot metadata`,
+  into this integration branch (squash merge `72390f313645c5eeb55fdcf7bce21c09bf886719`).
+- `timebase_frequency` and both passes of `parse_memory` require a single root,
+  balanced node depth and a terminal `FDT_END`; duplicate
+  `/cpus/timebase-frequency` properties are rejected.
+- Extended the same single-root invariant to `has_compatible` and
+  `find_compatible_node`. These device-discovery scanners now reject a second
+  root instead of accepting a compatible result from an invalid structure.
+- Added a malformed multi-root FDT fixture and regression assertions for
+  `timebase_frequency`, `parse_memory`, `has_compatible` and
+  `find_compatible_node`.
+- The parser still does not translate ancestor `ranges`, validate/map MMIO,
+  resolve clocks/resets or route interrupts.
+
+### Validation evidence on code revision
+
+- [RV64 S-Mode Kernel push run #44032452966](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452966) — **SUCCESS**.
+  - Host Rust tests: **69 passed, 0 failed**.
+  - Win32 Gravity RV64 ecall adapter cross-compile: success.
+  - RV64 kernel ELF build: success; ELF identified as 64-bit RISC-V, statically linked.
+  - OpenSBI + QEMU `virt` smoke boot: success; required serial assertions passed,
+    including FDT UART discovery at raw parent-bus address `0x10000000`,
+    size `0x100`, and U-mode timer preemption/saved-frame resume.
+  - QEMU uses the workflow's 15-second smoke timeout; this is not long-duration
+    stability or physical-board evidence.
+  - [Kernel ELF, binary and QEMU serial artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452966/artifacts/14304799721).
+- [VisionFive 2 host readiness #44032452935](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452935) — **SUCCESS**; strict-warning host build and CTest **16/16**. No physical board boot is claimed.
+- [Win32 Gravity Bridge #44032452878](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452878) — **SUCCESS**; host bridge test job and real RV64 adapter cross-compile completed.
+- [OpenXzuff Core push run #44032452849](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849) — **SUCCESS**.
+  - Root CTest: **16/16 passed, 0 failed**; OS contracts, Xzuff Go compiler, Coder Checker and `.xexe` fixture validation passed.
+  - Gravity RV64 NDK example compiled and SDK/NDK packages were produced.
+  - Xzuff Go / xgo cross-compiled for Android ARM64 and the Termux command-line toolchain package was produced (not an APK).
+  - Luau runtime built; `hello.luau` execution and `.lap` pack/load smoke both printed the expected output.
+  - JavaScript CTest **2/2**, standard Lua CTest **2/2**, OpenXzuff3D CTest **1/1**; rendered-scene image verification and artifact upload succeeded.
+  - [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44032452849/artifacts/14306160591).
+- PR-triggered Core run #44032458405 was still in progress at the last check; the successful push run above is the completed validation evidence for the same code revision.
+
+### Repository integration
+
+- PR #14 was squash-merged into the feature branch; this did not merge the broader integration into `main`.
+- PR #12 remains open and targets `main`.
+- The latest code revision above is the revision covered by the listed push workflows. Documentation/checkpoint commits may follow without changing that tested code.
+- No physical-board boot, production stability, Windows game execution or 100% Core completion is claimed.
