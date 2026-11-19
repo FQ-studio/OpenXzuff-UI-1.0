@@ -1371,6 +1371,124 @@ mod fdt_node_discovery_tests {
         );
     }
 
+    fn plic_device_tree(
+        extended_cells: &[u32],
+        second_controller_has_cells: bool,
+        plic_status: Option<&[u8]>,
+        source_count: u32,
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\\0#size-cells\\0compatible\\0reg\\0phandle\\0#interrupt-cells\\0interrupt-controller\\0riscv,ndev\\0interrupts-extended\\0status\\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let phandle = string_offset(strings, b"phandle");
+        let interrupt_cells = string_offset(strings, b"#interrupt-cells");
+        let interrupt_controller = string_offset(strings, b"interrupt-controller");
+        let ndev = string_offset(strings, b"riscv,ndev");
+        let extended = string_offset(strings, b"interrupts-extended");
+        let status = string_offset(strings, b"status");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &2u32.to_be_bytes());
+        begin_node(&mut structure, b"cpus");
+        begin_node(&mut structure, b"cpu@0");
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, phandle, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        begin_node(&mut structure, b"cpu@1");
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, phandle, &2u32.to_be_bytes());
+        if second_controller_has_cells {
+            property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        }
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"plic@c000000");
+        property(&mut structure, compatible, b"sifive,plic-1.0.0\\0riscv,plic0\\0");
+        let mut reg_cells = Vec::new();
+        for value in [0, 0x0c00_0000, 0, 0x0040_0000] { push_be32(&mut reg_cells, value); }
+        property(&mut structure, reg, &reg_cells);
+        property(&mut structure, ndev, &source_count.to_be_bytes());
+        let mut raw_extended = Vec::new();
+        for value in extended_cells { push_be32(&mut raw_extended, *value); }
+        property(&mut structure, extended, &raw_extended);
+        if let Some(value) = plic_status { property(&mut structure, status, value); }
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn plic_fdt_resolves_qemu_virt_resource_and_interrupt_contexts() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, None, 96);
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.name, b"plic@c000000");
+        assert_eq!(info.root_reg, FdtRegion {
+            bus_address: 0x0c00_0000,
+            size: Some(0x0040_0000),
+        });
+        assert_eq!(info.source_count, 96);
+        assert_eq!(info.context_count, 2);
+
+        let region = MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4).unwrap();
+        let layout = PlicLayout::new(region, info.source_count, info.context_count).unwrap();
+        assert_eq!(layout.threshold_address(1), Ok(0x0c20_1000));
+        assert_eq!(layout.claim_complete_address(1), Ok(0x0c20_1004));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_unknown_interrupt_controller_phandle() {
+        let blob = plic_device_tree(&[1, 11, 99, 9], true, None, 96);
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_interrupt_controller_without_interrupt_cells() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], false, None, 96);
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_skips_disabled_controller_node() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\\0"), 96);
+        assert_eq!(fdt::find_plic_info(&blob), Ok(None));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_malformed_context_list_and_source_count() {
+        let truncated = plic_device_tree(&[1, 11, 2], true, None, 96);
+        assert_eq!(fdt::find_plic_info(&truncated), Err(FdtError::Interrupts));
+        let invalid_sources = plic_device_tree(&[1, 11, 2, 9], true, None, 1024);
+        assert_eq!(fdt::find_plic_info(&invalid_sources), Err(FdtError::Interrupts));
+    }
+
 }
 
 

@@ -8,7 +8,7 @@ const NOP: u32 = 4;
 const END: u32 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase, Translation }
+pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase, Translation, Interrupts }
 
 fn be32(b: &[u8], p: usize) -> Result<u32, FdtError> {
     let s = b.get(p..p.checked_add(4).ok_or(FdtError::Bounds)?).ok_or(FdtError::Bounds)?;
@@ -759,4 +759,319 @@ fn find_compatible_node_inner<'a>(
 
     if !ended { return Err(FdtError::Structure); }
     Ok(result)
+}
+
+
+/// Resolved metadata for a RISC-V PLIC discovered from firmware FDT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtPlicInfo<'a> {
+    pub name: &'a [u8],
+    pub root_reg: FdtRegion,
+    /// Highest valid interrupt source ID from `riscv,ndev`.
+    pub source_count: u32,
+    /// Number of resolved entries in `interrupts-extended`.
+    pub context_count: u32,
+}
+
+fn structure_sections(blob: &[u8]) -> Result<(usize, usize, &[u8]), FdtError> {
+    if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(blob, 4)? as usize;
+    let off_struct = be32(blob, 8)? as usize;
+    let off_strings = be32(blob, 12)? as usize;
+    let size_strings = be32(blob, 32)? as usize;
+    let size_struct = be32(blob, 36)? as usize;
+    let struct_end = off_struct.checked_add(size_struct)
+        .filter(|end| *end <= total).ok_or(FdtError::Bounds)?;
+    let strings_end = off_strings.checked_add(size_strings)
+        .filter(|end| *end <= total).ok_or(FdtError::Bounds)?;
+    if total < 40 || total > blob.len() || off_struct < 40 || off_strings < 40 {
+        return Err(FdtError::Bounds);
+    }
+    Ok((off_struct, struct_end, &blob[off_strings..strings_end]))
+}
+
+/// Resolve a phandle only when it names an available interrupt-controller
+/// node with a valid #interrupt-cells property.
+fn interrupt_controller_cells(blob: &[u8], wanted_phandle: u32) -> Result<u32, FdtError> {
+    if wanted_phandle == 0 { return Err(FdtError::Interrupts); }
+    let (off_struct, struct_end, strings) = structure_sections(blob)?;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    let mut ended = false;
+    let mut enabled = [true; 32];
+    let mut saw_child = [false; 32];
+    let mut phandle = [None; 32];
+    let mut linux_phandle = [None; 32];
+    let mut interrupt_cells = [None; 32];
+    let mut controller = [false; 32];
+    let mut phandle_seen = [false; 32];
+    let mut linux_phandle_seen = [false; 32];
+    let mut cells_seen = [false; 32];
+    let mut controller_seen = [false; 32];
+    let mut found = None;
+
+    while cursor.checked_add(4).filter(|end| *end <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= enabled.len() { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                    enabled[depth] = true;
+                } else {
+                    saw_child[depth - 1] = true;
+                    enabled[depth] = enabled[depth - 1];
+                }
+                saw_child[depth] = false;
+                phandle[depth] = None;
+                linux_phandle[depth] = None;
+                interrupt_cells[depth] = None;
+                controller[depth] = false;
+                phandle_seen[depth] = false;
+                linux_phandle_seen[depth] = false;
+                cells_seen[depth] = false;
+                controller_seen[depth] = false;
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|byte| *byte == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+                if enabled[depth] && controller[depth] {
+                    if matches!((phandle[depth], linux_phandle[depth]),
+                        (Some(a), Some(b)) if a != b) {
+                        return Err(FdtError::Interrupts);
+                    }
+                    let id = phandle[depth].or(linux_phandle[depth]);
+                    if id == Some(wanted_phandle) {
+                        if found.is_some() { return Err(FdtError::Interrupts); }
+                        found = Some(interrupt_cells[depth].ok_or(FdtError::Interrupts)?);
+                    }
+                }
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|end| *end <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let index = depth - 1;
+                if saw_child[index] { return Err(FdtError::Structure); }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|end| *end <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                match prop_name(strings, nameoff)? {
+                    b"status" => enabled[index] &= status_is_enabled(&blob[cursor..end])?,
+                    b"phandle" => {
+                        if phandle_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 { return Err(FdtError::Interrupts); }
+                        phandle[index] = Some(value);
+                        phandle_seen[index] = true;
+                    }
+                    b"linux,phandle" => {
+                        if linux_phandle_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 { return Err(FdtError::Interrupts); }
+                        linux_phandle[index] = Some(value);
+                        linux_phandle_seen[index] = true;
+                    }
+                    b"#interrupt-cells" => {
+                        if cells_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if !(1..=4).contains(&value) { return Err(FdtError::Interrupts); }
+                        interrupt_cells[index] = Some(value);
+                        cells_seen[index] = true;
+                    }
+                    b"interrupt-controller" => {
+                        if controller_seen[index] || len != 0 { return Err(FdtError::Interrupts); }
+                        controller[index] = true;
+                        controller_seen[index] = true;
+                    }
+                    _ => {}
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    if !ended { return Err(FdtError::Structure); }
+    found.ok_or(FdtError::Interrupts)
+}
+
+fn plic_node_properties(
+    blob: &[u8],
+    wanted_name: &[u8],
+) -> Result<(u32, usize, usize), FdtError> {
+    let (off_struct, struct_end, strings) = structure_sections(blob)?;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    let mut ended = false;
+    let mut enabled = [true; 32];
+    let mut compatible = [false; 32];
+    let mut saw_child = [false; 32];
+    let mut names: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ndev = [None; 32];
+    let mut ndev_seen = [false; 32];
+    let mut extended = [None; 32];
+    let mut extended_seen = [false; 32];
+    let mut found = None;
+
+    while cursor.checked_add(4).filter(|end| *end <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= enabled.len() { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                    enabled[depth] = true;
+                } else {
+                    saw_child[depth - 1] = true;
+                    enabled[depth] = enabled[depth - 1];
+                }
+                saw_child[depth] = false;
+                compatible[depth] = false;
+                names[depth] = None;
+                ndev[depth] = None;
+                ndev_seen[depth] = false;
+                extended[depth] = None;
+                extended_seen[depth] = false;
+                let start = cursor;
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|byte| *byte == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                names[depth] = Some((start, end - start));
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+                if enabled[depth] && compatible[depth] {
+                    let (start, length) = names[depth].ok_or(FdtError::Structure)?;
+                    if &blob[start..start + length] == wanted_name {
+                        if found.is_some() { return Err(FdtError::Interrupts); }
+                        let source_count = ndev[depth].ok_or(FdtError::Interrupts)?;
+                        let (extended_start, extended_len) =
+                            extended[depth].ok_or(FdtError::Interrupts)?;
+                        found = Some((source_count, extended_start, extended_len));
+                    }
+                }
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|end| *end <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let index = depth - 1;
+                if saw_child[index] { return Err(FdtError::Structure); }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|end| *end <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                match prop_name(strings, nameoff)? {
+                    b"compatible" => {
+                        compatible[index] |= compatible_list_contains(
+                            &blob[cursor..end], b"sifive,plic-1.0.0"
+                        )? || compatible_list_contains(&blob[cursor..end], b"riscv,plic0")?;
+                    }
+                    b"status" => enabled[index] &= status_is_enabled(&blob[cursor..end])?,
+                    b"riscv,ndev" => {
+                        if ndev_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 || value > 1023 { return Err(FdtError::Interrupts); }
+                        ndev[index] = Some(value);
+                        ndev_seen[index] = true;
+                    }
+                    b"interrupts-extended" => {
+                        if extended_seen[index] || len == 0 || len % 4 != 0 {
+                            return Err(FdtError::Interrupts);
+                        }
+                        extended[index] = Some((cursor, len));
+                        extended_seen[index] = true;
+                    }
+                    _ => {}
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    if !ended { return Err(FdtError::Structure); }
+    found.ok_or(FdtError::Interrupts)
+}
+
+fn count_interrupt_contexts(
+    blob: &[u8],
+    start: usize,
+    length: usize,
+) -> Result<u32, FdtError> {
+    let end = start.checked_add(length).ok_or(FdtError::Bounds)?;
+    let mut cursor = start;
+    let mut count = 0u32;
+    while cursor < end {
+        let phandle = be32(blob, cursor)?;
+        cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
+        let cells = interrupt_controller_cells(blob, phandle)? as usize;
+        let specifier_bytes = cells.checked_mul(4).ok_or(FdtError::Interrupts)?;
+        let specifier_end = cursor.checked_add(specifier_bytes).ok_or(FdtError::Bounds)?;
+        if specifier_end > end { return Err(FdtError::Interrupts); }
+        let mut cell_cursor = cursor;
+        while cell_cursor < specifier_end {
+            let _ = be32(blob, cell_cursor)?;
+            cell_cursor += 4;
+        }
+        cursor = specifier_end;
+        count = count.checked_add(1).ok_or(FdtError::Interrupts)?;
+    }
+    if count == 0 { return Err(FdtError::Interrupts); }
+    Ok(count)
+}
+
+/// Discover a RISC-V PLIC, translate its MMIO resource, and count its
+/// phandle-resolved `interrupts-extended` contexts. This does not select a
+/// hart/privilege context or enable interrupt delivery.
+pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
+    let mapped = match find_compatible_node_translated(blob, b"sifive,plic-1.0.0")? {
+        Some(node) => Some(node),
+        None => find_compatible_node_translated(blob, b"riscv,plic0")?,
+    };
+    let mapped = match mapped {
+        Some(node) => node,
+        None => return Ok(None),
+    };
+    let root_reg = mapped.root_reg.ok_or(FdtError::Translation)?;
+    if root_reg.size.unwrap_or(0) == 0 { return Err(FdtError::Translation); }
+    let (source_count, extended_start, extended_len) =
+        plic_node_properties(blob, mapped.name)?;
+    let context_count = count_interrupt_contexts(blob, extended_start, extended_len)?;
+    Ok(Some(FdtPlicInfo {
+        name: mapped.name,
+        root_reg,
+        source_count,
+        context_count,
+    }))
 }

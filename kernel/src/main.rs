@@ -6,7 +6,6 @@ use core::panic::PanicInfo;
 
 mod fdt;
 mod mmio;
-#[allow(dead_code)]
 mod plic;
 mod memory;
 mod page_alloc;
@@ -119,6 +118,7 @@ fn report_uart_candidate(blob: &[u8]) {
                     fdt::FdtError::Reservation => 6,
                     fdt::FdtError::Timebase => 7,
                     fdt::FdtError::Translation => 8,
+                    fdt::FdtError::Interrupts => 9,
                 };
                 console_write("FDT UART compatible-node discovery: ERROR code=");
                 print_hex(code);
@@ -128,6 +128,52 @@ fn report_uart_candidate(blob: &[u8]) {
         }
     }
     console_write("FDT UART compatible-node discovery: NOT FOUND\n");
+}
+
+
+/// Discover and bounds-check the PLIC register layout without touching MMIO.
+fn report_plic_candidate(blob: &[u8]) {
+    match fdt::find_plic_info(blob) {
+        Ok(Some(info)) => {
+            let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
+                Ok(region) => region,
+                Err(_) => {
+                    console_write("FDT PLIC MMIO window: REJECTED; not mapped\\n");
+                    return;
+                }
+            };
+            let layout = match plic::PlicLayout::new(region, info.source_count, info.context_count) {
+                Ok(layout) => layout,
+                Err(_) => {
+                    console_write("FDT PLIC register layout: REJECTED; not mapped\\n");
+                    return;
+                }
+            };
+            let last_context = info.context_count - 1;
+            let endpoints_valid = layout.priority_address(1).is_ok()
+                && layout.priority_address(info.source_count).is_ok()
+                && layout.pending_bit(info.source_count).is_ok()
+                && layout.enable_bit(last_context, info.source_count).is_ok()
+                && layout.threshold_address(last_context).is_ok()
+                && layout.claim_complete_address(last_context).is_ok();
+            if !endpoints_valid {
+                console_write("FDT PLIC register layout: REJECTED; not mapped\\n");
+                return;
+            }
+            console_write("FDT PLIC discovery: PASS; ndev=");
+            print_hex(info.source_count as usize);
+            console_write("; contexts=");
+            print_hex(info.context_count as usize);
+            console_write("; root=");
+            print_hex(region.base() as usize);
+            console_write("; size=");
+            print_hex(region.size() as usize);
+            console_write("\\n");
+            console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\\n");
+        }
+        Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\\n"),
+        Err(_) => console_write("FDT PLIC discovery: REJECTED; invalid FDT interrupt metadata\\n"),
+    }
 }
 
 fn be32_raw(ptr: *const u8) -> u32 {
@@ -166,6 +212,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     report_uart_candidate(blob);
+    report_plic_candidate(blob);
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
