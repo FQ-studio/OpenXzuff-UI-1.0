@@ -138,14 +138,14 @@ fn report_plic_candidate(blob: &[u8]) {
             let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
                 Ok(region) => region,
                 Err(_) => {
-                    console_write("FDT PLIC MMIO window: REJECTED; not mapped\\n");
+                    console_write("FDT PLIC MMIO window: REJECTED; not mapped\n");
                     return;
                 }
             };
             let layout = match plic::PlicLayout::new(region, info.source_count, info.context_count) {
                 Ok(layout) => layout,
                 Err(_) => {
-                    console_write("FDT PLIC register layout: REJECTED; not mapped\\n");
+                    console_write("FDT PLIC register layout: REJECTED; not mapped\n");
                     return;
                 }
             };
@@ -157,7 +157,7 @@ fn report_plic_candidate(blob: &[u8]) {
                 && layout.threshold_address(last_context).is_ok()
                 && layout.claim_complete_address(last_context).is_ok();
             if !endpoints_valid {
-                console_write("FDT PLIC register layout: REJECTED; not mapped\\n");
+                console_write("FDT PLIC register layout: REJECTED; not mapped\n");
                 return;
             }
             console_write("FDT PLIC discovery: PASS; ndev=");
@@ -168,11 +168,11 @@ fn report_plic_candidate(blob: &[u8]) {
             print_hex(region.base() as usize);
             console_write("; size=");
             print_hex(region.size() as usize);
-            console_write("\\n");
-            console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\\n");
+            console_write("\n");
+            console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\n");
         }
-        Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\\n"),
-        Err(_) => console_write("FDT PLIC discovery: REJECTED; invalid FDT interrupt metadata\\n"),
+        Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\n"),
+        Err(_) => console_write("FDT PLIC discovery: REJECTED; invalid FDT interrupt metadata\n"),
     }
 }
 

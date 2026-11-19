@@ -1377,7 +1377,7 @@ mod fdt_node_discovery_tests {
         plic_status: Option<&[u8]>,
         source_count: u32,
     ) -> Vec<u8> {
-        let strings = b"#address-cells\\0#size-cells\\0compatible\\0reg\\0phandle\\0#interrupt-cells\\0interrupt-controller\\0riscv,ndev\\0interrupts-extended\\0status\\0";
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0";
         let address = string_offset(strings, b"#address-cells");
         let size = string_offset(strings, b"#size-cells");
         let compatible = string_offset(strings, b"compatible");
@@ -1413,7 +1413,7 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END_NODE);
 
         begin_node(&mut structure, b"plic@c000000");
-        property(&mut structure, compatible, b"sifive,plic-1.0.0\\0riscv,plic0\\0");
+        property(&mut structure, compatible, b"sifive,plic-1.0.0\0riscv,plic0\0");
         let mut reg_cells = Vec::new();
         for value in [0, 0x0c00_0000, 0, 0x0040_0000] { push_be32(&mut reg_cells, value); }
         property(&mut structure, reg, &reg_cells);
@@ -1477,7 +1477,7 @@ mod fdt_node_discovery_tests {
 
     #[test]
     fn plic_fdt_skips_disabled_controller_node() {
-        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\\0"), 96);
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\0"), 96);
         assert_eq!(fdt::find_plic_info(&blob), Ok(None));
     }
 

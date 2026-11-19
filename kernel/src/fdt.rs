@@ -843,16 +843,16 @@ fn interrupt_controller_cells(blob: &[u8], wanted_phandle: u32) -> Result<u32, F
             END_NODE => {
                 if depth == 0 { return Err(FdtError::Structure); }
                 depth -= 1;
-                if enabled[depth] && controller[depth] {
-                    if matches!((phandle[depth], linux_phandle[depth]),
-                        (Some(a), Some(b)) if a != b) {
+                if matches!((phandle[depth], linux_phandle[depth]),
+                    (Some(a), Some(b)) if a != b) {
+                    return Err(FdtError::Interrupts);
+                }
+                let id = phandle[depth].or(linux_phandle[depth]);
+                if id == Some(wanted_phandle) {
+                    if !enabled[depth] || !controller[depth] || found.is_some() {
                         return Err(FdtError::Interrupts);
                     }
-                    let id = phandle[depth].or(linux_phandle[depth]);
-                    if id == Some(wanted_phandle) {
-                        if found.is_some() { return Err(FdtError::Interrupts); }
-                        found = Some(interrupt_cells[depth].ok_or(FdtError::Interrupts)?);
-                    }
+                    found = Some(interrupt_cells[depth].ok_or(FdtError::Interrupts)?);
                 }
             }
             PROP => {
