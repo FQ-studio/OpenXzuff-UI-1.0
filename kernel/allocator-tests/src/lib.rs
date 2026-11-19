@@ -3,6 +3,8 @@
 pub mod fdt;
 #[path = "../../src/mmio.rs"]
 pub mod mmio;
+#[path = "../../src/plic.rs"]
+pub mod plic;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]

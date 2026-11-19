@@ -6,6 +6,8 @@ use core::panic::PanicInfo;
 
 mod fdt;
 mod mmio;
+#[allow(dead_code)]
+mod plic;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
