@@ -232,8 +232,14 @@ mod tests {
     }
 
     #[test]
-    fn plic_layout_rejects_overflowing_context_geometry() {
-        let region = MmioRegion::new(0x0c00_0000, u64::MAX - 0x0c00_0000, 8, 4).unwrap();
-        assert_eq!(PlicLayout::new(region, 96, u32::MAX), Err(PlicError::RegionTooSmall));
+    fn plic_layout_rejects_absolute_context_address_overflow() {
+        // Earlier register windows fit below u64::MAX, but the context block
+        // starts beyond the remaining physical address space.
+        let base = u64::MAX - 0x3003;
+        let region = MmioRegion::new(base, 0x3003, 8, 4).unwrap();
+        assert_eq!(
+            PlicLayout::new(region, 96, 2),
+            Err(PlicError::AddressOverflow),
+        );
     }
 }
