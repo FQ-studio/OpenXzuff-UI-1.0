@@ -67,6 +67,18 @@ Still pending at checkpoint:
 - Both jobs were still at `Install Rust target and QEMU`; host allocator tests, kernel ELF build and QEMU had not yet run on head `102aac785`.
 - Therefore the new MMIO regression fix is not yet claimed as passing, and no new QEMU result is claimed for this head.
 
+## Last verified pre-MMIO QEMU baseline
+
+The preceding FDT translation revision `787d564245f202d42564a6121081f522673f75d5` completed RV64 run #44251245074 successfully:
+- Rust host tests: 78 passed, 0 failed.
+- RV64 adapter cross-compile and kernel ELF build completed.
+- OpenSBI v1.3 booted the kernel in QEMU.
+- Serial assertions included FDT UART translation to root address `0x10000000`, size `0x100`, timer preemption/context switching, U-mode trap resume, IPC and Sv39 Map/Protect/Unmap.
+
+This is baseline evidence for the FDT translation code before the new `MmioRegion` descriptor and its additional tests. It does not validate the later MMIO descriptor or its regression fix. The QEMU workflow is a short serial-assertion smoke test, not long-duration stability or physical-board boot.
+
+Evidence: https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/44251245074
+
 ## Existing kernel/runtime boundary
 
 The current runtime remains a fixed three-task QEMU smoke configuration (two S-mode tasks and one U-mode test task). It is not yet a general dynamic process runtime. The user address-space implementation remains a single bounded bootstrap user heap, not independent per-process Sv39 roots.
