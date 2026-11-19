@@ -1462,6 +1462,10 @@ mod mmio_tests {
             Err(MmioError::OutOfBounds),
         );
         assert_eq!(
+            region.register_address(0xff, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
             region.register_address(u64::MAX, 8),
             Err(MmioError::OutOfBounds),
         );
