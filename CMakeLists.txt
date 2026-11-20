@@ -64,7 +64,7 @@ add_test(NAME gravity-xexe-validation COMMAND xexe-loader-test)
 # End-to-end check: compile the return_42 fixture, then validate its emitted .xexe.
 add_test(NAME xzuff-go-compile-fixture
     COMMAND xzuff-go
-        ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/return_42.xgo
+        ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/examples/rv64_return_42.xgo
         ${CMAKE_CURRENT_BINARY_DIR}/return_42.xexe
 )
 add_test(NAME xzuff-go-xexe-validation
