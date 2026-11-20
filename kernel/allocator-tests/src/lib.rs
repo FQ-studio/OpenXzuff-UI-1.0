@@ -1418,7 +1418,7 @@ mod fdt_node_discovery_tests {
         begin_node(&mut structure, b"plic@c000000");
         property(&mut structure, compatible, compatible_list);
         let mut reg_cells = Vec::new();
-        for value in [0, 0x0c00_0000, 0, 0x0040_0000] { push_be32(&mut reg_cells, value); }
+        for value in [0, 0x0c00_0000, 0, 0x0060_0000] { push_be32(&mut reg_cells, value); }
         property(&mut structure, reg, &reg_cells);
         property(&mut structure, ndev, &source_count.to_be_bytes());
         let mut raw_extended = Vec::new();
@@ -1455,9 +1455,9 @@ mod fdt_node_discovery_tests {
         assert_eq!(info.name, b"plic@c000000");
         assert_eq!(info.root_reg, FdtRegion {
             bus_address: 0x0c00_0000,
-            size: Some(0x0040_0000),
+            size: Some(0x0060_0000),
         });
-        assert_eq!(info.source_count, 96);
+        assert_eq!(info.source_count, 95);
         assert_eq!(info.context_count, 2);
 
         let region = MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4).unwrap();
