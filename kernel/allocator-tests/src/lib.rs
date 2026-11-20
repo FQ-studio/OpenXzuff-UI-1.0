@@ -1482,6 +1482,21 @@ mod fdt_node_discovery_tests {
     }
 
     #[test]
+    fn plic_fdt_discovers_generic_riscv_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            true,
+            None,
+            95,
+            b"riscv,plic0\\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.size, Some(0x0060_0000));
+    }
+
+    #[test]
     fn plic_fdt_rejects_unknown_interrupt_controller_phandle() {
         let blob = plic_device_tree(&[1, 11, 99, 9], true, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
