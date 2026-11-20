@@ -1488,7 +1488,7 @@ mod fdt_node_discovery_tests {
             true,
             None,
             95,
-            b"riscv,plic0\\0",
+            b"riscv,plic0\0",
         );
         let info = fdt::find_plic_info(&blob).unwrap().unwrap();
         assert_eq!(info.source_count, 95);
