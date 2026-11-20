@@ -8,7 +8,7 @@ const NOP: u32 = 4;
 const END: u32 = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase }
+pub enum FdtError { Header, Bounds, Structure, Cells, Memory, Reservation, Timebase, Translation, Interrupts }
 
 fn be32(b: &[u8], p: usize) -> Result<u32, FdtError> {
     let s = b.get(p..p.checked_add(4).ok_or(FdtError::Bounds)?).ok_or(FdtError::Bounds)?;
@@ -420,24 +420,153 @@ pub struct FdtRegion {
     pub size: Option<u64>,
 }
 
-/// A compatible node selected from the FDT. `name` borrows the node name from
-/// the original blob. `reg` is the first tuple in the node's `reg` property.
+
+fn address_fits_cells(address: u64, cells: u32) -> bool {
+    match cells {
+        1 => address <= u32::MAX as u64,
+        2 => true,
+        _ => false,
+    }
+}
+
+/// Translate a resource from its immediate parent bus to the root address
+/// space. Each bus contributes one child-to-parent mapping via `ranges`.
+fn translate_region_to_root(
+    blob: &[u8],
+    mut region: FdtRegion,
+    node_index: usize,
+    ranges: &[Option<(usize, usize)>; 32],
+    ranges_seen: &[bool; 32],
+    child_address_cells: &[u32; 32],
+    child_size_cells: &[u32; 32],
+    parent_address_cells: &[u32; 32],
+) -> Result<FdtRegion, FdtError> {
+    let access_size = region.size.unwrap_or(1);
+    if access_size == 0 { return Err(FdtError::Translation); }
+    let mut bus_index = node_index.checked_sub(1).ok_or(FdtError::Structure)?;
+
+    while bus_index > 0 {
+        if !ranges_seen[bus_index] { return Err(FdtError::Translation); }
+        let (ranges_start, ranges_len) = ranges[bus_index].ok_or(FdtError::Structure)?;
+        let child_cells = child_address_cells[bus_index];
+        let parent_cells = parent_address_cells[bus_index];
+        if !(1..=2).contains(&child_cells) || !(1..=2).contains(&parent_cells) {
+            return Err(FdtError::Cells);
+        }
+
+        let access_end = region.bus_address
+            .checked_add(access_size)
+            .ok_or(FdtError::Translation)?;
+        if !address_fits_cells(region.bus_address, child_cells)
+            || !address_fits_cells(access_end - 1, child_cells) {
+            return Err(FdtError::Translation);
+        }
+
+        // An explicitly empty ranges property declares identity translation.
+        if ranges_len == 0 {
+            if !address_fits_cells(region.bus_address, parent_cells)
+                || !address_fits_cells(access_end - 1, parent_cells) {
+                return Err(FdtError::Translation);
+            }
+        } else {
+            let size_cells = child_size_cells[bus_index];
+            if !(1..=2).contains(&size_cells) { return Err(FdtError::Cells); }
+            let tuple_cells = child_cells.checked_add(parent_cells)
+                .and_then(|n| n.checked_add(size_cells))
+                .ok_or(FdtError::Cells)?;
+            let tuple_bytes = (tuple_cells as usize).checked_mul(4)
+                .ok_or(FdtError::Bounds)?;
+            if ranges_len == 0 || ranges_len % tuple_bytes != 0 {
+                return Err(FdtError::Cells);
+            }
+
+            let mut offset = 0usize;
+            let mut translated = None;
+            while offset < ranges_len {
+                let child_base = read_cells(blob, ranges_start + offset, child_cells)?;
+                let parent_offset = offset + child_cells as usize * 4;
+                let parent_base = read_cells(blob, ranges_start + parent_offset, parent_cells)?;
+                let size_offset = parent_offset + parent_cells as usize * 4;
+                let window_size = read_cells(blob, ranges_start + size_offset, size_cells)?;
+                if window_size == 0 { return Err(FdtError::Translation); }
+                let child_end = child_base.checked_add(window_size)
+                    .ok_or(FdtError::Translation)?;
+                let parent_end = parent_base.checked_add(window_size)
+                    .ok_or(FdtError::Translation)?;
+                if !address_fits_cells(child_base, child_cells)
+                    || !address_fits_cells(child_end - 1, child_cells)
+                    || !address_fits_cells(parent_base, parent_cells)
+                    || !address_fits_cells(parent_end - 1, parent_cells) {
+                    return Err(FdtError::Translation);
+                }
+
+                if region.bus_address >= child_base && access_end <= child_end {
+                    if translated.is_some() { return Err(FdtError::Translation); }
+                    let delta = region.bus_address - child_base;
+                    let root_address = parent_base.checked_add(delta)
+                        .ok_or(FdtError::Translation)?;
+                    let root_end = root_address.checked_add(access_size)
+                        .ok_or(FdtError::Translation)?;
+                    if root_end > parent_end
+                        || !address_fits_cells(root_address, parent_cells)
+                        || !address_fits_cells(root_end - 1, parent_cells) {
+                        return Err(FdtError::Translation);
+                    }
+                    translated = Some(root_address);
+                }
+                offset += tuple_bytes;
+            }
+            region.bus_address = translated.ok_or(FdtError::Translation)?;
+        }
+
+        bus_index -= 1;
+    }
+
+    Ok(region)
+}
+
+/// A compatible node selected from the FDT. `reg` is the first tuple in
+/// the node's parent-bus address space.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FdtNode<'a> {
     pub name: &'a [u8],
     pub reg: Option<FdtRegion>,
 }
 
-/// Find the first available node matching an exact compatible-list entry.
-///
-/// This parses the node's `reg` tuple using the *parent bus*
-/// `#address-cells` and `#size-cells`. The returned address is deliberately
-/// untranslated: this routine does not apply ancestor `ranges`, clocks,
-/// resets, interrupt-parent or MMIO mapping policy.
+/// A compatible node with both its raw parent-bus resource and its address
+/// translated through every ancestor bus `ranges` property to the root bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtMappedNode<'a> {
+    pub name: &'a [u8],
+    pub bus_reg: Option<FdtRegion>,
+    pub root_reg: Option<FdtRegion>,
+}
+
+/// Find the first available compatible node and return its untranslated reg.
 pub fn find_compatible_node<'a>(
     blob: &'a [u8],
     wanted: &[u8],
 ) -> Result<Option<FdtNode<'a>>, FdtError> {
+    let mapped = find_compatible_node_inner(blob, wanted, false)?;
+    Ok(mapped.map(|node| FdtNode { name: node.name, reg: node.bus_reg }))
+}
+
+/// Find the first available compatible node and translate its first reg tuple
+/// through each ancestor bus to the root address space. A missing `ranges`
+/// property on an intermediate bus is not treated as identity; only an
+/// explicitly empty `ranges` property means identity translation.
+pub fn find_compatible_node_translated<'a>(
+    blob: &'a [u8],
+    wanted: &[u8],
+) -> Result<Option<FdtMappedNode<'a>>, FdtError> {
+    find_compatible_node_inner(blob, wanted, true)
+}
+
+fn find_compatible_node_inner<'a>(
+    blob: &'a [u8],
+    wanted: &[u8],
+    translate: bool,
+) -> Result<Option<FdtMappedNode<'a>>, FdtError> {
     if wanted.is_empty() || wanted.contains(&0) { return Err(FdtError::Structure); }
     if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
     let total = be32(blob, 4)? as usize;
@@ -463,11 +592,13 @@ pub fn find_compatible_node<'a>(
     let mut saw_child = [false; 32];
     let mut names: [Option<(usize, usize)>; 32] = [None; 32];
     let mut regs: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ranges: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ranges_seen = [false; 32];
     let mut child_address_cells = [2u32; 32];
     let mut child_size_cells = [1u32; 32];
     let mut reg_address_cells = [2u32; 32];
     let mut reg_size_cells = [1u32; 32];
-    let mut result: Option<FdtNode<'a>> = None;
+    let mut result: Option<FdtMappedNode<'a>> = None;
 
     while cursor.checked_add(4).filter(|v| *v <= struct_end).is_some() {
         let token = be32(blob, cursor)?;
@@ -495,6 +626,8 @@ pub fn find_compatible_node<'a>(
                 compatible[depth] = false;
                 saw_child[depth] = false;
                 regs[depth] = None;
+                ranges[depth] = None;
+                ranges_seen[depth] = false;
                 child_address_cells[depth] = 2;
                 child_size_cells[depth] = 1;
                 cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
@@ -540,9 +673,27 @@ pub fn find_compatible_node<'a>(
                         None
                     };
                     if result.is_none() {
-                        result = Some(FdtNode {
+                        let root_reg = if translate {
+                            match reg {
+                                Some(region) => Some(translate_region_to_root(
+                                    blob,
+                                    region,
+                                    depth,
+                                    &ranges,
+                                    &ranges_seen,
+                                    &child_address_cells,
+                                    &child_size_cells,
+                                    &reg_address_cells,
+                                )?),
+                                None => None,
+                            }
+                        } else {
+                            None
+                        };
+                        result = Some(FdtMappedNode {
                             name: &blob[name_range.0..name_range.0 + name_range.1],
-                            reg,
+                            bus_reg: reg,
+                            root_reg,
                         });
                     }
                 }
@@ -586,6 +737,11 @@ pub fn find_compatible_node<'a>(
                         enabled[index] &= status_is_enabled(&blob[cursor..end])?;
                     }
                     b"reg" => regs[index] = Some((cursor, len)),
+                    b"ranges" => {
+                        if ranges_seen[index] { return Err(FdtError::Structure); }
+                        ranges_seen[index] = true;
+                        ranges[index] = Some((cursor, len));
+                    }
                     _ => {}
                 }
                 cursor = align4(end)?;
@@ -603,4 +759,330 @@ pub fn find_compatible_node<'a>(
 
     if !ended { return Err(FdtError::Structure); }
     Ok(result)
+}
+
+
+/// Resolved metadata for a RISC-V PLIC discovered from firmware FDT.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FdtPlicInfo<'a> {
+    pub name: &'a [u8],
+    pub root_reg: FdtRegion,
+    /// Highest valid interrupt source ID from `riscv,ndev`.
+    pub source_count: u32,
+    /// Number of resolved entries in `interrupts-extended`.
+    pub context_count: u32,
+}
+
+fn structure_sections(blob: &[u8]) -> Result<(usize, usize, &[u8]), FdtError> {
+    if blob.len() < 40 || be32(blob, 0)? != MAGIC { return Err(FdtError::Header); }
+    let total = be32(blob, 4)? as usize;
+    let off_struct = be32(blob, 8)? as usize;
+    let off_strings = be32(blob, 12)? as usize;
+    let size_strings = be32(blob, 32)? as usize;
+    let size_struct = be32(blob, 36)? as usize;
+    let struct_end = off_struct.checked_add(size_struct)
+        .filter(|end| *end <= total).ok_or(FdtError::Bounds)?;
+    let strings_end = off_strings.checked_add(size_strings)
+        .filter(|end| *end <= total).ok_or(FdtError::Bounds)?;
+    if total < 40 || total > blob.len() || off_struct < 40 || off_strings < 40 {
+        return Err(FdtError::Bounds);
+    }
+    Ok((off_struct, struct_end, &blob[off_strings..strings_end]))
+}
+
+/// Resolve a phandle only when it names an available interrupt-controller
+/// node with a valid #interrupt-cells property.
+fn interrupt_controller_cells(blob: &[u8], wanted_phandle: u32) -> Result<u32, FdtError> {
+    if wanted_phandle == 0 { return Err(FdtError::Interrupts); }
+    let (off_struct, struct_end, strings) = structure_sections(blob)?;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    let mut ended = false;
+    let mut enabled = [true; 32];
+    let mut saw_child = [false; 32];
+    let mut phandle = [None; 32];
+    let mut linux_phandle = [None; 32];
+    let mut interrupt_cells = [None; 32];
+    let mut controller = [false; 32];
+    let mut phandle_seen = [false; 32];
+    let mut linux_phandle_seen = [false; 32];
+    let mut cells_seen = [false; 32];
+    let mut controller_seen = [false; 32];
+    let mut found = None;
+
+    while cursor.checked_add(4).filter(|end| *end <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= enabled.len() { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                    enabled[depth] = true;
+                } else {
+                    saw_child[depth - 1] = true;
+                    enabled[depth] = enabled[depth - 1];
+                }
+                saw_child[depth] = false;
+                phandle[depth] = None;
+                linux_phandle[depth] = None;
+                interrupt_cells[depth] = None;
+                controller[depth] = false;
+                phandle_seen[depth] = false;
+                linux_phandle_seen[depth] = false;
+                cells_seen[depth] = false;
+                controller_seen[depth] = false;
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|byte| *byte == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+                if matches!((phandle[depth], linux_phandle[depth]),
+                    (Some(a), Some(b)) if a != b) {
+                    return Err(FdtError::Interrupts);
+                }
+                let id = phandle[depth].or(linux_phandle[depth]);
+                if id == Some(wanted_phandle) {
+                    if !enabled[depth] || !controller[depth] || found.is_some() {
+                        return Err(FdtError::Interrupts);
+                    }
+                    found = Some(interrupt_cells[depth].ok_or(FdtError::Interrupts)?);
+                }
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|end| *end <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let index = depth - 1;
+                if saw_child[index] { return Err(FdtError::Structure); }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|end| *end <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                match prop_name(strings, nameoff)? {
+                    b"status" => enabled[index] &= status_is_enabled(&blob[cursor..end])?,
+                    b"phandle" => {
+                        if phandle_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 { return Err(FdtError::Interrupts); }
+                        phandle[index] = Some(value);
+                        phandle_seen[index] = true;
+                    }
+                    b"linux,phandle" => {
+                        if linux_phandle_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 { return Err(FdtError::Interrupts); }
+                        linux_phandle[index] = Some(value);
+                        linux_phandle_seen[index] = true;
+                    }
+                    b"#interrupt-cells" => {
+                        if cells_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if !(1..=4).contains(&value) { return Err(FdtError::Interrupts); }
+                        interrupt_cells[index] = Some(value);
+                        cells_seen[index] = true;
+                    }
+                    b"interrupt-controller" => {
+                        if controller_seen[index] || len != 0 { return Err(FdtError::Interrupts); }
+                        controller[index] = true;
+                        controller_seen[index] = true;
+                    }
+                    _ => {}
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    if !ended { return Err(FdtError::Structure); }
+    found.ok_or(FdtError::Interrupts)
+}
+
+fn plic_node_properties(
+    blob: &[u8],
+    wanted_name: &[u8],
+) -> Result<(u32, usize, usize), FdtError> {
+    let (off_struct, struct_end, strings) = structure_sections(blob)?;
+    let mut cursor = off_struct;
+    let mut depth = 0usize;
+    let mut root_seen = false;
+    let mut ended = false;
+    let mut enabled = [true; 32];
+    let mut compatible = [false; 32];
+    let mut saw_child = [false; 32];
+    let mut names: [Option<(usize, usize)>; 32] = [None; 32];
+    let mut ndev = [None; 32];
+    let mut ndev_seen = [false; 32];
+    let mut extended = [None; 32];
+    let mut extended_seen = [false; 32];
+    let mut found = None;
+
+    while cursor.checked_add(4).filter(|end| *end <= struct_end).is_some() {
+        let token = be32(blob, cursor)?;
+        cursor += 4;
+        match token {
+            BEGIN_NODE => {
+                if depth >= enabled.len() { return Err(FdtError::Structure); }
+                if depth == 0 {
+                    if root_seen { return Err(FdtError::Structure); }
+                    root_seen = true;
+                    enabled[depth] = true;
+                } else {
+                    saw_child[depth - 1] = true;
+                    enabled[depth] = enabled[depth - 1];
+                }
+                saw_child[depth] = false;
+                compatible[depth] = false;
+                names[depth] = None;
+                ndev[depth] = None;
+                ndev_seen[depth] = false;
+                extended[depth] = None;
+                extended_seen[depth] = false;
+                let start = cursor;
+                let end = blob.get(cursor..struct_end).ok_or(FdtError::Bounds)?
+                    .iter().position(|byte| *byte == 0).map(|n| cursor + n)
+                    .ok_or(FdtError::Structure)?;
+                names[depth] = Some((start, end - start));
+                cursor = align4(end.checked_add(1).ok_or(FdtError::Bounds)?)?;
+                depth += 1;
+            }
+            END_NODE => {
+                if depth == 0 { return Err(FdtError::Structure); }
+                depth -= 1;
+                if enabled[depth] && compatible[depth] {
+                    let (start, length) = names[depth].ok_or(FdtError::Structure)?;
+                    if &blob[start..start + length] == wanted_name {
+                        if found.is_some() { return Err(FdtError::Interrupts); }
+                        let source_count = ndev[depth].ok_or(FdtError::Interrupts)?;
+                        let (extended_start, extended_len) =
+                            extended[depth].ok_or(FdtError::Interrupts)?;
+                        found = Some((source_count, extended_start, extended_len));
+                    }
+                }
+            }
+            PROP => {
+                if depth == 0 || cursor.checked_add(8).filter(|end| *end <= struct_end).is_none() {
+                    return Err(FdtError::Structure);
+                }
+                let index = depth - 1;
+                if saw_child[index] { return Err(FdtError::Structure); }
+                let len = be32(blob, cursor)? as usize;
+                let nameoff = be32(blob, cursor + 4)?;
+                cursor += 8;
+                let end = cursor.checked_add(len).filter(|end| *end <= struct_end)
+                    .ok_or(FdtError::Bounds)?;
+                match prop_name(strings, nameoff)? {
+                    b"compatible" => {
+                        compatible[index] |= compatible_list_contains(
+                            &blob[cursor..end], b"sifive,plic-1.0.0"
+                        )? || compatible_list_contains(
+                            &blob[cursor..end], b"starfive,jh7110-plic"
+                        )? || compatible_list_contains(&blob[cursor..end], b"riscv,plic0")?;
+                    }
+                    b"status" => enabled[index] &= status_is_enabled(&blob[cursor..end])?,
+                    b"riscv,ndev" => {
+                        if ndev_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
+                        let value = be32(blob, cursor)?;
+                        if value == 0 || value > 1023 { return Err(FdtError::Interrupts); }
+                        ndev[index] = Some(value);
+                        ndev_seen[index] = true;
+                    }
+                    b"interrupts-extended" => {
+                        if extended_seen[index] || len == 0 || len % 4 != 0 {
+                            return Err(FdtError::Interrupts);
+                        }
+                        extended[index] = Some((cursor, len));
+                        extended_seen[index] = true;
+                    }
+                    _ => {}
+                }
+                cursor = align4(end)?;
+            }
+            NOP => {}
+            END => {
+                if !root_seen || depth != 0 { return Err(FdtError::Structure); }
+                ended = true;
+                break;
+            }
+            _ => return Err(FdtError::Structure),
+        }
+        if cursor > struct_end { return Err(FdtError::Bounds); }
+    }
+    if !ended { return Err(FdtError::Structure); }
+    found.ok_or(FdtError::Interrupts)
+}
+
+fn count_interrupt_contexts(
+    blob: &[u8],
+    start: usize,
+    length: usize,
+) -> Result<u32, FdtError> {
+    let end = start.checked_add(length).ok_or(FdtError::Bounds)?;
+    let mut cursor = start;
+    let mut count = 0u32;
+    while cursor < end {
+        let phandle = be32(blob, cursor)?;
+        cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
+        let cells = interrupt_controller_cells(blob, phandle)? as usize;
+        let specifier_bytes = cells.checked_mul(4).ok_or(FdtError::Interrupts)?;
+        let specifier_end = cursor.checked_add(specifier_bytes).ok_or(FdtError::Bounds)?;
+        if specifier_end > end { return Err(FdtError::Interrupts); }
+        let mut cell_cursor = cursor;
+        while cell_cursor < specifier_end {
+            let _ = be32(blob, cell_cursor)?;
+            cell_cursor += 4;
+        }
+        cursor = specifier_end;
+        count = count.checked_add(1).ok_or(FdtError::Interrupts)?;
+    }
+    if count == 0 { return Err(FdtError::Interrupts); }
+    Ok(count)
+}
+
+/// Discover a RISC-V PLIC, translate its MMIO resource, and count its
+/// phandle-resolved `interrupts-extended` contexts. This does not select a
+/// hart/privilege context or enable interrupt delivery.
+pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
+    // FU740/QEMU use the SiFive compatible, JH7110 advertises the StarFive
+    // compatible, and TH1520 commonly uses the generic RISC-V PLIC match.
+    let mut mapped = None;
+    for compatible in [
+        &b"sifive,plic-1.0.0"[..],
+        &b"starfive,jh7110-plic"[..],
+        &b"riscv,plic0"[..],
+    ] {
+        if let Some(node) = find_compatible_node_translated(blob, compatible)? {
+            mapped = Some(node);
+            break;
+        }
+    }
+    let mapped = match mapped {
+        Some(node) => node,
+        None => return Ok(None),
+    };
+    let root_reg = mapped.root_reg.ok_or(FdtError::Translation)?;
+    if root_reg.size.unwrap_or(0) == 0 { return Err(FdtError::Translation); }
+    let (source_count, extended_start, extended_len) =
+        plic_node_properties(blob, mapped.name)?;
+    let context_count = count_interrupt_contexts(blob, extended_start, extended_len)?;
+    Ok(Some(FdtPlicInfo {
+        name: mapped.name,
+        root_reg,
+        source_count,
+        context_count,
+    }))
 }

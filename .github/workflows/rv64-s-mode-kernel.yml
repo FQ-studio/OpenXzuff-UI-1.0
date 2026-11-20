@@ -69,7 +69,11 @@ jobs:
           fi
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'FDT UART compatible-node discovery: PASS; raw bus reg parsed' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART compatible-node discovery: PASS; ancestor ranges translated' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART bus address: 10000000; root address: 10000000; size: 100' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART MMIO window: PASS; 32-bit base register in bounds; not mapped' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC discovery: PASS; ndev=5f; contexts=2; root=c000000; size=600000' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log

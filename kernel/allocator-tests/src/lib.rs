@@ -1,6 +1,10 @@
 //! Host-side tests for the exact allocator and FDT modules used by the RV64 kernel.
 #[path = "../../src/fdt.rs"]
 pub mod fdt;
+#[path = "../../src/mmio.rs"]
+pub mod mmio;
+#[path = "../../src/plic.rs"]
+pub mod plic;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]
@@ -950,7 +954,9 @@ mod task_manager_capacity_tests {
 
 #[cfg(test)]
 mod fdt_node_discovery_tests {
-    use super::fdt::{self, FdtError, FdtNode, FdtRegion};
+    use super::fdt::{self, FdtError, FdtMappedNode, FdtNode, FdtRegion};
+    use super::mmio::MmioRegion;
+    use super::plic::PlicLayout;
 
     const BEGIN_NODE: u32 = 1;
     const END_NODE: u32 = 2;
@@ -1141,5 +1147,490 @@ mod fdt_node_discovery_tests {
             fdt::find_compatible_node(&bad_compatible, b"test,serial"),
             Err(FdtError::Structure)
         );
+    }
+    fn mapped_device_tree(ranges_cells: Option<&[u32]>, reg_cells: &[u32]) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        if let Some(cells) = ranges_cells {
+            let mut raw = Vec::new();
+            for cell in cells { push_be32(&mut raw, *cell); }
+            property(&mut structure, ranges, &raw);
+        }
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in reg_cells { push_be32(&mut raw_reg, *cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    fn nested_mapped_device_tree() -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut soc_ranges = Vec::new();
+        for cell in [0x2000, 0, 0x8000, 0x2000] { push_be32(&mut soc_ranges, cell); }
+        property(&mut structure, ranges, &soc_ranges);
+        begin_node(&mut structure, b"bridge@2000");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut bridge_ranges = Vec::new();
+        for cell in [0x1000, 0x2000, 0x1000] { push_be32(&mut bridge_ranges, cell); }
+        property(&mut structure, ranges, &bridge_ranges);
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in [0x1100, 0x100] { push_be32(&mut raw_reg, cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn translated_node_treats_explicit_empty_ranges_as_identity() {
+        let blob = mapped_device_tree(Some(&[]), &[0x1000, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_applies_child_to_parent_ranges_offset() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x1000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_walks_multiple_ancestor_ranges() {
+        let blob = nested_mapped_device_tree();
+        let node = fdt::find_compatible_node_translated(&blob, b"test,serial")
+            .unwrap().unwrap();
+        assert_eq!(node.bus_reg, Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }));
+        assert_eq!(node.root_reg, Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }));
+    }
+
+    #[test]
+    fn translated_node_fails_closed_when_ranges_is_absent() {
+        let blob = mapped_device_tree(None, &[0x1100, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"test,serial").unwrap().unwrap().reg,
+            Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) })
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_resources_outside_ranges_and_malformed_tuples() {
+        let outside = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x100]),
+            &[0x10f0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&outside, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+
+        let malformed = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&malformed, b"test,serial"),
+            Err(FdtError::Cells)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_ambiguous_overlapping_ranges() {
+        let blob = mapped_device_tree(
+            Some(&[
+                0x1000, 0, 0x8000, 0x1000,
+                0x1000, 0, 0x9000, 0x1000,
+            ]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+    #[test]
+    fn translated_node_rejects_child_window_exceeding_one_cell_address_space() {
+        let blob = mapped_device_tree(
+            Some(&[0xffff_fff0, 0, 0, 0x20]),
+            &[0xffff_fff0, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_identity_rejects_resource_exceeding_child_address_width() {
+        let blob = mapped_device_tree(
+            Some(&[]),
+            &[0xffff_fff0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_parent_window_u64_overflow() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0xffff_ffff, 0xffff_fff0, 0x20]),
+            &[0x1000, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    fn plic_device_tree(
+        extended_cells: &[u32],
+        second_controller_has_cells: bool,
+        plic_status: Option<&[u8]>,
+        source_count: u32,
+        compatible_list: &[u8],
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let phandle = string_offset(strings, b"phandle");
+        let interrupt_cells = string_offset(strings, b"#interrupt-cells");
+        let interrupt_controller = string_offset(strings, b"interrupt-controller");
+        let ndev = string_offset(strings, b"riscv,ndev");
+        let extended = string_offset(strings, b"interrupts-extended");
+        let status = string_offset(strings, b"status");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &2u32.to_be_bytes());
+        begin_node(&mut structure, b"cpus");
+        begin_node(&mut structure, b"cpu@0");
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, phandle, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        begin_node(&mut structure, b"cpu@1");
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, phandle, &2u32.to_be_bytes());
+        if second_controller_has_cells {
+            property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        }
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"plic@c000000");
+        property(&mut structure, compatible, compatible_list);
+        let mut reg_cells = Vec::new();
+        for value in [0, 0x0c00_0000, 0, 0x0060_0000] { push_be32(&mut reg_cells, value); }
+        property(&mut structure, reg, &reg_cells);
+        property(&mut structure, ndev, &source_count.to_be_bytes());
+        let mut raw_extended = Vec::new();
+        for value in extended_cells { push_be32(&mut raw_extended, *value); }
+        property(&mut structure, extended, &raw_extended);
+        if let Some(value) = plic_status { property(&mut structure, status, value); }
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn plic_fdt_resolves_qemu_virt_resource_and_interrupt_contexts() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.name, b"plic@c000000");
+        assert_eq!(info.root_reg, FdtRegion {
+            bus_address: 0x0c00_0000,
+            size: Some(0x0060_0000),
+        });
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+
+        let region = MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4).unwrap();
+        let layout = PlicLayout::new(region, info.source_count, info.context_count).unwrap();
+        assert_eq!(layout.threshold_address(1), Ok(0x0c20_1000));
+        assert_eq!(layout.claim_complete_address(1), Ok(0x0c20_1004));
+    }
+
+    #[test]
+    fn plic_fdt_discovers_starfive_jh7110_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            true,
+            None,
+            95,
+            b"starfive,jh7110-plic\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.bus_address, 0x0c00_0000);
+    }
+
+    #[test]
+    fn plic_fdt_discovers_generic_riscv_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            true,
+            None,
+            95,
+            b"riscv,plic0\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.size, Some(0x0060_0000));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_unknown_interrupt_controller_phandle() {
+        let blob = plic_device_tree(&[1, 11, 99, 9], true, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_interrupt_controller_without_interrupt_cells() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], false, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_skips_disabled_controller_node() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\0"), 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Ok(None));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_malformed_context_list_and_source_count() {
+        let truncated = plic_device_tree(&[1, 11, 2], true, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&truncated), Err(FdtError::Interrupts));
+        let invalid_sources = plic_device_tree(&[1, 11, 2, 9], true, None, 1024, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&invalid_sources), Err(FdtError::Interrupts));
+    }
+
+}
+
+
+#[cfg(test)]
+mod mmio_tests {
+    use super::{fdt::FdtRegion, mmio::{MmioError, MmioRegion}};
+
+    fn translated_region(base: u64, size: Option<u64>) -> FdtRegion {
+        FdtRegion { bus_address: base, size }
+    }
+
+    #[test]
+    fn mmio_region_accepts_translated_window_and_bounds_register_access() {
+        let region = MmioRegion::from_translated_fdt_region(
+            translated_region(0x1000, Some(0x100)), 4, 4,
+        ).unwrap();
+        assert_eq!(region.base(), 0x1000);
+        assert_eq!(region.size(), 0x100);
+        assert_eq!(region.end(), 0x1100);
+        assert_eq!(region.alignment(), 4);
+        assert_eq!(region.register_address(0, 4), Ok(0x1000));
+        assert_eq!(region.register_address(0xfc, 4), Ok(0x10fc));
+    }
+
+    #[test]
+    fn mmio_region_rejects_unknown_empty_and_short_resources() {
+        assert_eq!(
+            MmioRegion::from_translated_fdt_region(translated_region(0x1000, None), 4, 4),
+            Err(MmioError::UnknownSize),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0, 4, 4),
+            Err(MmioError::Empty),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 3, 4, 4),
+            Err(MmioError::TooSmall),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 4, 0, 4),
+            Err(MmioError::InvalidMinimumSize),
+        );
+    }
+
+    #[test]
+    fn mmio_region_requires_power_of_two_alignment_and_aligned_base() {
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 0),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 3),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1002, 0x100, 4, 4),
+            Err(MmioError::MisalignedBase),
+        );
+    }
+
+    #[test]
+    fn mmio_region_rejects_exclusive_end_overflow() {
+        assert_eq!(
+            MmioRegion::new(u64::MAX - 3, 4, 4, 1),
+            Err(MmioError::AddressOverflow),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_requires_supported_width_and_natural_alignment() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 1).unwrap();
+        assert_eq!(
+            region.register_address(0, 3),
+            Err(MmioError::UnsupportedAccessWidth),
+        );
+        assert_eq!(
+            region.register_address(2, 4),
+            Err(MmioError::MisalignedOffset),
+        );
+        assert_eq!(
+            region.register_address(0, 8),
+            Ok(0x1000),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_must_fit_entirely_inside_window() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert_eq!(
+            region.register_address(0x100, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
+            region.register_address(0xff, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
+            region.register_address(u64::MAX, 8),
+            Err(MmioError::OutOfBounds),
+        );
+    }
+
+    #[test]
+    fn mmio_region_contains_only_nonempty_nonoverflowing_subranges() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert!(region.contains_range(0x1000, 4));
+        assert!(region.contains_range(0x10fc, 4));
+        assert!(!region.contains_range(0x10fc, 8));
+        assert!(!region.contains_range(0x1000, 0));
+        assert!(!region.contains_range(u64::MAX - 1, 8));
     }
 }
