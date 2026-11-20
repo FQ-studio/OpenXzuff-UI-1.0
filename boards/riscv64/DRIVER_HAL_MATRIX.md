@@ -26,8 +26,14 @@ prove physical-board driver operation.
    one narrow polling-console interface. JH7110 requires its clock/reset and
    register-width/register-shift properties to be honoured.
 3. Timer: SBI TIME first; direct ACLINT only when FDT and privilege contract allow it.
-4. Interrupt controller: PLIC first for these three initial board families;
-   parse each DTB's compatible, context/interrupt wiring and source count.
+4. Interrupt controller: PLIC first for these three initial board families.
+   The current parser recognizes the QEMU/SiFive compatible strings, validates
+   inherited node availability, reads `riscv,ndev`, resolves every
+   `interrupts-extended` phandle through an available interrupt-controller
+   node with a valid `#interrupt-cells`, and counts the resolved contexts.
+   The PLIC geometry descriptor checks priority, pending, enable and per-context
+   threshold/claim windows against the translated MMIO resource. Hart-specific
+   S-mode context selection and actual interrupt delivery remain next.
 5. Storage/network/display only after concrete compatible, clocks, resets, DMA
    and interrupt dependencies are parsed.
 
@@ -60,16 +66,22 @@ The new kernel MMIO descriptor accepts only a translated resource with a known,
 non-zero size, checked exclusive end, caller-specified minimum extent and
 power-of-two base alignment. Register-address validation accepts explicit
 8/16/32/64-bit widths and checks natural alignment plus full access bounds.
-This descriptor returns physical addresses only: it does not map memory, set
-Sv39 device attributes, perform volatile IO, or establish that a platform
+These descriptors return physical addresses only: they do not map memory,
+set Sv39 device attributes, perform volatile IO, or establish that a platform
 resource is safe to claim. Those operations remain responsibilities of the
-future VM/platform HAL layer. Clocks, resets and interrupt routing are not yet
-resolved. The metadata scanners require one root node, balanced nesting and a
-terminal `FDT_END`; the timebase scanner also rejects duplicate
+future VM/platform HAL layer. PLIC parsing validates the phandle references and
+specifier lengths in `interrupts-extended`, but does not select the current
+hart's supervisor-external context or connect claim/complete to trap dispatch.
+Clock/reset providers and UART register initialization remain unresolved.
+The metadata scanners require one root node, balanced nesting and a terminal
+`FDT_END`; the timebase scanner also rejects duplicate
 `/cpus/timebase-frequency` properties.
 
 QEMU `virt` smoke boot discovers the `ns16550a` UART candidate at root
 address `0x10000000`, size `0x100`. CI validates that the first 32-bit
 register lies within the translated window, but deliberately does not map the
-window or initialize/access the UART. No physical UART driver or board boot is
+window or initialize/access the UART. The same FDT smoke path discovers the
+PLIC at root address `0x0c000000`, size `0x400000`, with `riscv,ndev=96`
+and two resolved interrupt contexts; CI validates register-window geometry
+only, not interrupt delivery. No physical UART/PLIC driver or board boot is
 claimed by this matrix.
