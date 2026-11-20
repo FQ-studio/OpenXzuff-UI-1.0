@@ -1,10 +1,20 @@
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -15,25 +25,52 @@ fs::path executableDir(const char* argv0) {
     return ec ? fs::current_path() : p.parent_path();
 }
 
-// Quote one argument for the POSIX shell used by the current Linux CI target.
-std::string shellQuote(const fs::path& path) {
-    const std::string value = path.string();
-    std::string quoted = "'";
-    for (char c : value) {
-        if (c == '\'') quoted += "'\\''";
-        else quoted.push_back(c);
-    }
-    quoted.push_back('\'');
-    return quoted;
-}
-
+// Launch sibling tools without a shell. This keeps paths with spaces safe and
+// avoids depending on POSIX shell quoting when xgo is built for Windows.
 int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
-    std::string command = shellQuote(executable);
-    for (const auto& arg : args) command += " " + shellQuote(arg);
-    const int result = std::system(command.c_str());
-    if (result == -1) return 1;
-    // POSIX system() encodes the child exit status; normalize it for callers.
-    return (result >> 8) & 0xFF;
+    std::vector<std::string> storage;
+    storage.reserve(args.size() + 1);
+    storage.push_back(executable.string());
+    for (const auto& arg : args) storage.push_back(arg.string());
+
+#ifdef _WIN32
+    std::vector<const char*> argv;
+#else
+    std::vector<char*> argv;
+#endif
+    argv.reserve(storage.size() + 1);
+    for (auto& value : storage) argv.push_back(value.data());
+    argv.push_back(nullptr);
+
+#ifdef _WIN32
+    const intptr_t result = _spawnv(_P_WAIT, storage.front().c_str(), argv.data());
+    if (result == -1) {
+        std::cerr << "xgo: cannot start " << executable << ": "
+                  << std::strerror(errno) << '\\n';
+        return 127;
+    }
+    return static_cast<int>(result);
+#else
+    const pid_t child = fork();
+    if (child < 0) {
+        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\\n';
+        return 127;
+    }
+    if (child == 0) {
+        execv(storage.front().c_str(), argv.data());
+        _exit(errno == ENOENT ? 127 : 126);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\\n';
+        return 127;
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return 1;
+#endif
 }
 
 bool validName(std::string_view name) {
