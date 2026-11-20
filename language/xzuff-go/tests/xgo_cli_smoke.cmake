@@ -15,6 +15,9 @@ execute_process(COMMAND "${XGO}" check WORKING_DIRECTORY "${WORK_DIR}"
 if(NOT check_result EQUAL 0)
   message(FATAL_ERROR "xgo check failed (${check_result})\n${check_out}\n${check_err}")
 endif()
+if(NOT check_out MATCHES "Xzuff Go check: PASS")
+  message(FATAL_ERROR "xgo did not forward Coder Checker output\n${check_out}\n${check_err}")
+endif()
 
 execute_process(COMMAND "${XGO}" run WORKING_DIRECTORY "${WORK_DIR}"
   RESULT_VARIABLE run_result OUTPUT_VARIABLE run_out ERROR_VARIABLE run_err)

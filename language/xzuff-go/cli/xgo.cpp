@@ -69,7 +69,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     startupInfo.cb = sizeof(startupInfo);
     PROCESS_INFORMATION processInfo{};
     if (!CreateProcessW(application.c_str(), mutableCommandLine.data(),
-                        nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                        nullptr, nullptr, TRUE, 0, nullptr, nullptr,
                         &startupInfo, &processInfo)) {
         std::cerr << "xgo: CreateProcessW failed for " << executable
                   << " (Windows error " << GetLastError() << ")\n";
