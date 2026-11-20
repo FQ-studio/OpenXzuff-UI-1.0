@@ -114,8 +114,13 @@ int main(int argc, char** argv) {
 
     const std::string_view command(argv[1]);
     const fs::path tools = executableDir(argv[0]);
+#ifdef _WIN32
+    const fs::path checker = tools / "xzuff-check.exe";
+    const fs::path compiler = tools / "xzuff-go.exe";
+#else
     const fs::path checker = tools / "xzuff-check";
     const fs::path compiler = tools / "xzuff-go";
+#endif
     const fs::path root = fs::current_path();
 
     if (command == "create") {
