@@ -81,7 +81,7 @@ QEMU `virt` smoke boot discovers the `ns16550a` UART candidate at root
 address `0x10000000`, size `0x100`. CI validates that the first 32-bit
 register lies within the translated window, but deliberately does not map the
 window or initialize/access the UART. The same FDT smoke path discovers the
-PLIC at root address `0x0c000000`, size `0x400000`, with `riscv,ndev=96`
+PLIC at root address `0x0c000000`, size `0x600000`, with `riscv,ndev=95`
 and two resolved interrupt contexts; CI validates register-window geometry
 only, not interrupt delivery. No physical UART/PLIC driver or board boot is
 claimed by this matrix.
