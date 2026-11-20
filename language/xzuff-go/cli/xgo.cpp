@@ -9,7 +9,10 @@
 #include <vector>
 
 #ifdef _WIN32
-#include <process.h>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #else
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -25,35 +28,79 @@ fs::path executableDir(const char* argv0) {
     return ec ? fs::current_path() : p.parent_path();
 }
 
-// Launch sibling tools without a shell. This keeps paths with spaces safe and
-// avoids depending on POSIX shell quoting when xgo is built for Windows.
+// Launch sibling tools without a shell. This keeps paths with spaces safe
+// and avoids shell-quoting differences between POSIX and Windows hosts.
+#ifdef _WIN32
+std::wstring quoteWindowsArgument(std::wstring_view value) {
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (wchar_t c : value) {
+        if (c == L'\\\\') {
+            ++backslashes;
+            continue;
+        }
+        if (c == L'\"') {
+            quoted.append(backslashes * 2 + 1, L'\\\\');
+            quoted.push_back(L'\"');
+        } else {
+            quoted.append(backslashes, L'\\\\');
+            quoted.push_back(c);
+        }
+        backslashes = 0;
+    }
+    quoted.append(backslashes * 2, L'\\\\');
+    quoted.push_back(L'\"');
+    return quoted;
+}
+#endif
+
 int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
+#ifdef _WIN32
+    std::wstring commandLine = quoteWindowsArgument(executable.wstring());
+    for (const auto& arg : args) {
+        commandLine.push_back(L' ');
+        commandLine += quoteWindowsArgument(arg.wstring());
+    }
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\\0');
+
+    const std::wstring application = executable.wstring();
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+    if (!CreateProcessW(application.c_str(), mutableCommandLine.data(),
+                        nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                        &startupInfo, &processInfo)) {
+        std::cerr << "xgo: CreateProcessW failed for " << executable
+                  << " (Windows error " << GetLastError() << ")\\n";
+        return 127;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    const BOOL haveExitCode =
+        waitResult == WAIT_OBJECT_0 && GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    if (!haveExitCode) {
+        std::cerr << "xgo: failed waiting for " << executable << "\\n";
+        return 127;
+    }
+    return static_cast<int>(exitCode);
+#else
     std::vector<std::string> storage;
     storage.reserve(args.size() + 1);
     storage.push_back(executable.string());
     for (const auto& arg : args) storage.push_back(arg.string());
 
-#ifdef _WIN32
-    std::vector<const char*> argv;
-#else
     std::vector<char*> argv;
-#endif
     argv.reserve(storage.size() + 1);
     for (auto& value : storage) argv.push_back(value.data());
     argv.push_back(nullptr);
 
-#ifdef _WIN32
-    const intptr_t result = _spawnv(_P_WAIT, storage.front().c_str(), argv.data());
-    if (result == -1) {
-        std::cerr << "xgo: cannot start " << executable << ": "
-                  << std::strerror(errno) << '\n';
-        return 127;
-    }
-    return static_cast<int>(result);
-#else
     const pid_t child = fork();
     if (child < 0) {
-        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\n';
+        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\\n';
         return 127;
     }
     if (child == 0) {
@@ -64,7 +111,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     int status = 0;
     while (waitpid(child, &status, 0) < 0) {
         if (errno == EINTR) continue;
-        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\n';
+        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\\n';
         return 127;
     }
     if (WIFEXITED(status)) return WEXITSTATUS(status);
