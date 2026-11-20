@@ -184,26 +184,26 @@ mod tests {
     use crate::mmio::MmioRegion;
 
     fn qemu_virt_plic() -> PlicLayout {
-        // QEMU virt exposes a 4 MiB PLIC window; the FDT supplies ndev=96.
+        // QEMU virt exposes a 6 MiB PLIC window; the FDT supplies ndev=95.
         // This fixture supplies two resolved contexts for geometry testing.
-        let region = MmioRegion::new(0x0c00_0000, 0x0040_0000, 8, 4).unwrap();
-        PlicLayout::new(region, 96, 2).unwrap()
+        let region = MmioRegion::new(0x0c00_0000, 0x0060_0000, 8, 4).unwrap();
+        PlicLayout::new(region, 95, 2).unwrap()
     }
 
     #[test]
     fn plic_layout_calculates_qemu_virt_register_addresses() {
         let plic = qemu_virt_plic();
         assert_eq!(plic.priority_address(1), Ok(0x0c00_0004));
-        assert_eq!(plic.priority_address(96), Ok(0x0c00_0180));
+        assert_eq!(plic.priority_address(95), Ok(0x0c00_017c));
         assert_eq!(plic.pending_bit(32), Ok(super::PlicBitRegister {
             address: 0x0c00_1004, mask: 1,
         }));
-        assert_eq!(plic.enable_bit(1, 96), Ok(super::PlicBitRegister {
-            address: 0x0c00_208c, mask: 1,
+        assert_eq!(plic.enable_bit(1, 95), Ok(super::PlicBitRegister {
+            address: 0x0c00_2088, mask: 0x8000_0000,
         }));
         assert_eq!(plic.threshold_address(1), Ok(0x0c20_1000));
         assert_eq!(plic.claim_complete_address(1), Ok(0x0c20_1004));
-        assert_eq!(plic.source_count(), 96);
+        assert_eq!(plic.source_count(), 95);
         assert_eq!(plic.context_count(), 2);
     }
 
@@ -219,7 +219,7 @@ mod tests {
     fn plic_layout_rejects_out_of_range_source_and_context_ids() {
         let plic = qemu_virt_plic();
         assert_eq!(plic.priority_address(0), Err(PlicError::InvalidSourceId));
-        assert_eq!(plic.priority_address(97), Err(PlicError::InvalidSourceId));
+        assert_eq!(plic.priority_address(96), Err(PlicError::InvalidSourceId));
         assert_eq!(plic.pending_bit(0), Err(PlicError::InvalidSourceId));
         assert_eq!(plic.enable_bit(2, 1), Err(PlicError::InvalidContextId));
         assert_eq!(plic.threshold_address(2), Err(PlicError::InvalidContextId));
@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn plic_layout_rejects_resource_smaller_than_last_context_window() {
         let region = MmioRegion::new(0x0c00_0000, 0x0020_1007, 8, 4).unwrap();
-        assert_eq!(PlicLayout::new(region, 96, 2), Err(PlicError::RegionTooSmall));
+        assert_eq!(PlicLayout::new(region, 95, 2), Err(PlicError::RegionTooSmall));
     }
 
     #[test]
