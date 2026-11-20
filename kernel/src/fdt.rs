@@ -989,6 +989,8 @@ fn plic_node_properties(
                     b"compatible" => {
                         compatible[index] |= compatible_list_contains(
                             &blob[cursor..end], b"sifive,plic-1.0.0"
+                        )? || compatible_list_contains(
+                            &blob[cursor..end], b"starfive,jh7110-plic"
                         )? || compatible_list_contains(&blob[cursor..end], b"riscv,plic0")?;
                     }
                     b"status" => enabled[index] &= status_is_enabled(&blob[cursor..end])?,
