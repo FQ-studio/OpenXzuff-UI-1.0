@@ -1,7 +1,7 @@
 # Gravity Kernel FDT PLIC discovery checkpoint — 2026-11-20
 
 Branch: `feat/fdt-ranges-root-translation`
-Implementation head before test-import fix: `ed67a20f0bbcb4e6013b699182a44a2ad00822d9`
+Implementation head before test-import fix: `ed67a20f0bbcb4e6013b699182a44a2ad00822d9`\n\nLatest code fix before this checkpoint update: `d7cf46dcea92014ddd7146387ead1372fcdf23c9`.
 
 ## Implemented
 
@@ -10,7 +10,7 @@ Implementation head before test-import fix: `ed67a20f0bbcb4e6013b699182a44a2ad00
 - Exposes checked register addresses and pending/enable bit masks for source IDs 1 through the supplied `riscv,ndev` value.
 - Rejects invalid source/context counts and IDs, arithmetic overflow, and undersized resources.
 - Added FDT PLIC discovery in `kernel/src/fdt.rs`: exact compatible matching, inherited availability, `riscv,ndev`, `interrupts-extended` parsing, phandle resolution, interrupt-controller availability and `#interrupt-cells` validation.
-- Counts the resolved PLIC interrupt contexts and reports the QEMU virt candidate during boot.
+- Recognizes SiFive/QEMU, StarFive JH7110 and generic RISC-V PLIC compatible strings in both node selection and metadata validation.\n- Counts the resolved PLIC interrupt contexts and reports the QEMU virt candidate during boot.\n- Adds a StarFive-only compatible fixture to prevent selection/metadata matcher drift.
 - Adds host fixtures for QEMU virt geometry, unknown phandles, missing `#interrupt-cells`, disabled PLIC nodes, malformed context lists and invalid source counts.
 - Adds QEMU serial assertions for PLIC discovery and register-window bounds.
 
