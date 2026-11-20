@@ -955,6 +955,8 @@ mod task_manager_capacity_tests {
 #[cfg(test)]
 mod fdt_node_discovery_tests {
     use super::fdt::{self, FdtError, FdtMappedNode, FdtNode, FdtRegion};
+    use super::mmio::MmioRegion;
+    use super::plic::PlicLayout;
 
     const BEGIN_NODE: u32 = 1;
     const END_NODE: u32 = 2;
