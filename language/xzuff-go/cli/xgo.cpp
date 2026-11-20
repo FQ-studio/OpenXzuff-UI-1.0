@@ -46,14 +46,14 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     const intptr_t result = _spawnv(_P_WAIT, storage.front().c_str(), argv.data());
     if (result == -1) {
         std::cerr << "xgo: cannot start " << executable << ": "
-                  << std::strerror(errno) << '\\n';
+                  << std::strerror(errno) << '\n';
         return 127;
     }
     return static_cast<int>(result);
 #else
     const pid_t child = fork();
     if (child < 0) {
-        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\\n';
+        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\n';
         return 127;
     }
     if (child == 0) {
@@ -64,7 +64,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     int status = 0;
     while (waitpid(child, &status, 0) < 0) {
         if (errno == EINTR) continue;
-        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\\n';
+        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\n';
         return 127;
     }
     if (WIFEXITED(status)) return WEXITSTATUS(status);
