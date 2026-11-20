@@ -35,21 +35,21 @@ std::wstring quoteWindowsArgument(std::wstring_view value) {
     std::wstring quoted = L"\"";
     std::size_t backslashes = 0;
     for (wchar_t c : value) {
-        if (c == L'\\\\') {
+        if (c == L'\\') {
             ++backslashes;
             continue;
         }
-        if (c == L'\"') {
-            quoted.append(backslashes * 2 + 1, L'\\\\');
-            quoted.push_back(L'\"');
+        if (c == L'"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted.push_back(L'"');
         } else {
-            quoted.append(backslashes, L'\\\\');
+            quoted.append(backslashes, L'\\');
             quoted.push_back(c);
         }
         backslashes = 0;
     }
-    quoted.append(backslashes * 2, L'\\\\');
-    quoted.push_back(L'\"');
+    quoted.append(backslashes * 2, L'\\');
+    quoted.push_back(L'"');
     return quoted;
 }
 #endif
@@ -62,7 +62,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
         commandLine += quoteWindowsArgument(arg.wstring());
     }
     std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
-    mutableCommandLine.push_back(L'\\0');
+    mutableCommandLine.push_back(L'\0');
 
     const std::wstring application = executable.wstring();
     STARTUPINFOW startupInfo{};
@@ -72,7 +72,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
                         nullptr, nullptr, FALSE, 0, nullptr, nullptr,
                         &startupInfo, &processInfo)) {
         std::cerr << "xgo: CreateProcessW failed for " << executable
-                  << " (Windows error " << GetLastError() << ")\\n";
+                  << " (Windows error " << GetLastError() << ")\n";
         return 127;
     }
 
@@ -83,7 +83,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     CloseHandle(processInfo.hThread);
     CloseHandle(processInfo.hProcess);
     if (!haveExitCode) {
-        std::cerr << "xgo: failed waiting for " << executable << "\\n";
+        std::cerr << "xgo: failed waiting for " << executable << "\n";
         return 127;
     }
     return static_cast<int>(exitCode);
@@ -100,7 +100,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
 
     const pid_t child = fork();
     if (child < 0) {
-        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\\n';
+        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\n';
         return 127;
     }
     if (child == 0) {
@@ -111,7 +111,7 @@ int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
     int status = 0;
     while (waitpid(child, &status, 0) < 0) {
         if (errno == EINTR) continue;
-        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\\n';
+        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\n';
         return 127;
     }
     if (WIFEXITED(status)) return WEXITSTATUS(status);
