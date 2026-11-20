@@ -1378,6 +1378,7 @@ mod fdt_node_discovery_tests {
         second_controller_has_cells: bool,
         plic_status: Option<&[u8]>,
         source_count: u32,
+        compatible_list: &[u8],
     ) -> Vec<u8> {
         let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0";
         let address = string_offset(strings, b"#address-cells");
@@ -1415,7 +1416,7 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END_NODE);
 
         begin_node(&mut structure, b"plic@c000000");
-        property(&mut structure, compatible, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        property(&mut structure, compatible, compatible_list);
         let mut reg_cells = Vec::new();
         for value in [0, 0x0c00_0000, 0, 0x0040_0000] { push_be32(&mut reg_cells, value); }
         property(&mut structure, reg, &reg_cells);
@@ -1449,7 +1450,7 @@ mod fdt_node_discovery_tests {
 
     #[test]
     fn plic_fdt_resolves_qemu_virt_resource_and_interrupt_contexts() {
-        let blob = plic_device_tree(&[1, 11, 2, 9], true, None, 96);
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, None, 96, b"sifive,plic-1.0.0\0riscv,plic0\0");
         let info = fdt::find_plic_info(&blob).unwrap().unwrap();
         assert_eq!(info.name, b"plic@c000000");
         assert_eq!(info.root_reg, FdtRegion {
@@ -1466,28 +1467,43 @@ mod fdt_node_discovery_tests {
     }
 
     #[test]
+    fn plic_fdt_discovers_starfive_jh7110_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            true,
+            None,
+            96,
+            b"starfive,jh7110-plic\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 96);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.bus_address, 0x0c00_0000);
+    }
+
+    #[test]
     fn plic_fdt_rejects_unknown_interrupt_controller_phandle() {
-        let blob = plic_device_tree(&[1, 11, 99, 9], true, None, 96);
+        let blob = plic_device_tree(&[1, 11, 99, 9], true, None, 96, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
     }
 
     #[test]
     fn plic_fdt_rejects_interrupt_controller_without_interrupt_cells() {
-        let blob = plic_device_tree(&[1, 11, 2, 9], false, None, 96);
+        let blob = plic_device_tree(&[1, 11, 2, 9], false, None, 96, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
     }
 
     #[test]
     fn plic_fdt_skips_disabled_controller_node() {
-        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\0"), 96);
+        let blob = plic_device_tree(&[1, 11, 2, 9], true, Some(b"disabled\0"), 96, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&blob), Ok(None));
     }
 
     #[test]
     fn plic_fdt_rejects_malformed_context_list_and_source_count() {
-        let truncated = plic_device_tree(&[1, 11, 2], true, None, 96);
+        let truncated = plic_device_tree(&[1, 11, 2], true, None, 96, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&truncated), Err(FdtError::Interrupts));
-        let invalid_sources = plic_device_tree(&[1, 11, 2, 9], true, None, 1024);
+        let invalid_sources = plic_device_tree(&[1, 11, 2, 9], true, None, 1024, b"sifive,plic-1.0.0\0riscv,plic0\0");
         assert_eq!(fdt::find_plic_info(&invalid_sources), Err(FdtError::Interrupts));
     }
 
