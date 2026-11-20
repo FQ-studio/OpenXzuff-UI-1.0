@@ -2,7 +2,7 @@
 
 Branch: `feat/fdt-ranges-root-translation`
 Initial implementation head: `ed67a20f0bbcb4e6013b699182a44a2ad00822d9`
-Latest code correction at this checkpoint: `7813c018aa7903d3573238a3ba46b15f7129b87a`
+PLIC geometry code: `e7f1df4a64e65ac04e294999a5ebf97c8934cef2`\nQEMU FDT fixture correction: `480953866aa755c49ac01e366f6fca9db979a348`\nWorkflow assertion correction: `203db21dd982258c130e336b66ad2ea8cf64c994`\nBoard matrix correction: `2a71817b4c60fa24c8f540ff2db58545390db8c3`
 
 ## Implemented
 
