@@ -1055,10 +1055,19 @@ fn count_interrupt_contexts(
 /// phandle-resolved `interrupts-extended` contexts. This does not select a
 /// hart/privilege context or enable interrupt delivery.
 pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
-    let mapped = match find_compatible_node_translated(blob, b"sifive,plic-1.0.0")? {
-        Some(node) => Some(node),
-        None => find_compatible_node_translated(blob, b"riscv,plic0")?,
-    };
+    // FU740/QEMU use the SiFive compatible, JH7110 advertises the StarFive
+    // compatible, and TH1520 commonly uses the generic RISC-V PLIC match.
+    let mut mapped = None;
+    for compatible in [
+        &b"sifive,plic-1.0.0"[..],
+        &b"starfive,jh7110-plic"[..],
+        &b"riscv,plic0"[..],
+    ] {
+        if let Some(node) = find_compatible_node_translated(blob, compatible)? {
+            mapped = Some(node);
+            break;
+        }
+    }
     let mapped = match mapped {
         Some(node) => node,
         None => return Ok(None),
