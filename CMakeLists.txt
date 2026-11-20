@@ -35,8 +35,8 @@ add_test(NAME xgo-cli-help COMMAND xgo --help)
 add_test(NAME xgo-cli-command-smoke
     COMMAND ${CMAKE_COMMAND}
         -DXGO=$<TARGET_FILE:xgo>
-        -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/CliSmoke
-        -DPROJECT_PARENT=${CMAKE_CURRENT_BINARY_DIR}
+        "-DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/Cli Smoke Parent/CliSmoke"
+        "-DPROJECT_PARENT=${CMAKE_CURRENT_BINARY_DIR}/Cli Smoke Parent"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/xgo_cli_smoke.cmake
 )
 set_tests_properties(xgo-cli-command-smoke PROPERTIES DEPENDS xgo-cli-help)
@@ -64,7 +64,7 @@ add_test(NAME gravity-xexe-validation COMMAND xexe-loader-test)
 # End-to-end check: compile the return_42 fixture, then validate its emitted .xexe.
 add_test(NAME xzuff-go-compile-fixture
     COMMAND xzuff-go
-        ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/tests/return_42.xgo
+        ${CMAKE_CURRENT_SOURCE_DIR}/language/xzuff-go/examples/rv64_return_42.xgo
         ${CMAKE_CURRENT_BINARY_DIR}/return_42.xexe
 )
 add_test(NAME xzuff-go-xexe-validation

@@ -3,6 +3,7 @@ if(NOT DEFINED XGO OR NOT DEFINED WORK_DIR OR NOT DEFINED PROJECT_PARENT)
 endif()
 
 file(REMOVE_RECURSE "${WORK_DIR}")
+file(MAKE_DIRECTORY "${PROJECT_PARENT}")
 execute_process(COMMAND "${XGO}" create CliSmoke WORKING_DIRECTORY "${PROJECT_PARENT}"
   RESULT_VARIABLE create_result OUTPUT_VARIABLE create_out ERROR_VARIABLE create_err)
 if(NOT create_result EQUAL 0)
@@ -13,6 +14,9 @@ execute_process(COMMAND "${XGO}" check WORKING_DIRECTORY "${WORK_DIR}"
   RESULT_VARIABLE check_result OUTPUT_VARIABLE check_out ERROR_VARIABLE check_err)
 if(NOT check_result EQUAL 0)
   message(FATAL_ERROR "xgo check failed (${check_result})\n${check_out}\n${check_err}")
+endif()
+if(NOT check_out MATCHES "Xzuff Go check: PASS")
+  message(FATAL_ERROR "xgo did not forward Coder Checker output\n${check_out}\n${check_err}")
 endif()
 
 execute_process(COMMAND "${XGO}" run WORKING_DIRECTORY "${WORK_DIR}"

@@ -12,6 +12,12 @@ function main() returns i32 {
 
 Only one `main` function returning a signed integer literal is supported. The literal must fit signed 32-bit range (-2147483648 through 2147483647). The compiler splits larger immediates into RV64 `lui` and `addiw` instructions; `addiw` sign-extends the final 32-bit result. The lexer handles identifiers, decimal integer literals, punctuation, whitespace and `//` comments. Unsupported statements and trailing tokens are rejected.
 
+## Current compilable example
+
+Use `examples/rv64_return_42.xgo` as the compiler-supported application fixture. It intentionally stays within the implemented language subset and is built into a Gravity RV64 `.xexe` by CMake and CI.
+
+The separate `examples/hello.xgo` file is a forward-looking syntax sketch (modules, imports, strings, constants, and console calls); it is not accepted by the current compiler yet and must not be used as a build fixture.
+
 ## Output: OpenXzuff `.xexe`
 
 The compiler emits a 32-byte `.xexe` v1 header followed by RV64 machine code. It does **not** target Linux or emit ELF. Header details and syscall rules are documented in [`Kernel/ABI/GRAVITY-RV64-USER-ABI-v1.md`](../../../Kernel/ABI/GRAVITY-RV64-USER-ABI-v1.md).
@@ -79,3 +85,5 @@ cd HelloWorld
 - `xgo delete <name>` only targets a project directly under the current directory and requires typing `DELETE` before recursive removal.
 
 The current `xgo` CLI is an initial command dispatcher, not a complete package manager or runtime. It relies on the sibling `xzuff-check` and `xzuff-go` executables.
+
+The CLI launches those sibling tools directly (POSIX `fork/exec`; Windows `CreateProcessW` with Windows command-line argument quoting) instead of constructing a shell command. This avoids shell-quoting differences and is covered by a smoke test whose project/build path contains spaces. The Windows CI job runs on a Windows x64 hosted runner; that validates the Windows process-launch path, but is not evidence of a native Windows ARM64 build or test.
