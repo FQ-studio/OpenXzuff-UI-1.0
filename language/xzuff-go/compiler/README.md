@@ -80,4 +80,4 @@ cd HelloWorld
 
 The current `xgo` CLI is an initial command dispatcher, not a complete package manager or runtime. It relies on the sibling `xzuff-check` and `xzuff-go` executables.
 
-The CLI launches those sibling tools directly (POSIX `fork/exec`; Windows `_spawnv`) instead of constructing a shell command. This avoids shell-quoting differences and is covered by a smoke test whose project/build path contains spaces. The Windows CI job runs on a Windows x64 hosted runner; that validates the Windows process-launch path, but is not evidence of a native Windows ARM64 build or test.
+The CLI launches those sibling tools directly (POSIX `fork/exec`; Windows `CreateProcessW` with Windows command-line argument quoting) instead of constructing a shell command. This avoids shell-quoting differences and is covered by a smoke test whose project/build path contains spaces. The Windows CI job runs on a Windows x64 hosted runner; that validates the Windows process-launch path, but is not evidence of a native Windows ARM64 build or test.
