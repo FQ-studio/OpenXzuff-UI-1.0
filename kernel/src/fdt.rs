@@ -1042,9 +1042,12 @@ fn count_interrupt_contexts(
         // with exactly one interrupt-cause cell. Only machine-external (11)
         // and supervisor-external (9) causes describe PLIC contexts.
         if cells != 1 { return Err(FdtError::Interrupts); }
+        let specifier_end = cursor.checked_add(4)
+            .filter(|specifier_end| *specifier_end <= end)
+            .ok_or(FdtError::Interrupts)?;
         let cause = be32(blob, cursor)?;
         if !matches!(cause, 9 | 11) { return Err(FdtError::Interrupts); }
-        cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
+        cursor = specifier_end;
         count = count.checked_add(1).ok_or(FdtError::Interrupts)?;
     }
     if count == 0 { return Err(FdtError::Interrupts); }
