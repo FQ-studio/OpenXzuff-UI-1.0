@@ -1470,7 +1470,7 @@ mod fdt_node_discovery_tests {
     fn plic_fdt_discovers_starfive_jh7110_compatible() {
         let blob = plic_device_tree(
             &[1, 11, 2, 9],
-            true,
+            Some(1),
             None,
             95,
             b"starfive,jh7110-plic\0",
@@ -1485,7 +1485,7 @@ mod fdt_node_discovery_tests {
     fn plic_fdt_discovers_generic_riscv_compatible() {
         let blob = plic_device_tree(
             &[1, 11, 2, 9],
-            true,
+            Some(1),
             None,
             95,
             b"riscv,plic0\0",
