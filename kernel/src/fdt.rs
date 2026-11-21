@@ -1037,16 +1037,14 @@ fn count_interrupt_contexts(
     while cursor < end {
         let phandle = be32(blob, cursor)?;
         cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
-        let cells = interrupt_controller_cells(blob, phandle)? as usize;
-        let specifier_bytes = cells.checked_mul(4).ok_or(FdtError::Interrupts)?;
-        let specifier_end = cursor.checked_add(specifier_bytes).ok_or(FdtError::Bounds)?;
-        if specifier_end > end { return Err(FdtError::Interrupts); }
-        let mut cell_cursor = cursor;
-        while cell_cursor < specifier_end {
-            let _ = be32(blob, cell_cursor)?;
-            cell_cursor += 4;
-        }
-        cursor = specifier_end;
+        let cells = interrupt_controller_cells(blob, phandle)?;
+        // A RISC-V PLIC context is wired to a CPU-local interrupt controller
+        // with exactly one interrupt-cause cell. Only machine-external (11)
+        // and supervisor-external (9) causes describe PLIC contexts.
+        if cells != 1 { return Err(FdtError::Interrupts); }
+        let cause = be32(blob, cursor)?;
+        if !matches!(cause, 9 | 11) { return Err(FdtError::Interrupts); }
+        cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
         count = count.checked_add(1).ok_or(FdtError::Interrupts)?;
     }
     if count == 0 { return Err(FdtError::Interrupts); }
