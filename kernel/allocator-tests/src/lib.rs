@@ -1415,6 +1415,15 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
 
+        // QEMU virt also emits an ACLINT MSWI interrupt controller with
+        // #interrupt-cells = <0>. It is unrelated to the PLIC's CPU-intc
+        // phandles and must not make PLIC context discovery fail.
+        begin_node(&mut structure, b"mswi@2000000");
+        property(&mut structure, phandle, &3u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &0u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+
         begin_node(&mut structure, b"plic@c000000");
         property(&mut structure, compatible, compatible_list);
         let mut reg_cells = Vec::new();
@@ -1533,6 +1542,18 @@ mod fdt_node_discovery_tests {
             b"sifive,plic-1.0.0\0",
         );
         assert_eq!(fdt::find_plic_info(&invalid_supervisor), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_zero_cell_target_interrupt_controller() {
+        let blob = plic_device_tree(
+            &[3, 11],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\\0",
+        );
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
     }
 
     #[test]
