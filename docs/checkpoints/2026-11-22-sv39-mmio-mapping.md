@@ -35,9 +35,7 @@ Additional checks on the same code commit:
 - VisionFive 2 Kernel Readiness run #44998153706: **SUCCESS** (host smoke and board contract checks only; not physical-board boot).
 - Win32 Gravity Backend Bridge run #44998153690: **SUCCESS** (host mock and RV64 adapter cross-compile).
 
-The later commits `218c9bf6d0f424686c7bdeb71651e0d5c76ddc0a` and `db1c49d1c6aa3487ce9df0d7dba04c812dbe3c73` update documentation and remove a duplicate comment; they do not change mapping logic. At checkpoint creation, the Actions runs on the later head were still in progress:
-- RV64 S-Mode Kernel #44998249038
-- OpenXzuff UI Runtime, OS Contracts and 3D #44998249043
+The later commits `218c9bf6d0f424686c7bdeb71651e0d5c76ddc0a` and `db1c49d1c6aa3487ce9df0d7dba04c812dbe3c73` update documentation and remove a duplicate comment; they do not change mapping logic. The later-head RV64 S-Mode Kernel run #44998249038 on `db1c49d` has since completed **SUCCESS** with the same 106/106 host tests, RV64 release ELF build, and QEMU UART/PLIC mapping plus kernel smoke assertions. Its kernel ELF/binary/serial-log/DTB artifact is available until 2026-12-22. The OpenXzuff UI Runtime, OS Contracts and 3D run #44998249043 was still in progress at the latest check.
 
 ## Exact implementation boundary
 
