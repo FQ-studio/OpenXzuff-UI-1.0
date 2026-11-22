@@ -1415,9 +1415,9 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
 
-        // QEMU virt also emits an ACLINT MSWI interrupt controller with
-        // #interrupt-cells = <0>. It is unrelated to the PLIC's CPU-intc
-        // phandles and must not make PLIC context discovery fail.
+        // An unrelated zero-cell interrupt controller may exist elsewhere
+        // in a platform tree. It is not referenced by the PLIC's context list
+        // and must not make PLIC context discovery fail.
         begin_node(&mut structure, b"mswi@2000000");
         property(&mut structure, phandle, &3u32.to_be_bytes());
         property(&mut structure, interrupt_cells, &0u32.to_be_bytes());
