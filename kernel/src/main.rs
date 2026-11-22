@@ -172,11 +172,13 @@ fn report_plic_candidate(blob: &[u8]) {
             console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\n");
         }
         Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\n"),
-        Err((stage, error)) => {
+        Err((stage, error, detail)) => {
             console_write("FDT PLIC discovery: REJECTED; stage=");
             print_hex(stage as usize);
             console_write("; error=");
             print_hex(error as usize);
+            console_write("; detail=");
+            print_hex(detail);
             console_write("\n");
         }
     }
