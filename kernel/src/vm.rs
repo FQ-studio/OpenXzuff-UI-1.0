@@ -305,6 +305,9 @@ pub fn switch_to_user() -> bool {
 pub fn map_kernel_mmio_region(region: crate::mmio::MmioRegion) -> Result<(), VmError> {
     let plan = crate::mmio_map::plan(region.base(), region.size())
         .map_err(VmError::MmioPlan)?;
+    if plan.table_count > MMIO_TABLE_COUNT {
+        return Err(VmError::MmioTableExhausted);
+    }
     let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
     let user_satp = USER_SATP.load(Ordering::Acquire);
     if kernel_satp == 0 || user_satp == 0 || !active() {
