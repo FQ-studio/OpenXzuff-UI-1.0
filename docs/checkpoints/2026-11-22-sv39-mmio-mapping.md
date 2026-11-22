@@ -20,6 +20,7 @@ Key implementation commits:
 - `860ad422f5dfbe7074fb2314a305014f28940713` — FDT resource integration
 - `eb5af0842ad7768eccc4efdf30af30ab0aab5a62` — host test inclusion
 - `b47f1558522ad28a5e49401b8b7089777c51f116` — CI assertions
+- `7853481357c46ac77b047f9723dc1092568bbbc1` — reject a resource requiring more than the eight-table static pool before modifying page tables
 
 ## Verified CI evidence
 
@@ -35,7 +36,7 @@ Additional checks on the same code commit:
 - VisionFive 2 Kernel Readiness run #44998153706: **SUCCESS** (host smoke and board contract checks only; not physical-board boot).
 - Win32 Gravity Backend Bridge run #44998153690: **SUCCESS** (host mock and RV64 adapter cross-compile).
 
-The later commits `218c9bf6d0f424686c7bdeb71651e0d5c76ddc0a` and `db1c49d1c6aa3487ce9df0d7dba04c812dbe3c73` update documentation and remove a duplicate comment; they do not change mapping logic. The later-head RV64 S-Mode Kernel run #44998249038 on `db1c49d` has since completed **SUCCESS** with the same 106/106 host tests, RV64 release ELF build, and QEMU UART/PLIC mapping plus kernel smoke assertions. Its kernel ELF/binary/serial-log/DTB artifact is available until 2026-12-22. The OpenXzuff UI Runtime, OS Contracts and 3D run #44998249043 was still in progress at the latest check.
+The later commits `218c9bf6d0f424686c7bdeb71651e0d5c76ddc0a` and `db1c49d1c6aa3487ce9df0d7dba04c812dbe3c73` update documentation and remove a duplicate comment; they do not change mapping logic. The later-head RV64 S-Mode Kernel run #44998249038 on `db1c49d` completed **SUCCESS** with 106/106 host tests, RV64 release ELF build, and QEMU UART/PLIC mapping plus kernel smoke assertions. Its kernel ELF/binary/serial-log/DTB artifact is available until 2026-12-22. A follow-up guard was then committed as `7853481`; it rejects MMIO resources requiring more than the eight-table pool before changing page tables. The new-head RV64 run #44998519901 and OpenXzuff UI Runtime run #44998519849 were still in progress at the latest check, so the guard commit is not yet claimed verified.
 
 ## Exact implementation boundary
 
