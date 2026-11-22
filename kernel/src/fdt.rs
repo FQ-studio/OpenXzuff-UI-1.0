@@ -1026,31 +1026,43 @@ fn plic_node_properties(
     found.ok_or(FdtError::Interrupts)
 }
 
-fn count_interrupt_contexts(
+fn count_interrupt_contexts_with_stage(
     blob: &[u8],
     start: usize,
     length: usize,
-) -> Result<u32, FdtError> {
-    let end = start.checked_add(length).ok_or(FdtError::Bounds)?;
+) -> Result<u32, (FdtPlicStage, FdtError)> {
+    let end = start.checked_add(length)
+        .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds))?;
     let mut cursor = start;
     let mut count = 0u32;
     while cursor < end {
-        let phandle = be32(blob, cursor)?;
-        cursor = cursor.checked_add(4).ok_or(FdtError::Bounds)?;
-        let cells = interrupt_controller_cells(blob, phandle)?;
+        let phandle = be32(blob, cursor)
+            .map_err(|error| (FdtPlicStage::ContextPhandle, error))?;
+        cursor = cursor.checked_add(4)
+            .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds))?;
+        let cells = interrupt_controller_cells(blob, phandle)
+            .map_err(|error| (FdtPlicStage::ContextController, error))?;
         // A RISC-V PLIC context is wired to a CPU-local interrupt controller
         // with exactly one interrupt-cause cell. Only machine-external (11)
         // and supervisor-external (9) causes describe PLIC contexts.
-        if cells != 1 { return Err(FdtError::Interrupts); }
+        if cells != 1 {
+            return Err((FdtPlicStage::ContextCellCount, FdtError::Interrupts));
+        }
         let specifier_end = cursor.checked_add(4)
             .filter(|specifier_end| *specifier_end <= end)
-            .ok_or(FdtError::Interrupts)?;
-        let cause = be32(blob, cursor)?;
-        if !matches!(cause, 9 | 11) { return Err(FdtError::Interrupts); }
+            .ok_or((FdtPlicStage::ContextBounds, FdtError::Interrupts))?;
+        let cause = be32(blob, cursor)
+            .map_err(|error| (FdtPlicStage::ContextBounds, error))?;
+        if !matches!(cause, 9 | 11) {
+            return Err((FdtPlicStage::ContextCause, FdtError::Interrupts));
+        }
         cursor = specifier_end;
-        count = count.checked_add(1).ok_or(FdtError::Interrupts)?;
+        count = count.checked_add(1)
+            .ok_or((FdtPlicStage::ContextCount, FdtError::Interrupts))?;
     }
-    if count == 0 { return Err(FdtError::Interrupts); }
+    if count == 0 {
+        return Err((FdtPlicStage::ContextEmpty, FdtError::Interrupts));
+    }
     Ok(count)
 }
 
@@ -1058,7 +1070,11 @@ fn count_interrupt_contexts(
 /// by early-boot diagnostics; callers that need only a generic FDT error can
 /// continue using `find_plic_info`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FdtPlicStage { CompatibleDiscovery, RootResource, NodeProperties, InterruptContexts }
+pub enum FdtPlicStage {
+    CompatibleDiscovery, RootResource, NodeProperties,
+    ContextPhandle, ContextController, ContextCellCount,
+    ContextBounds, ContextCause, ContextCount, ContextEmpty,
+}
 
 /// Discover a RISC-V PLIC and retain the failure stage for platform diagnostics.
 pub fn find_plic_info_with_stage(
@@ -1089,8 +1105,8 @@ pub fn find_plic_info_with_stage(
     let (source_count, extended_start, extended_len) =
         plic_node_properties(blob, mapped.name)
             .map_err(|error| (FdtPlicStage::NodeProperties, error))?;
-    let context_count = count_interrupt_contexts(blob, extended_start, extended_len)
-        .map_err(|error| (FdtPlicStage::InterruptContexts, error))?;
+    let context_count =
+        count_interrupt_contexts_with_stage(blob, extended_start, extended_len)?;
     Ok(Some(FdtPlicInfo {
         name: mapped.name,
         root_reg,
