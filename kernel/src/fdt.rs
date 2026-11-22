@@ -1054,19 +1054,24 @@ fn count_interrupt_contexts(
     Ok(count)
 }
 
-/// Discover a RISC-V PLIC, translate its MMIO resource, and count its
-/// phandle-resolved `interrupts-extended` contexts. This does not select a
-/// hart/privilege context or enable interrupt delivery.
-pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
-    // FU740/QEMU use the SiFive compatible, JH7110 advertises the StarFive
-    // compatible, and TH1520 commonly uses the generic RISC-V PLIC match.
+/// Stage at which PLIC discovery rejected firmware metadata. This is used
+/// by early-boot diagnostics; callers that need only a generic FDT error can
+/// continue using `find_plic_info`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FdtPlicStage { CompatibleDiscovery, RootResource, NodeProperties, InterruptContexts }
+
+/// Discover a RISC-V PLIC and retain the failure stage for platform diagnostics.
+pub fn find_plic_info_with_stage(
+    blob: &[u8],
+) -> Result<Option<FdtPlicInfo<'_>>, (FdtPlicStage, FdtError)> {
     let mut mapped = None;
     for compatible in [
         &b"sifive,plic-1.0.0"[..],
         &b"starfive,jh7110-plic"[..],
         &b"riscv,plic0"[..],
     ] {
-        if let Some(node) = find_compatible_node_translated(blob, compatible)? {
+        if let Some(node) = find_compatible_node_translated(blob, compatible)
+            .map_err(|error| (FdtPlicStage::CompatibleDiscovery, error))? {
             mapped = Some(node);
             break;
         }
@@ -1075,15 +1080,28 @@ pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> 
         Some(node) => node,
         None => return Ok(None),
     };
-    let root_reg = mapped.root_reg.ok_or(FdtError::Translation)?;
-    if root_reg.size.unwrap_or(0) == 0 { return Err(FdtError::Translation); }
+    let root_reg = mapped.root_reg.ok_or((
+        FdtPlicStage::RootResource, FdtError::Translation,
+    ))?;
+    if root_reg.size.unwrap_or(0) == 0 {
+        return Err((FdtPlicStage::RootResource, FdtError::Translation));
+    }
     let (source_count, extended_start, extended_len) =
-        plic_node_properties(blob, mapped.name)?;
-    let context_count = count_interrupt_contexts(blob, extended_start, extended_len)?;
+        plic_node_properties(blob, mapped.name)
+            .map_err(|error| (FdtPlicStage::NodeProperties, error))?;
+    let context_count = count_interrupt_contexts(blob, extended_start, extended_len)
+        .map_err(|error| (FdtPlicStage::InterruptContexts, error))?;
     Ok(Some(FdtPlicInfo {
         name: mapped.name,
         root_reg,
         source_count,
         context_count,
     }))
+}
+
+/// Discover a RISC-V PLIC, translate its MMIO resource, and count its
+/// phandle-resolved `interrupts-extended` contexts. This does not select a
+/// hart/privilege context or enable interrupt delivery.
+pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
+    find_plic_info_with_stage(blob).map_err(|(_, error)| error)
 }
