@@ -66,22 +66,27 @@ The new kernel MMIO descriptor accepts only a translated resource with a known,
 non-zero size, checked exclusive end, caller-specified minimum extent and
 power-of-two base alignment. Register-address validation accepts explicit
 8/16/32/64-bit widths and checks natural alignment plus full access bounds.
-These descriptors return physical addresses only: they do not map memory,
-set Sv39 device attributes, perform volatile IO, or establish that a platform
-resource is safe to claim. Those operations remain responsibilities of the
-future VM/platform HAL layer. PLIC parsing validates the phandle references and
-specifier lengths in `interrupts-extended`, but does not select the current
-hart's supervisor-external context or connect claim/complete to trap dispatch.
-Clock/reset providers and UART register initialization remain unresolved.
+The initial VM/HAL mapping layer now maps validated UART and PLIC windows
+below 1 GiB into both kernel and probe-user Sv39 roots using identity-mapped
+4 KiB leaves with supervisor RW, no U permission and no execute permission.
+The mapper verifies every page in both roots and rejects conflicting mappings
+or table-pool exhaustion. Base Sv39 has no standard cacheability PTE field;
+device classification/order still depends on platform PMA and explicit I/O
+fences. The mapping layer does not perform volatile register IO or establish
+that a platform resource is safe to claim. PLIC parsing validates the phandle
+references and specifier lengths in `interrupts-extended`, but does not select
+the current hart's supervisor-external context or connect claim/complete to
+trap dispatch. Clock/reset providers and UART register initialization remain
+unresolved.
 The metadata scanners require one root node, balanced nesting and a terminal
 `FDT_END`; the timebase scanner also rejects duplicate
 `/cpus/timebase-frequency` properties.
 
 QEMU `virt` smoke boot discovers the `ns16550a` UART candidate at root
-address `0x10000000`, size `0x100`. CI validates that the first 32-bit
-register lies within the translated window, but deliberately does not map the
-window or initialize/access the UART. The same FDT smoke path discovers the
-PLIC at root address `0x0c000000`, size `0x600000`, with `riscv,ndev=95`
-and two resolved interrupt contexts; CI validates register-window geometry
-only, not interrupt delivery. No physical UART/PLIC driver or board boot is
-claimed by this matrix.
+address `0x10000000`, size `0x100`, and maps its covering page into both
+Sv39 roots. It also discovers the PLIC at root address `0x0c000000`, size
+`0x600000`, with `riscv,ndev=95` and two resolved interrupt contexts, then
+maps all 1536 covering pages into both roots. CI verifies identity translation,
+supervisor-only access and NX permissions for each mapped page; it does not
+initialize/access the UART or deliver a PLIC interrupt. No physical
+UART/PLIC driver or board boot is claimed by this matrix.
