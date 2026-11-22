@@ -1030,38 +1030,35 @@ fn count_interrupt_contexts_with_stage(
     blob: &[u8],
     start: usize,
     length: usize,
-) -> Result<u32, (FdtPlicStage, FdtError)> {
+) -> Result<u32, (FdtPlicStage, FdtError, usize)> {
     let end = start.checked_add(length)
-        .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds))?;
+        .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds, 0))?;
     let mut cursor = start;
     let mut count = 0u32;
     while cursor < end {
         let phandle = be32(blob, cursor)
-            .map_err(|error| (FdtPlicStage::ContextPhandle, error))?;
+            .map_err(|error| (FdtPlicStage::ContextPhandle, error, 0))?;
         cursor = cursor.checked_add(4)
-            .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds))?;
+            .ok_or((FdtPlicStage::ContextBounds, FdtError::Bounds, cursor))?;
         let cells = interrupt_controller_cells(blob, phandle)
-            .map_err(|error| (FdtPlicStage::ContextController, error))?;
-        // A RISC-V PLIC context is wired to a CPU-local interrupt controller
-        // with exactly one interrupt-cause cell. Only machine-external (11)
-        // and supervisor-external (9) causes describe PLIC contexts.
+            .map_err(|error| (FdtPlicStage::ContextController, error, phandle as usize))?;
         if cells != 1 {
-            return Err((FdtPlicStage::ContextCellCount, FdtError::Interrupts));
+            return Err((FdtPlicStage::ContextCellCount, FdtError::Interrupts, cells as usize));
         }
         let specifier_end = cursor.checked_add(4)
             .filter(|specifier_end| *specifier_end <= end)
-            .ok_or((FdtPlicStage::ContextBounds, FdtError::Interrupts))?;
+            .ok_or((FdtPlicStage::ContextBounds, FdtError::Interrupts, cursor))?;
         let cause = be32(blob, cursor)
-            .map_err(|error| (FdtPlicStage::ContextBounds, error))?;
+            .map_err(|error| (FdtPlicStage::ContextBounds, error, cursor))?;
         if !matches!(cause, 9 | 11) {
-            return Err((FdtPlicStage::ContextCause, FdtError::Interrupts));
+            return Err((FdtPlicStage::ContextCause, FdtError::Interrupts, cause as usize));
         }
         cursor = specifier_end;
         count = count.checked_add(1)
-            .ok_or((FdtPlicStage::ContextCount, FdtError::Interrupts))?;
+            .ok_or((FdtPlicStage::ContextCount, FdtError::Interrupts, count as usize))?;
     }
     if count == 0 {
-        return Err((FdtPlicStage::ContextEmpty, FdtError::Interrupts));
+        return Err((FdtPlicStage::ContextEmpty, FdtError::Interrupts, 0));
     }
     Ok(count)
 }
@@ -1079,7 +1076,7 @@ pub enum FdtPlicStage {
 /// Discover a RISC-V PLIC and retain the failure stage for platform diagnostics.
 pub fn find_plic_info_with_stage(
     blob: &[u8],
-) -> Result<Option<FdtPlicInfo<'_>>, (FdtPlicStage, FdtError)> {
+) -> Result<Option<FdtPlicInfo<'_>>, (FdtPlicStage, FdtError, usize)> {
     let mut mapped = None;
     for compatible in [
         &b"sifive,plic-1.0.0"[..],
@@ -1087,7 +1084,7 @@ pub fn find_plic_info_with_stage(
         &b"riscv,plic0"[..],
     ] {
         if let Some(node) = find_compatible_node_translated(blob, compatible)
-            .map_err(|error| (FdtPlicStage::CompatibleDiscovery, error))? {
+            .map_err(|error| (FdtPlicStage::CompatibleDiscovery, error, 0))? {
             mapped = Some(node);
             break;
         }
@@ -1097,14 +1094,14 @@ pub fn find_plic_info_with_stage(
         None => return Ok(None),
     };
     let root_reg = mapped.root_reg.ok_or((
-        FdtPlicStage::RootResource, FdtError::Translation,
+        FdtPlicStage::RootResource, FdtError::Translation, 0,
     ))?;
     if root_reg.size.unwrap_or(0) == 0 {
-        return Err((FdtPlicStage::RootResource, FdtError::Translation));
+        return Err((FdtPlicStage::RootResource, FdtError::Translation, 0));
     }
     let (source_count, extended_start, extended_len) =
         plic_node_properties(blob, mapped.name)
-            .map_err(|error| (FdtPlicStage::NodeProperties, error))?;
+            .map_err(|error| (FdtPlicStage::NodeProperties, error, 0))?;
     let context_count =
         count_interrupt_contexts_with_stage(blob, extended_start, extended_len)?;
     Ok(Some(FdtPlicInfo {
@@ -1119,5 +1116,5 @@ pub fn find_plic_info_with_stage(
 /// phandle-resolved `interrupts-extended` contexts. This does not select a
 /// hart/privilege context or enable interrupt delivery.
 pub fn find_plic_info(blob: &[u8]) -> Result<Option<FdtPlicInfo<'_>>, FdtError> {
-    find_plic_info_with_stage(blob).map_err(|(_, error)| error)
+    find_plic_info_with_stage(blob).map_err(|(_, error, _)| error)
 }
