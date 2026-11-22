@@ -1476,6 +1476,21 @@ mod fdt_node_discovery_tests {
     }
 
     #[test]
+    fn plic_fdt_counts_opensbi_masked_machine_context() {
+        let blob = plic_device_tree(
+            &[1, u32::MAX, 1, 9],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\\0riscv,plic0\\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        // OpenSBI masks M-mode IRQ 11 with 0xffffffff, but its register
+        // context remains index 0; the S-mode context remains index 1.
+        assert_eq!(info.context_count, 2);
+    }
+
+    #[test]
     fn plic_fdt_discovers_starfive_jh7110_compatible() {
         let blob = plic_device_tree(
             &[1, 11, 2, 9],
