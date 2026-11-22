@@ -1482,7 +1482,7 @@ mod fdt_node_discovery_tests {
             Some(1),
             None,
             95,
-            b"sifive,plic-1.0.0\\0riscv,plic0\\0",
+            b"sifive,plic-1.0.0\0riscv,plic0\0",
         );
         let info = fdt::find_plic_info(&blob).unwrap().unwrap();
         // OpenSBI masks M-mode IRQ 11 with 0xffffffff, but its register
