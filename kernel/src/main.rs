@@ -67,8 +67,6 @@ pub(crate) fn print_hex(mut value: usize) {
     for byte in &digits[i..] { console_putchar(*byte); }
 }
 
-/// Discover a known UART node from the firmware DTB without touching MMIO.
-/// The reported register remains a parent-bus address until `ranges` is resolved.
 /// Discover a known UART node and validate its translated register window.
 fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
     let compatibles: [&[u8]; 5] = [
