@@ -885,7 +885,7 @@ fn interrupt_controller_cells(blob: &[u8], wanted_phandle: u32) -> Result<u32, F
                     b"#interrupt-cells" => {
                         if cells_seen[index] || len != 4 { return Err(FdtError::Interrupts); }
                         let value = be32(blob, cursor)?;
-                        if !(1..=4).contains(&value) { return Err(FdtError::Interrupts); }
+                        if value > 4 { return Err(FdtError::Interrupts); }
                         interrupt_cells[index] = Some(value);
                         cells_seen[index] = true;
                     }
