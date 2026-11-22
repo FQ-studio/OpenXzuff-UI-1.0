@@ -71,6 +71,8 @@ jobs:
           grep -n -A 5 -B 8 'interrupts-extended' build/kernel/rv64-s-mode/qemu-virt.dts || true
           echo "=== QEMU PLIC node ==="
           grep -n -A 18 -B 5 'riscv,ndev' build/kernel/rv64-s-mode/qemu-virt.dts || true
+          echo "=== Full QEMU virt DTS ==="
+          cat build/kernel/rv64-s-mode/qemu-virt.dts
 
       - name: Boot with OpenSBI in QEMU
         shell: bash
@@ -121,6 +123,7 @@ jobs:
           grep -q 'U-mode unknown syscall -ENOSYS: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: openxzuff-gravity-kernel-rv64-s-mode
