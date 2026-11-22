@@ -32,7 +32,7 @@ jobs:
         run: |
           rustup target add riscv64imac-unknown-none-elf
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu
+          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu device-tree-compiler
 
       - name: Compile Win32 Gravity RV64 ecall adapter
         run: |
@@ -51,6 +51,22 @@ jobs:
 
       - name: Build kernel ELF
         run: bash scripts/build-kernel-rv64-s-mode.sh
+
+      - name: Dump QEMU virt FDT for interrupt-metadata diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/kernel/rv64-s-mode
+          qemu-system-riscv64 \
+            -machine virt,dumpdtb=build/kernel/rv64-s-mode/qemu-virt.dtb \
+            -m 256M -smp 1 -nographic -bios default
+          dtc -I dtb -O dts \
+            -o build/kernel/rv64-s-mode/qemu-virt.dts \
+            build/kernel/rv64-s-mode/qemu-virt.dtb
+          echo "=== QEMU CPU interrupt-controller nodes ==="
+          grep -n -A 10 -B 4 'interrupt-controller {' build/kernel/rv64-s-mode/qemu-virt.dts
+          echo "=== QEMU PLIC node ==="
+          grep -n -A 18 -B 3 'interrupt-controller@c000000' build/kernel/rv64-s-mode/qemu-virt.dts
 
       - name: Boot with OpenSBI in QEMU
         shell: bash
