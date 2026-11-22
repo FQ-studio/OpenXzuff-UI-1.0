@@ -1051,7 +1051,10 @@ fn count_interrupt_contexts_with_stage(
         let cause = be32(blob, cursor)
             .map_err(|error| (FdtPlicStage::ContextBounds, error, cursor))?;
         if !matches!(cause, 9 | 11) {
-            return Err((FdtPlicStage::ContextCause, FdtError::Interrupts, cause as usize));
+            // Pack the FDT-relative cell offset and raw cell for early-boot
+            // diagnostics: upper 32 bits = offset, lower 32 bits = cell.
+            let detail = (((cursor as u64) << 32) | cause as u64) as usize;
+            return Err((FdtPlicStage::ContextCause, FdtError::Interrupts, detail));
         }
         cursor = specifier_end;
         count = count.checked_add(1)
