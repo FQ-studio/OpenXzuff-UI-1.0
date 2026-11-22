@@ -1050,9 +1050,11 @@ fn count_interrupt_contexts_with_stage(
             .ok_or((FdtPlicStage::ContextBounds, FdtError::Interrupts, cursor))?;
         let cause = be32(blob, cursor)
             .map_err(|error| (FdtPlicStage::ContextBounds, error, cursor))?;
-        if !matches!(cause, 9 | 11) {
-            // Pack the FDT-relative cell offset and raw cell for early-boot
-            // diagnostics: upper 32 bits = offset, lower 32 bits = cell.
+        // OpenSBI hides the M-mode external interrupt from the next stage
+        // by replacing IRQ_M_EXT (11) with 0xffff_ffff. That masked entry
+        // still occupies its PLIC context index, so count it but do not treat
+        // the sentinel as an active interrupt cause.
+        if cause != 9 && cause != 11 && cause != u32::MAX {
             let detail = (((cursor as u64) << 32) | cause as u64) as usize;
             return Err((FdtPlicStage::ContextCause, FdtError::Interrupts, detail));
         }
