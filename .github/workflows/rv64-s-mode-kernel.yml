@@ -65,12 +65,12 @@ jobs:
             build/kernel/rv64-s-mode/qemu-virt.dtb
           echo "=== QEMU CPU interrupt-controller nodes ==="
           grep -n -A 10 -B 4 'interrupt-controller {' build/kernel/rv64-s-mode/qemu-virt.dts
-          echo "=== QEMU zero-cell interrupt controllers ==="
-          grep -n -A 5 -B 5 '#interrupt-cells = <0x00>' build/kernel/rv64-s-mode/qemu-virt.dts
+          echo "=== QEMU interrupt-cell declarations ==="
+          grep -n -A 5 -B 5 '#interrupt-cells' build/kernel/rv64-s-mode/qemu-virt.dts || true
           echo "=== QEMU interrupt routing properties ==="
-          grep -n -A 5 -B 8 'interrupts-extended' build/kernel/rv64-s-mode/qemu-virt.dts
-          echo "=== QEMU PLIC source count ==="
-          grep -n -A 8 -B 8 'riscv,ndev' build/kernel/rv64-s-mode/qemu-virt.dts
+          grep -n -A 5 -B 8 'interrupts-extended' build/kernel/rv64-s-mode/qemu-virt.dts || true
+          echo "=== QEMU PLIC node ==="
+          grep -n -A 18 -B 5 'riscv,ndev' build/kernel/rv64-s-mode/qemu-virt.dts || true
 
       - name: Boot with OpenSBI in QEMU
         shell: bash
