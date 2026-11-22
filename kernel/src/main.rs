@@ -133,7 +133,7 @@ fn report_uart_candidate(blob: &[u8]) {
 
 /// Discover and bounds-check the PLIC register layout without touching MMIO.
 fn report_plic_candidate(blob: &[u8]) {
-    match fdt::find_plic_info(blob) {
+    match fdt::find_plic_info_with_stage(blob) {
         Ok(Some(info)) => {
             let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
                 Ok(region) => region,
@@ -172,7 +172,13 @@ fn report_plic_candidate(blob: &[u8]) {
             console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\n");
         }
         Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\n"),
-        Err(_) => console_write("FDT PLIC discovery: REJECTED; invalid FDT interrupt metadata\n"),
+        Err((stage, error)) => {
+            console_write("FDT PLIC discovery: REJECTED; stage=");
+            print_hex(stage as usize);
+            console_write("; error=");
+            print_hex(error as usize);
+            console_write("\n");
+        }
     }
 }
 
