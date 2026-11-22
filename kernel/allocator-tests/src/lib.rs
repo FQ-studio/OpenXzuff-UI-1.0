@@ -1551,7 +1551,7 @@ mod fdt_node_discovery_tests {
             Some(1),
             None,
             95,
-            b"sifive,plic-1.0.0\\0",
+            b"sifive,plic-1.0.0\0",
         );
         assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
     }
