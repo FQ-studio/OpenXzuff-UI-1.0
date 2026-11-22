@@ -96,6 +96,7 @@ jobs:
           grep -q 'FDT UART MMIO window: PASS; 32-bit base register in bounds; pending Sv39 mapping' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT UART MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT PLIC discovery: PASS; ndev=5f; contexts=2; root=c000000; size=600000' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC S-mode context: PASS; hart=0; context=1; cause=9' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; pending Sv39 mapping' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT PLIC MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log

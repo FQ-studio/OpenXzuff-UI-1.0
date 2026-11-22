@@ -1382,7 +1382,7 @@ mod fdt_node_discovery_tests {
         source_count: u32,
         compatible_list: &[u8],
     ) -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0";
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0device_type\0";
         let address = string_offset(strings, b"#address-cells");
         let size = string_offset(strings, b"#size-cells");
         let compatible = string_offset(strings, b"compatible");
@@ -1393,21 +1393,30 @@ mod fdt_node_discovery_tests {
         let ndev = string_offset(strings, b"riscv,ndev");
         let extended = string_offset(strings, b"interrupts-extended");
         let status = string_offset(strings, b"status");
+        let device_type = string_offset(strings, b"device_type");
 
         let mut structure = Vec::new();
         begin_node(&mut structure, b"");
         property(&mut structure, address, &2u32.to_be_bytes());
         property(&mut structure, size, &2u32.to_be_bytes());
         begin_node(&mut structure, b"cpus");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &0u32.to_be_bytes());
         begin_node(&mut structure, b"cpu@0");
+        property(&mut structure, device_type, b"cpu\0");
+        property(&mut structure, reg, &0u32.to_be_bytes());
         begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, compatible, b"riscv,cpu-intc\0");
         property(&mut structure, phandle, &1u32.to_be_bytes());
         property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
         property(&mut structure, interrupt_controller, &[]);
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
         begin_node(&mut structure, b"cpu@1");
+        property(&mut structure, device_type, b"cpu\0");
+        property(&mut structure, reg, &1u32.to_be_bytes());
         begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, compatible, b"riscv,cpu-intc\0");
         property(&mut structure, phandle, &2u32.to_be_bytes());
         if let Some(cells) = second_controller_cells {
             property(&mut structure, interrupt_cells, &cells.to_be_bytes());
@@ -1490,6 +1499,49 @@ mod fdt_node_discovery_tests {
         // OpenSBI masks M-mode IRQ 11 with 0xffffffff, but its register
         // context remains index 0; the S-mode context remains index 1.
         assert_eq!(info.context_count, 2);
+    }
+
+    #[test]
+    fn plic_fdt_selects_smode_context_by_cpu_reg_hart_id() {
+        let blob = plic_device_tree(
+            &[1, 11, 1, 9, 2, 11, 2, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 0, context_index: 1, cause: 9 })));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 1),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 1, context_index: 3, cause: 9 })));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 2), Ok(None));
+    }
+
+    #[test]
+    fn plic_fdt_selects_smode_context_after_opensbi_masks_mmode_entry() {
+        let blob = plic_device_tree(
+            &[1, u32::MAX, 1, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 0, context_index: 1, cause: 9 })));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_duplicate_smode_context_for_same_hart() {
+        let blob = plic_device_tree(
+            &[1, 9, 1, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_keeps_context_order_when_boot_hart_has_no_smode_entry() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0), Ok(None));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 1),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 1, context_index: 1, cause: 9 })));
     }
 
     #[test]

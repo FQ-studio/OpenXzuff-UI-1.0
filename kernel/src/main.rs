@@ -130,7 +130,7 @@ fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
 }
 
 /// Discover and validate the PLIC register layout without touching MMIO.
-fn report_plic_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
+fn report_plic_candidate(blob: &[u8], boot_hart_id: usize) -> Option<mmio::MmioRegion> {
     match fdt::find_plic_info_with_stage(blob) {
         Ok(Some(info)) => {
             let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
@@ -158,6 +158,22 @@ fn report_plic_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
                 console_write("FDT PLIC register layout: REJECTED; not mapped\n");
                 return None;
             }
+            let selected_context = match fdt::find_plic_context_for_hart(blob, boot_hart_id as u64) {
+                Ok(context) => context,
+                Err(_) => {
+                    console_write("FDT PLIC S-mode context: REJECTED; delivery disabled\n");
+                    return None;
+                }
+            };
+            if let Some(context) = selected_context {
+                if context.context_index >= info.context_count
+                    || layout.threshold_address(context.context_index).is_err()
+                    || layout.claim_complete_address(context.context_index).is_err()
+                {
+                    console_write("FDT PLIC S-mode context: REJECTED; delivery disabled\n");
+                    return None;
+                }
+            }
             console_write("FDT PLIC discovery: PASS; ndev=");
             print_hex(info.source_count as usize);
             console_write("; contexts=");
@@ -168,6 +184,18 @@ fn report_plic_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
             print_hex(region.size() as usize);
             console_write("\n");
             console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; pending Sv39 mapping\n");
+            match selected_context {
+                Some(context) => {
+                    console_write("FDT PLIC S-mode context: PASS; hart=");
+                    print_hex(context.hart_id as usize);
+                    console_write("; context=");
+                    print_hex(context.context_index as usize);
+                    console_write("; cause=");
+                    print_hex(context.cause as usize);
+                    console_write("\n");
+                }
+                None => console_write("FDT PLIC S-mode context: NOT FOUND; delivery disabled\n"),
+            }
             Some(region)
         }
         Ok(None) => {
@@ -223,7 +251,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let uart_region = report_uart_candidate(blob);
-    let plic_region = report_plic_candidate(blob);
+    let plic_region = report_plic_candidate(blob, hart_id);
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
