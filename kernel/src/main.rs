@@ -6,6 +6,7 @@ use core::panic::PanicInfo;
 
 mod fdt;
 mod mmio;
+mod mmio_map;
 mod plic;
 mod memory;
 mod page_alloc;
@@ -68,7 +69,8 @@ pub(crate) fn print_hex(mut value: usize) {
 
 /// Discover a known UART node from the firmware DTB without touching MMIO.
 /// The reported register remains a parent-bus address until `ranges` is resolved.
-fn report_uart_candidate(blob: &[u8]) {
+/// Discover a known UART node and validate its translated register window.
+fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
     let compatibles: [&[u8]; 5] = [
         b"sifive,fu740-c000-uart",
         b"sifive,uart0",
@@ -80,19 +82,17 @@ fn report_uart_candidate(blob: &[u8]) {
         match fdt::find_compatible_node_translated(blob, compatible) {
             Ok(Some(node)) => {
                 if let (Some(bus), Some(root)) = (node.bus_reg, node.root_reg) {
-                    // A size-less candidate cannot be validated as an MMIO
-                    // window; preserve fallback matching for later compatibles.
                     if root.size.is_some() {
                         let region = match mmio::MmioRegion::from_translated_fdt_region(root, 4, 4) {
                             Ok(region) => region,
                             Err(_) => {
                                 console_write("FDT UART MMIO window: REJECTED; not mapped\n");
-                                return;
+                                return None;
                             }
                         };
                         if region.register_address(0, 4).is_err() {
                             console_write("FDT UART MMIO window: REJECTED; not mapped\n");
-                            return;
+                            return None;
                         }
                         console_write("FDT UART compatible-node discovery: PASS; ancestor ranges translated\n");
                         console_write("FDT UART bus address: ");
@@ -102,8 +102,8 @@ fn report_uart_candidate(blob: &[u8]) {
                         console_write("; size: ");
                         print_hex(region.size() as usize);
                         console_write("\n");
-                        console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; not mapped\n");
-                        return;
+                        console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; pending Sv39 mapping\n");
+                        return Some(region);
                     }
                 }
             }
@@ -123,30 +123,30 @@ fn report_uart_candidate(blob: &[u8]) {
                 console_write("FDT UART compatible-node discovery: ERROR code=");
                 print_hex(code);
                 console_write("\n");
-                return;
+                return None;
             }
         }
     }
     console_write("FDT UART compatible-node discovery: NOT FOUND\n");
+    None
 }
 
-
-/// Discover and bounds-check the PLIC register layout without touching MMIO.
-fn report_plic_candidate(blob: &[u8]) {
+/// Discover and validate the PLIC register layout without touching MMIO.
+fn report_plic_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
     match fdt::find_plic_info_with_stage(blob) {
         Ok(Some(info)) => {
             let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
                 Ok(region) => region,
                 Err(_) => {
                     console_write("FDT PLIC MMIO window: REJECTED; not mapped\n");
-                    return;
+                    return None;
                 }
             };
             let layout = match plic::PlicLayout::new(region, info.source_count, info.context_count) {
                 Ok(layout) => layout,
                 Err(_) => {
                     console_write("FDT PLIC register layout: REJECTED; not mapped\n");
-                    return;
+                    return None;
                 }
             };
             let last_context = info.context_count - 1;
@@ -158,7 +158,7 @@ fn report_plic_candidate(blob: &[u8]) {
                 && layout.claim_complete_address(last_context).is_ok();
             if !endpoints_valid {
                 console_write("FDT PLIC register layout: REJECTED; not mapped\n");
-                return;
+                return None;
             }
             console_write("FDT PLIC discovery: PASS; ndev=");
             print_hex(info.source_count as usize);
@@ -169,9 +169,13 @@ fn report_plic_candidate(blob: &[u8]) {
             console_write("; size=");
             print_hex(region.size() as usize);
             console_write("\n");
-            console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; not mapped\n");
+            console_write("FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; pending Sv39 mapping\n");
+            Some(region)
         }
-        Ok(None) => console_write("FDT PLIC discovery: NOT FOUND\n"),
+        Ok(None) => {
+            console_write("FDT PLIC discovery: NOT FOUND\n");
+            None
+        }
         Err((stage, error, detail)) => {
             console_write("FDT PLIC discovery: REJECTED; stage=");
             print_hex(stage as usize);
@@ -180,6 +184,7 @@ fn report_plic_candidate(blob: &[u8]) {
             console_write("; detail=");
             print_hex(detail);
             console_write("\n");
+            None
         }
     }
 }
@@ -219,8 +224,8 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         halt();
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
-    report_uart_candidate(blob);
-    report_plic_candidate(blob);
+    let uart_region = report_uart_candidate(blob);
+    let plic_region = report_plic_candidate(blob);
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
@@ -277,6 +282,23 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                     )
                 }
             }) => {
+                for (region, label) in [(uart_region, "UART"), (plic_region, "PLIC")] {
+                    if let Some(region) = region {
+                        match vm::map_kernel_mmio_region(region) {
+                            Ok(()) if vm::verify_kernel_mmio_region(region) => {
+                                console_write("FDT ");
+                                console_write(label);
+                                console_write(" MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots\n");
+                            }
+                            _ => {
+                                console_write("FDT ");
+                                console_write(label);
+                                console_write(" MMIO mapping: FAIL\n");
+                                halt();
+                            }
+                        }
+                    }
+                }
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
                 console_write("Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings\n");
                 console_write("Sv39 kernel W^X section permissions: PASS; text=RX rodata=R data=RW\n");
