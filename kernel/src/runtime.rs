@@ -14,6 +14,7 @@ const SBI_EXT_TIME: usize = 0x5449_4d45;
 const SBI_FID_SET_TIMER: usize = 0;
 static TIMER_QUANTUM: AtomicUsize = AtomicUsize::new(100_000);
 const SIE_STIE: usize = 1 << 5;
+const SIE_SEIE: usize = 1 << 9;
 const SSTATUS_SIE: usize = 1 << 1;
 
 #[repr(align(16))]
@@ -208,10 +209,14 @@ pub fn start() -> ! {
     activate_address_space(a);
     arm_next_timer();
     unsafe {
+        let mut enabled_interrupts = SIE_STIE;
+        if crate::irq::has_registered_handlers() {
+            enabled_interrupts |= SIE_SEIE;
+        }
         asm!(
             "csrs sie, {sie}",
             "csrs sstatus, {sstatus}",
-            sie = in(reg) SIE_STIE,
+            sie = in(reg) enabled_interrupts,
             sstatus = in(reg) SSTATUS_SIE,
             options(nostack)
         );

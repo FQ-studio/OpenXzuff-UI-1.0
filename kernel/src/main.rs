@@ -8,6 +8,7 @@ mod fdt;
 mod mmio;
 mod mmio_map;
 mod plic;
+mod irq;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
@@ -359,6 +360,19 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                         }
                         Err(_) => {
                             console_write("PLIC MMIO access: FAIL; register readback mismatch\n");
+                            halt();
+                        }
+                    }
+                }
+                if let Some((_, layout, Some(context))) = plic_candidate {
+                    match unsafe { irq::install(layout, context.context_index) } {
+                        Ok(()) => {
+                            console_write("PLIC external interrupt dispatcher: PASS; context=");
+                            print_hex(context.context_index as usize);
+                            console_write("; threshold=0; slots=1024\n");
+                        }
+                        Err(_) => {
+                            console_write("PLIC external interrupt dispatcher: FAIL\n");
                             halt();
                         }
                     }

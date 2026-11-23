@@ -7,6 +7,8 @@ pub mod mmio;
 pub mod mmio_map;
 #[path = "../../src/plic.rs"]
 pub mod plic;
+#[path = "../../src/irq.rs"]
+pub mod irq;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]

@@ -100,6 +100,7 @@ jobs:
           grep -q 'FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; pending Sv39 mapping' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT PLIC MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'PLIC MMIO access: PASS; context=1; priority1=' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'PLIC external interrupt dispatcher: PASS; context=1; threshold=0; slots=1024' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log
