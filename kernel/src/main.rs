@@ -130,7 +130,7 @@ fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
 }
 
 /// Discover and validate the PLIC register layout without touching MMIO.
-fn report_plic_candidate(blob: &[u8], boot_hart_id: usize) -> Option<mmio::MmioRegion> {
+fn report_plic_candidate(blob: &[u8], boot_hart_id: usize) -> Option<(mmio::MmioRegion, plic::PlicLayout, Option<fdt::FdtPlicContext>)> {
     match fdt::find_plic_info_with_stage(blob) {
         Ok(Some(info)) => {
             let region = match mmio::MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4) {
@@ -196,7 +196,7 @@ fn report_plic_candidate(blob: &[u8], boot_hart_id: usize) -> Option<mmio::MmioR
                 }
                 None => console_write("FDT PLIC S-mode context: NOT FOUND; delivery disabled\n"),
             }
-            Some(region)
+            Some((region, layout, selected_context))
         }
         Ok(None) => {
             console_write("FDT PLIC discovery: NOT FOUND\n");
@@ -251,7 +251,8 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
     let uart_region = report_uart_candidate(blob);
-    let plic_region = report_plic_candidate(blob, hart_id);
+    let plic_candidate = report_plic_candidate(blob, hart_id);
+    let plic_region = plic_candidate.map(|(region, _, _)| region);
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
@@ -322,6 +323,43 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                                 console_write(" MMIO mapping: FAIL\n");
                                 halt();
                             }
+                        }
+                    }
+                }
+                if let Some((_, layout, Some(context))) = plic_candidate {
+                    let controller = match unsafe {
+                        plic::PlicMmio::new(layout, context.context_index)
+                    } {
+                        Ok(controller) => controller,
+                        Err(_) => {
+                            console_write("PLIC MMIO access: FAIL; invalid mapped context\\n");
+                            halt();
+                        }
+                    };
+                    let readback = controller.priority(1).and_then(|priority| {
+                        controller.set_priority(1, priority)?;
+                        let priority_after = controller.priority(1)?;
+                        let threshold = controller.threshold()?;
+                        controller.set_threshold(threshold)?;
+                        let threshold_after = controller.threshold()?;
+                        if priority != priority_after || threshold != threshold_after {
+                            return Err(plic::PlicError::ReadbackMismatch);
+                        }
+                        Ok((priority_after, threshold_after))
+                    });
+                    match readback {
+                        Ok((priority, threshold)) => {
+                            console_write("PLIC MMIO access: PASS; context=");
+                            print_hex(context.context_index as usize);
+                            console_write("; priority1=");
+                            print_hex(priority as usize);
+                            console_write("; threshold=");
+                            print_hex(threshold as usize);
+                            console_write("\\n");
+                        }
+                        Err(_) => {
+                            console_write("PLIC MMIO access: FAIL; register readback mismatch\\n");
+                            halt();
                         }
                     }
                 }
