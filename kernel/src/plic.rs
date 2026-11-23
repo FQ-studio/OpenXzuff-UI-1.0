@@ -1,9 +1,11 @@
-//! Checked register geometry for the RISC-V Platform-Level Interrupt Controller.
+//! RISC-V Platform-Level Interrupt Controller geometry and register access.
 //!
-//! This module validates the standard PLIC register windows against an already
-//! translated MMIO resource. It does not map the resource, perform volatile IO,
-//! discover FDT interrupt contexts, or enable/claim interrupts. The caller must
-//! obtain source and context counts from validated platform firmware metadata.
+//! `PlicLayout` validates standard register windows against a translated MMIO
+//! resource. `PlicMmio` provides bounds-checked volatile access after the caller
+//! has installed a supervisor-only mapping and established the platform's
+//! device-memory/PMA contract. This module does not map resources or parse FDT;
+//! callers supply source counts and resolved context indexes from validated
+//! firmware metadata. The kernel trap path must still dispatch external IRQs.
 
 use crate::mmio::{MmioError, MmioRegion};
 
@@ -184,8 +186,9 @@ impl PlicLayout {
 ///
 /// # Safety
 /// The caller must ensure the complete PLIC region is identity-mapped in the
-/// current address space with supervisor read/write device-memory semantics,
-/// and that the mapping remains active for the lifetime of this handle.
+/// current address space with supervisor RW/NX permissions, that platform PMA
+/// classifies it as device memory, and that the mapping remains active for the
+/// lifetime of this handle. The caller must also serialize conflicting access.
 pub struct PlicMmio {
     layout: PlicLayout,
     context: u32,
@@ -262,6 +265,8 @@ impl PlicMmio {
     }
 
     /// Enable or disable one source in this context's bitmap.
+    ///
+    /// The caller must serialize concurrent updates to the same enable word.
     pub fn set_source_enabled(&self, source_id: u32, enabled: bool) -> Result<(), PlicError> {
         let register = self.layout.enable_bit(self.context, source_id)?;
         let current = self.read32(register.address)?;
