@@ -36,9 +36,15 @@ prove physical-board driver operation.
    S-mode context selection is implemented: CPU interrupt-controller phandles
    resolve through CPU `reg` to architectural hart IDs, cause 9 is selected,
    and OpenSBI-masked M-mode entries retain their original context indexes.
-   Exact-head QEMU CI verifies hart 0 / context 1 / cause 9. Volatile register
-   access, priority/source enable, claim/complete, `sie.SEIE` and end-to-end
-   interrupt delivery remain unimplemented.
+   A bounds-checked volatile register layer now exposes priority, threshold,
+   source-enable, claim and complete operations with RISC-V I/O fences. Exact
+   head QEMU CI reads and writes back priority 1 and the selected context's
+   threshold after Sv39 mapping. Host backing-memory tests cover enable-bit
+   read/modify/write and claim/complete API behavior; these host tests are not
+   physical PLIC tests. The QEMU boot probe does not enable a source, set
+   `sie.SEIE`, claim/complete a hardware interrupt, or prove end-to-end
+   external-interrupt delivery. Concurrent enable-bitmap updates still require
+   caller-side serialization.
 5. Storage/network/display only after concrete compatible, clocks, resets, DMA
    and interrupt dependencies are parsed.
 
