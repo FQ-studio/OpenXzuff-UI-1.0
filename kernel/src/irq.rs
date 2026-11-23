@@ -13,20 +13,24 @@ pub enum PlicDispatch { Idle, Handled(u32), Masked(u32) }
 
 /// Single-hart controller. Registration is boot-time only; SMP needs an IRQ-save
 /// lock around the handler table and PLIC enable-word read/modify/write.
-pub struct PlicInterruptController {
+pub struct PlicInterruptController<'a> {
     mmio: PlicMmio,
-    handlers: [Option<PlicIrqHandler>; MAX_PLIC_SOURCES + 1],
+    handlers: &'a mut [Option<PlicIrqHandler>; MAX_PLIC_SOURCES + 1],
 }
 
-impl PlicInterruptController {
+impl<'a> PlicInterruptController<'a> {
     /// # Safety
     /// The region must remain identity-mapped supervisor RW/NX with device PMA
     /// semantics for the controller lifetime.
-    pub unsafe fn new(layout: PlicLayout, context: u32) -> Result<Self, PlicError> {
+    pub unsafe fn new(
+        layout: PlicLayout,
+        context: u32,
+        handlers: &'a mut [Option<PlicIrqHandler>; MAX_PLIC_SOURCES + 1],
+    ) -> Result<Self, PlicError> {
         let mmio = PlicMmio::new(layout, context)?;
         mmio.set_threshold(0)?;
         if mmio.threshold()? != 0 { return Err(PlicError::ReadbackMismatch); }
-        Ok(Self { mmio, handlers: [None; MAX_PLIC_SOURCES + 1] })
+        Ok(Self { mmio, handlers })
     }
 
     /// Handler returns true only after the device has deasserted its IRQ.
@@ -60,7 +64,8 @@ impl PlicInterruptController {
     }
 }
 
-static mut GLOBAL_CONTROLLER: Option<PlicInterruptController> = None;
+static mut GLOBAL_HANDLERS: [Option<PlicIrqHandler>; MAX_PLIC_SOURCES + 1] = [None; MAX_PLIC_SOURCES + 1];
+static mut GLOBAL_CONTROLLER: Option<PlicInterruptController<'static>> = None;
 static HANDLER_REGISTERED: AtomicBool = AtomicBool::new(false);
 
 /// Install the selected boot-hart S-mode context after its Sv39 mapping is active.
@@ -70,7 +75,12 @@ static HANDLER_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub unsafe fn install(layout: PlicLayout, context: u32) -> Result<(), IrqError> {
     let slot = core::ptr::addr_of_mut!(GLOBAL_CONTROLLER);
     if (*slot).is_some() { return Err(IrqError::AlreadyInstalled); }
-    *slot = Some(PlicInterruptController::new(layout, context).map_err(IrqError::Plic)?);
+    // Keep the 1024-entry table in BSS, not in this 16 KiB boot stack frame.
+    let handlers: &'static mut [Option<PlicIrqHandler>; MAX_PLIC_SOURCES + 1] =
+        &mut *core::ptr::addr_of_mut!(GLOBAL_HANDLERS);
+    *slot = Some(
+        PlicInterruptController::new(layout, context, handlers).map_err(IrqError::Plic)?
+    );
     Ok(())
 }
 
@@ -107,19 +117,20 @@ mod tests {
         true
     }
 
-    fn controller() -> (std::vec::Vec<u64>, PlicInterruptController) {
+    fn controller_memory() -> (std::vec::Vec<u64>, PlicLayout) {
         let mut memory = std::vec![0u64; 0x0020_2000 / 8];
         let base = memory.as_mut_ptr() as usize as u64;
         let region = MmioRegion::new(base, 0x0020_2000, 8, 4).unwrap();
         let layout = PlicLayout::new(region, 95, 2).unwrap();
-        let controller = unsafe { PlicInterruptController::new(layout, 1).unwrap() };
-        (memory, controller)
+        (memory, layout)
     }
 
     #[test]
     fn dispatch_calls_registered_handler_and_completes_source() {
         LAST_SOURCE.store(0, Ordering::Release);
-        let (memory, mut plic) = controller();
+        let (memory, layout) = controller_memory();
+        let mut handlers = [None; super::MAX_PLIC_SOURCES + 1];
+        let mut plic = unsafe { PlicInterruptController::new(layout, 1, &mut handlers).unwrap() };
         let base = memory.as_ptr() as usize as u64;
         plic.register_handler(10, 1, record_source).unwrap();
         unsafe { core::ptr::write_volatile((base + 0x0020_1004) as *mut u32, 10); }
@@ -132,7 +143,9 @@ mod tests {
 
     #[test]
     fn dispatch_masks_unregistered_source_and_preserves_other_enable_bits() {
-        let (memory, mut plic) = controller();
+        let (memory, layout) = controller_memory();
+        let mut handlers = [None; super::MAX_PLIC_SOURCES + 1];
+        let mut plic = unsafe { PlicInterruptController::new(layout, 1, &mut handlers).unwrap() };
         let base = memory.as_ptr() as usize as u64;
         unsafe {
             core::ptr::write_volatile((base + 0x2080) as *mut u32, (1 << 10) | (1 << 31));
@@ -144,8 +157,15 @@ mod tests {
     }
 
     #[test]
+    fn controller_keeps_large_handler_table_out_of_its_stack_footprint() {
+        assert!(core::mem::size_of::<PlicInterruptController<'_>>() < 128);
+    }
+
+    #[test]
     fn dispatch_returns_idle_when_claim_register_is_zero() {
-        let (_memory, mut plic) = controller();
+        let (_memory, layout) = controller_memory();
+        let mut handlers = [None; super::MAX_PLIC_SOURCES + 1];
+        let mut plic = unsafe { PlicInterruptController::new(layout, 1, &mut handlers).unwrap() };
         assert_eq!(plic.dispatch_one(), Ok(PlicDispatch::Idle));
     }
 }
