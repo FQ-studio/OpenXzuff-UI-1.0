@@ -332,7 +332,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                     } {
                         Ok(controller) => controller,
                         Err(_) => {
-                            console_write("PLIC MMIO access: FAIL; invalid mapped context\\n");
+                            console_write("PLIC MMIO access: FAIL; invalid mapped context\n");
                             halt();
                         }
                     };
@@ -355,10 +355,10 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                             print_hex(priority as usize);
                             console_write("; threshold=");
                             print_hex(threshold as usize);
-                            console_write("\\n");
+                            console_write("\n");
                         }
                         Err(_) => {
-                            console_write("PLIC MMIO access: FAIL; register readback mismatch\\n");
+                            console_write("PLIC MMIO access: FAIL; register readback mismatch\n");
                             halt();
                         }
                     }
