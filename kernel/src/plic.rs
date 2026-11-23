@@ -24,6 +24,7 @@ pub enum PlicError {
     AddressOverflow,
     RegionTooSmall,
     Mmio(MmioError),
+    ReadbackMismatch,
 }
 
 /// Address and bit mask for a PLIC pending/enable word.
@@ -178,6 +179,120 @@ impl PlicLayout {
     pub const fn context_count(&self) -> u32 { self.context_count }
 }
 
+
+/// Volatile access to a validated PLIC window.
+///
+/// # Safety
+/// The caller must ensure the complete PLIC region is identity-mapped in the
+/// current address space with supervisor read/write device-memory semantics,
+/// and that the mapping remains active for the lifetime of this handle.
+pub struct PlicMmio {
+    layout: PlicLayout,
+    context: u32,
+}
+
+impl PlicMmio {
+    /// Create a register-access handle for one resolved PLIC context.
+    ///
+    /// # Safety
+    /// The caller must uphold the mapping and lifetime requirements documented
+    /// on `PlicMmio`.
+    pub unsafe fn new(layout: PlicLayout, context: u32) -> Result<Self, PlicError> {
+        layout.check_context(context)?;
+        layout.threshold_address(context)?;
+        layout.claim_complete_address(context)?;
+        Ok(Self { layout, context })
+    }
+
+    fn register_ptr(&self, address: u64) -> Result<*mut u32, PlicError> {
+        let offset = address.checked_sub(self.layout.region.base())
+            .ok_or(PlicError::Mmio(MmioError::OutOfBounds))?;
+        let checked = self.layout.region.register_address(offset, 4)
+            .map_err(PlicError::Mmio)?;
+        if checked > usize::MAX as u64 {
+            return Err(PlicError::AddressOverflow);
+        }
+        Ok(checked as usize as *mut u32)
+    }
+
+    #[inline]
+    fn io_fence() {
+        #[cfg(target_arch = "riscv64")]
+        unsafe {
+            core::arch::asm!("fence iorw, iorw", options(nostack));
+        }
+        #[cfg(not(target_arch = "riscv64"))]
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn read32(&self, address: u64) -> Result<u32, PlicError> {
+        let pointer = self.register_ptr(address)?;
+        Self::io_fence();
+        let value = unsafe { core::ptr::read_volatile(pointer) };
+        Self::io_fence();
+        Ok(value)
+    }
+
+    fn write32(&self, address: u64, value: u32) -> Result<(), PlicError> {
+        let pointer = self.register_ptr(address)?;
+        Self::io_fence();
+        unsafe { core::ptr::write_volatile(pointer, value); }
+        Self::io_fence();
+        Ok(())
+    }
+
+    /// Read the current priority for a valid non-zero source ID.
+    pub fn priority(&self, source_id: u32) -> Result<u32, PlicError> {
+        self.read32(self.layout.priority_address(source_id)?)
+    }
+
+    /// Set a source priority. Priority zero keeps the source non-claimable.
+    pub fn set_priority(&self, source_id: u32, priority: u32) -> Result<(), PlicError> {
+        self.write32(self.layout.priority_address(source_id)?, priority)
+    }
+
+    /// Read this context's interrupt threshold.
+    pub fn threshold(&self) -> Result<u32, PlicError> {
+        self.read32(self.layout.threshold_address(self.context)?)
+    }
+
+    /// Set this context's interrupt threshold.
+    pub fn set_threshold(&self, threshold: u32) -> Result<(), PlicError> {
+        self.write32(self.layout.threshold_address(self.context)?, threshold)
+    }
+
+    /// Enable or disable one source in this context's bitmap.
+    pub fn set_source_enabled(&self, source_id: u32, enabled: bool) -> Result<(), PlicError> {
+        let register = self.layout.enable_bit(self.context, source_id)?;
+        let current = self.read32(register.address)?;
+        let updated = if enabled {
+            current | register.mask
+        } else {
+            current & !register.mask
+        };
+        if updated != current {
+            self.write32(register.address, updated)?;
+        }
+        Ok(())
+    }
+
+    /// Claim the highest-priority pending source for this context.
+    /// Returns zero when no enabled source is pending.
+    pub fn claim(&self) -> Result<u32, PlicError> {
+        let source_id = self.read32(self.layout.claim_complete_address(self.context)?)?;
+        if source_id != 0 {
+            self.layout.check_source(source_id)?;
+        }
+        Ok(source_id)
+    }
+
+    /// Complete a previously claimed, non-zero source for this context.
+    pub fn complete(&self, source_id: u32) -> Result<(), PlicError> {
+        self.layout.check_source(source_id)?;
+        self.write32(self.layout.claim_complete_address(self.context)?, source_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PlicError, PlicLayout};
@@ -229,6 +344,58 @@ mod tests {
     fn plic_layout_rejects_resource_smaller_than_last_context_window() {
         let region = MmioRegion::new(0x0c00_0000, 0x0020_1007, 8, 4).unwrap();
         assert_eq!(PlicLayout::new(region, 95, 2), Err(PlicError::RegionTooSmall));
+    }
+
+    #[test]
+    fn plic_mmio_volatile_access_round_trips_registers() {
+        // Host memory backs the volatile layer here. This validates access
+        // bounds and read/modify/write behavior, not a physical PLIC device.
+        let mut memory = vec![0u32; 0x0020_2000 / 4];
+        let base = memory.as_mut_ptr() as usize as u64;
+        let region = MmioRegion::new(base, 0x0020_2000, 8, 4).unwrap();
+        let layout = PlicLayout::new(region, 95, 2).unwrap();
+        let controller = unsafe { super::PlicMmio::new(layout, 1).unwrap() };
+
+        let priority_address = layout.priority_address(10).unwrap();
+        let priority_index = ((priority_address - base) / 4) as usize;
+        controller.set_priority(10, 3).unwrap();
+        assert_eq!(controller.priority(10), Ok(3));
+        assert_eq!(memory[priority_index], 3);
+
+        let enable = layout.enable_bit(1, 10).unwrap();
+        let enable_index = ((enable.address - base) / 4) as usize;
+        memory[enable_index] = 0x100;
+        controller.set_source_enabled(10, true).unwrap();
+        assert_eq!(memory[enable_index], 0x500);
+        controller.set_source_enabled(10, false).unwrap();
+        assert_eq!(memory[enable_index], 0x100);
+
+        controller.set_threshold(0).unwrap();
+        assert_eq!(controller.threshold(), Ok(0));
+
+        let claim_address = layout.claim_complete_address(1).unwrap();
+        let claim_index = ((claim_address - base) / 4) as usize;
+        memory[claim_index] = 10;
+        assert_eq!(controller.claim(), Ok(10));
+        controller.complete(10).unwrap();
+        assert_eq!(memory[claim_index], 10);
+    }
+
+    #[test]
+    fn plic_mmio_rejects_invalid_context_and_source_ids() {
+        let mut memory = vec![0u32; 0x0020_2000 / 4];
+        let base = memory.as_mut_ptr() as usize as u64;
+        let region = MmioRegion::new(base, 0x0020_2000, 8, 4).unwrap();
+        let layout = PlicLayout::new(region, 95, 2).unwrap();
+        assert!(matches!(
+            unsafe { super::PlicMmio::new(layout, 2) },
+            Err(PlicError::InvalidContextId)
+        ));
+        let controller = unsafe { super::PlicMmio::new(layout, 1).unwrap() };
+        assert_eq!(controller.priority(0), Err(PlicError::InvalidSourceId));
+        assert_eq!(controller.set_priority(96, 1), Err(PlicError::InvalidSourceId));
+        assert_eq!(controller.set_source_enabled(96, true), Err(PlicError::InvalidSourceId));
+        assert_eq!(controller.complete(0), Err(PlicError::InvalidSourceId));
     }
 
     #[test]
