@@ -51,6 +51,18 @@ The UART is still discovered and mapped, not initialized through a concrete UART
 
 The RV64 build currently emits 32 Rust dead-code/unused warnings. The new source-enable/claim/complete methods account for some of the intentionally not-yet-integrated API warnings; do not suppress warnings globally.
 
+
+## Follow-up head and current checks
+
+The branch head advanced to `c559082f5d60b7b1d6c4ade3bb78c921b58e3a2d` after this checkpoint. That follow-up changes only PLIC module/safety/concurrency documentation; it does not alter executable register-access logic.
+
+The immediately preceding code-bearing revision is covered by RV64 run [#45124585200](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45124585200): **SUCCESS**, 112/112 host tests, RV64 ELF, and QEMU readback `priority1=0; threshold=7`. The exact current-head RV64 rerun [#45124724649](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45124724649) was still in progress at the latest check (kernel ELF build stage), so this documentation-only head is not yet marked fully verified.
+
+Current-head supporting runs:
+- VisionFive 2 [#45124724673](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45124724673): host smoke and board contract checks completed successfully.
+- Win32 Gravity bridge [#45124724567](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45124724567): host and RV64 adapter jobs completed successfully.
+- OpenXzuff UI Runtime/Core [#45124724591](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45124724591): still in progress; do not claim full Core completion yet.
+
 ## Next work
 
 1. Confirm the exact-head OpenXzuff Runtime/Core workflow.
