@@ -32,8 +32,13 @@ prove physical-board driver operation.
    `interrupts-extended` phandle through an available interrupt-controller
    node with a valid `#interrupt-cells`, and counts the resolved contexts.
    The PLIC geometry descriptor checks priority, pending, enable and per-context
-   threshold/claim windows against the translated MMIO resource. Hart-specific
-   S-mode context selection and actual interrupt delivery remain next.
+   threshold/claim windows against the translated MMIO resource. Boot-hart
+   S-mode context selection is implemented: CPU interrupt-controller phandles
+   resolve through CPU `reg` to architectural hart IDs, cause 9 is selected,
+   and OpenSBI-masked M-mode entries retain their original context indexes.
+   Exact-head QEMU CI verifies hart 0 / context 1 / cause 9. Volatile register
+   access, priority/source enable, claim/complete, `sie.SEIE` and end-to-end
+   interrupt delivery remain unimplemented.
 5. Storage/network/display only after concrete compatible, clocks, resets, DMA
    and interrupt dependencies are parsed.
 
