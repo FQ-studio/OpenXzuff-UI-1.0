@@ -259,6 +259,21 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     });
     let plic_candidate = report_plic_candidate(blob, hart_id);
     let plic_region = plic_candidate.map(|(region, _, _)| region);
+    if ns16550_region.is_some() && matches!(plic_candidate, Some((_, _, Some(_)))) {
+        match fdt::find_plic_info(blob) {
+            Ok(Some(info)) => match fdt::find_device_interrupt(blob, b"ns16550a", info.phandle) {
+                Ok(Some(route)) if route.source_id <= info.source_count => {
+                    console_write("FDT UART PLIC route: PASS; controller=");
+                    print_hex(route.controller_phandle as usize);
+                    console_write("; source=");
+                    print_hex(route.source_id as usize);
+                    console_write("\n");
+                }
+                _ => console_write("FDT UART PLIC route: REJECTED; delivery disabled\n"),
+            },
+            _ => console_write("FDT UART PLIC route: NOT FOUND; delivery disabled\n"),
+        }
+    }
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }

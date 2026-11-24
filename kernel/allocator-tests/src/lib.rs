@@ -1386,7 +1386,23 @@ mod fdt_node_discovery_tests {
         source_count: u32,
         compatible_list: &[u8],
     ) -> Vec<u8> {
-        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0device_type\0";
+        plic_device_tree_with_uart(
+            extended_cells, second_controller_cells, plic_status, source_count,
+            compatible_list, 4, &[10], true,
+        )
+    }
+
+    fn plic_device_tree_with_uart(
+        extended_cells: &[u32],
+        second_controller_cells: Option<u32>,
+        plic_status: Option<&[u8]>,
+        source_count: u32,
+        compatible_list: &[u8],
+        uart_parent_phandle: u32,
+        uart_interrupt_cells: &[u32],
+        explicit_uart_parent: bool,
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0device_type\0interrupt-parent\0interrupts\0";
         let address = string_offset(strings, b"#address-cells");
         let size = string_offset(strings, b"#size-cells");
         let compatible = string_offset(strings, b"compatible");
@@ -1398,6 +1414,8 @@ mod fdt_node_discovery_tests {
         let extended = string_offset(strings, b"interrupts-extended");
         let status = string_offset(strings, b"status");
         let device_type = string_offset(strings, b"device_type");
+        let interrupt_parent = string_offset(strings, b"interrupt-parent");
+        let interrupts = string_offset(strings, b"interrupts");
 
         let mut structure = Vec::new();
         begin_node(&mut structure, b"");
@@ -1430,9 +1448,6 @@ mod fdt_node_discovery_tests {
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END_NODE);
 
-        // An unrelated zero-cell interrupt controller may exist elsewhere
-        // in a platform tree. It is not referenced by the PLIC's context list
-        // and must not make PLIC context discovery fail.
         begin_node(&mut structure, b"mswi@2000000");
         property(&mut structure, phandle, &3u32.to_be_bytes());
         property(&mut structure, interrupt_cells, &0u32.to_be_bytes());
@@ -1441,6 +1456,9 @@ mod fdt_node_discovery_tests {
 
         begin_node(&mut structure, b"plic@c000000");
         property(&mut structure, compatible, compatible_list);
+        property(&mut structure, phandle, &4u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
         let mut reg_cells = Vec::new();
         for value in [0, 0x0c00_0000, 0, 0x0060_0000] { push_be32(&mut reg_cells, value); }
         property(&mut structure, reg, &reg_cells);
@@ -1450,6 +1468,22 @@ mod fdt_node_discovery_tests {
         property(&mut structure, extended, &raw_extended);
         if let Some(value) = plic_status { property(&mut structure, status, value); }
         push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"soc");
+        if !explicit_uart_parent {
+            property(&mut structure, interrupt_parent, &uart_parent_phandle.to_be_bytes());
+        }
+        begin_node(&mut structure, b"serial@10000000");
+        property(&mut structure, compatible, b"ns16550a\0");
+        if explicit_uart_parent {
+            property(&mut structure, interrupt_parent, &uart_parent_phandle.to_be_bytes());
+        }
+        let mut raw_interrupts = Vec::new();
+        for value in uart_interrupt_cells { push_be32(&mut raw_interrupts, *value); }
+        property(&mut structure, interrupts, &raw_interrupts);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+
         push_be32(&mut structure, END_NODE);
         push_be32(&mut structure, END);
 
@@ -1481,13 +1515,63 @@ mod fdt_node_discovery_tests {
             bus_address: 0x0c00_0000,
             size: Some(0x0060_0000),
         });
+        assert_eq!(info.phandle, 4);
         assert_eq!(info.source_count, 95);
         assert_eq!(info.context_count, 2);
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", info.phandle),
+            Ok(Some(fdt::FdtDeviceInterrupt { controller_phandle: 4, source_id: 10 })),
+        );
 
         let region = MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4).unwrap();
         let layout = PlicLayout::new(region, info.source_count, info.context_count).unwrap();
         assert_eq!(layout.threshold_address(1), Ok(0x0c20_1000));
         assert_eq!(layout.claim_complete_address(1), Ok(0x0c20_1004));
+    }
+
+    #[test]
+    fn uart_interrupt_parent_is_inherited_from_soc_bus() {
+        let blob = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 4, &[10], false,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", 4),
+            Ok(Some(fdt::FdtDeviceInterrupt { controller_phandle: 4, source_id: 10 })),
+        );
+    }
+
+    #[test]
+    fn uart_interrupt_route_rejects_wrong_parent_and_bad_specifier_width() {
+        let wrong_parent = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 3, &[10], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&wrong_parent, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
+
+        let two_cells = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 4, &[10, 1], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&two_cells, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
+    }
+
+    #[test]
+    fn uart_interrupt_route_rejects_unknown_parent_phandle() {
+        let blob = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 99, &[10], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
     }
 
     #[test]
