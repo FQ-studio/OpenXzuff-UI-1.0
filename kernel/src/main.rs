@@ -336,7 +336,7 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                     let mut uart = match unsafe { uart16550::Uart16550::new(region) } {
                         Ok(uart) => uart,
                         Err(_) => {
-                            console_write("UART 16550 loopback: FAIL; invalid mapped register window\\n");
+                            console_write("UART 16550 loopback: FAIL; invalid mapped register window\n");
                             halt();
                         }
                     };
@@ -344,10 +344,10 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                         Ok(received) => {
                             console_write("UART 16550 loopback: PASS; tx=5a; rx=");
                             print_hex(received as usize);
-                            console_write("\\n");
+                            console_write("\n");
                         }
                         Err(_) => {
-                            console_write("UART 16550 loopback: FAIL; register round-trip\\n");
+                            console_write("UART 16550 loopback: FAIL; register round-trip\n");
                             halt();
                         }
                     }
