@@ -9,6 +9,8 @@ pub mod mmio_map;
 pub mod plic;
 #[path = "../../src/irq.rs"]
 pub mod irq;
+#[path = "../../src/uart16550.rs"]
+pub mod uart16550;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]
