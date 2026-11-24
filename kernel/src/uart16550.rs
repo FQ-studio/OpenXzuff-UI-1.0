@@ -25,6 +25,7 @@ const POLL_LIMIT: usize = 100_000;
 pub enum UartError {
     Mmio(MmioError),
     InvalidDivisor,
+    DivisorLatchActive,
     Timeout,
     ReadbackMismatch,
 }
@@ -112,15 +113,24 @@ impl Uart16550 {
     /// QEMU virt smoke probe: use the 16550 internal loopback, then restore
     /// normal transmit mode. This performs real volatile IO against the UART.
     pub fn loopback_probe(&mut self, byte: u8) -> Result<u8, UartError> {
-        self.configure(1)?;
-        self.write_register(MCR, MCR_LOOPBACK)?;
-        self.wait_status(LSR_THR_EMPTY)?;
-        self.write_register(RBR_THR_DLL, byte)?;
-        self.wait_status(LSR_DATA_READY)?;
-        let received = self.read_register(RBR_THR_DLL)?;
-        self.write_register(MCR, 0)?;
-        self.write_register(FCR, 0x07)?;
-        self.flush()?;
+        let saved_lcr = self.read_register(LCR)?;
+        if saved_lcr & LCR_DLAB != 0 { return Err(UartError::DivisorLatchActive); }
+        let saved_ier = self.read_register(IER_DLM)?;
+        let saved_mcr = self.read_register(MCR)?;
+        self.write_register(IER_DLM, 0)?;
+        let probe = (|| {
+            self.write_register(MCR, saved_mcr | MCR_LOOPBACK)?;
+            self.wait_status(LSR_THR_EMPTY)?;
+            self.write_register(RBR_THR_DLL, byte)?;
+            self.wait_status(LSR_DATA_READY)?;
+            let received = self.read_register(RBR_THR_DLL)?;
+            self.flush()?;
+            Ok(received)
+        })();
+        let restore = self.write_register(MCR, saved_mcr)
+            .and_then(|_| self.write_register(IER_DLM, saved_ier));
+        restore?;
+        let received = probe?;
         if received != byte { return Err(UartError::ReadbackMismatch); }
         Ok(received)
     }
@@ -174,5 +184,19 @@ mod tests {
         let mut uart = unsafe { Uart16550::new(region).unwrap() };
         assert_eq!(uart.configure(0), Err(UartError::InvalidDivisor));
         assert_eq!(memory, [0; 8]);
+    }
+
+    #[test]
+    fn uart_loopback_refuses_to_touch_registers_when_dlab_is_active() {
+        let mut memory = [0u8; 8];
+        memory[1] = 0x05;
+        memory[3] = 0x80;
+        memory[4] = 0x02;
+        let region = MmioRegion::new(memory.as_mut_ptr() as usize as u64, 8, 1, 1).unwrap();
+        let mut uart = unsafe { Uart16550::new(region).unwrap() };
+        assert_eq!(uart.loopback_probe(0x5a), Err(UartError::DivisorLatchActive));
+        assert_eq!(memory[1], 0x05);
+        assert_eq!(memory[3], 0x80);
+        assert_eq!(memory[4], 0x02);
     }
 }
