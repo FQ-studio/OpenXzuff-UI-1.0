@@ -9,6 +9,7 @@ mod mmio;
 mod mmio_map;
 mod plic;
 mod irq;
+mod uart16550;
 mod memory;
 mod page_alloc;
 mod heap_alloc;
@@ -69,7 +70,7 @@ pub(crate) fn print_hex(mut value: usize) {
 }
 
 /// Discover a known UART node and validate its translated register window.
-fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
+fn report_uart_candidate(blob: &[u8]) -> Option<(mmio::MmioRegion, bool)> {
     let compatibles: [&[u8]; 5] = [
         b"sifive,fu740-c000-uart",
         b"sifive,uart0",
@@ -102,7 +103,7 @@ fn report_uart_candidate(blob: &[u8]) -> Option<mmio::MmioRegion> {
                         print_hex(region.size() as usize);
                         console_write("\n");
                         console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; pending Sv39 mapping\n");
-                        return Some(region);
+                        return Some((region, compatible == b"ns16550a"));
                     }
                 }
             }
@@ -251,7 +252,11 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
         halt();
     }
     let blob = unsafe { core::slice::from_raw_parts(fdt_addr as *const u8, total) };
-    let uart_region = report_uart_candidate(blob);
+    let uart_candidate = report_uart_candidate(blob);
+    let uart_region = uart_candidate.map(|(region, _)| region);
+    let ns16550_region = uart_candidate.and_then(|(region, is_ns16550)| {
+        if is_ns16550 { Some(region) } else { None }
+    });
     let plic_candidate = report_plic_candidate(blob, hart_id);
     let plic_region = plic_candidate.map(|(region, _, _)| region);
     let timebase_hz = match fdt::timebase_frequency(blob) {
@@ -324,6 +329,26 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                                 console_write(" MMIO mapping: FAIL\n");
                                 halt();
                             }
+                        }
+                    }
+                }
+                if let Some(region) = ns16550_region {
+                    let mut uart = match unsafe { uart16550::Uart16550::new(region) } {
+                        Ok(uart) => uart,
+                        Err(_) => {
+                            console_write("UART 16550 loopback: FAIL; invalid mapped register window\\n");
+                            halt();
+                        }
+                    };
+                    match uart.loopback_probe(0x5a) {
+                        Ok(received) => {
+                            console_write("UART 16550 loopback: PASS; tx=5a; rx=");
+                            print_hex(received as usize);
+                            console_write("\\n");
+                        }
+                        Err(_) => {
+                            console_write("UART 16550 loopback: FAIL; register round-trip\\n");
+                            halt();
                         }
                     }
                 }
