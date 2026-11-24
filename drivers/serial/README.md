@@ -43,3 +43,17 @@ and interrupt routing. MMIO values in board notes are candidates only.
 The driver-match and HAL priorities are recorded in
 `boards/riscv64/DRIVER_HAL_MATRIX.md`. No Linux kernel code is copied into
 this directory.
+
+## Gravity Kernel QEMU 16550 implementation
+
+`kernel/src/uart16550.rs` now provides a separate no_std, byte-wide 16550
+polling HAL for the QEMU `ns16550a` device. It validates all eight register
+offsets against the translated `MmioRegion`, uses volatile 8-bit accesses
+with RISC-V I/O fences, and provides bounded TX polling, non-blocking RX,
+and flush. A boot smoke probe switches the UART into internal loopback and
+requires TX byte `0x5a` to be received unchanged before returning to normal
+transmit mode. Host tests cover window bounds and invalid divisor handling.
+
+This kernel implementation is intentionally limited to QEMU `ns16550a`.
+It does not replace the existing C++ host-side `uart.cpp`, and does not yet
+claim SiFive/JH7110/TH1520 support, FDT clock/reset setup, or UART IRQ delivery.
