@@ -3,6 +3,7 @@
 //! This driver deliberately accepts an already translated and supervisor-mapped
 //! MMIO window. It does not discover FDT resources or configure PLIC interrupts.
 use crate::mmio::{MmioError, MmioRegion};
+#[cfg(not(target_arch = "riscv64"))]
 use core::sync::atomic::{compiler_fence, Ordering};
 
 const RBR_THR_DLL: u64 = 0;
