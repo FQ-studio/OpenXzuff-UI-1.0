@@ -83,12 +83,11 @@ below 1 GiB into both kernel and probe-user Sv39 roots using identity-mapped
 The mapper verifies every page in both roots and rejects conflicting mappings
 or table-pool exhaustion. Base Sv39 has no standard cacheability PTE field;
 device classification/order still depends on platform PMA and explicit I/O
-fences. The mapping layer does not perform volatile register IO or establish
-that a platform resource is safe to claim. PLIC parsing validates the phandle
-references and specifier lengths in `interrupts-extended`, but does not select
-the current hart's supervisor-external context or connect claim/complete to
-trap dispatch. Clock/reset providers and UART register initialization remain
-unresolved.
+fences. The mapper itself does not perform register IO. Separate driver layers
+now provide bounds-checked volatile PLIC register access and a byte-wide
+QEMU 16550 polling HAL. The PLIC trap dispatcher is installed, but no UART
+handler is registered and no end-to-end external interrupt is delivered.
+Clock/reset providers and non-QEMU UART initialization remain unresolved.
 The metadata scanners require one root node, balanced nesting and a terminal
 `FDT_END`; the timebase scanner also rejects duplicate
 `/cpus/timebase-frequency` properties.
@@ -98,13 +97,14 @@ address `0x10000000`, size `0x100`, maps its covering page into both Sv39
 roots, and runs the kernel's byte-wide 16550 polling driver in internal
 loopback mode. The exact-head QEMU assertion requires a volatile TX-to-RX
 round-trip of byte `0x5a`. This proves the QEMU 16550 register path only;
-it does not initialize or validate the SiFive UART or JH7110/TH1520 UART
-variants, configure baud from a board clock, or deliver a UART interrupt.
-The kernel HAL exposes bounded polling `write_byte`, non-blocking
-`read_byte`, and `flush` operations for the 16550 implementation.
-It also discovers the PLIC at root address `0x0c000000`, size
-`0x600000`, with `riscv,ndev=95` and two resolved interrupt contexts, then
-maps all 1536 covering pages into both roots. CI verifies identity translation,
-supervisor-only access and NX permissions for each mapped page; it does not
-initialize/access the UART or deliver a PLIC interrupt. No physical
-UART/PLIC driver or board boot is claimed by this matrix.
+it does not validate the SiFive UART or JH7110/TH1520 UART variants,
+configure baud from a board clock, or deliver a UART interrupt. The kernel
+HAL exposes bounded polling `write_byte`, non-blocking `read_byte`, and
+`flush` operations for the 16550 implementation.
+It also discovers the PLIC at root address `0x0c000000`, size `0x600000`,
+with `riscv,ndev=95` and two resolved interrupt contexts, then maps all 1536
+covering pages into both roots. CI verifies identity translation,
+supervisor-only access and NX permissions for each mapped page, PLIC
+priority/threshold volatile readback, and the UART loopback probe. It does
+not register a UART IRQ handler or prove end-to-end PLIC interrupt delivery.
+No physical-board UART/PLIC driver operation or board boot is claimed.
