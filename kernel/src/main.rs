@@ -103,7 +103,7 @@ fn report_uart_candidate(blob: &[u8]) -> Option<(mmio::MmioRegion, bool)> {
                         print_hex(region.size() as usize);
                         console_write("\n");
                         console_write("FDT UART MMIO window: PASS; 32-bit base register in bounds; pending Sv39 mapping\n");
-                        return Some((region, compatible == b"ns16550a"));
+                        return Some((region, compatible == &b"ns16550a"[..]));
                     }
                 }
             }
