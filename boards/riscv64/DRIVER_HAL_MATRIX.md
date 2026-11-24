@@ -94,8 +94,15 @@ The metadata scanners require one root node, balanced nesting and a terminal
 `/cpus/timebase-frequency` properties.
 
 QEMU `virt` smoke boot discovers the `ns16550a` UART candidate at root
-address `0x10000000`, size `0x100`, and maps its covering page into both
-Sv39 roots. It also discovers the PLIC at root address `0x0c000000`, size
+address `0x10000000`, size `0x100`, maps its covering page into both Sv39
+roots, and runs the kernel's byte-wide 16550 polling driver in internal
+loopback mode. The exact-head QEMU assertion requires a volatile TX-to-RX
+round-trip of byte `0x5a`. This proves the QEMU 16550 register path only;
+it does not initialize or validate the SiFive UART or JH7110/TH1520 UART
+variants, configure baud from a board clock, or deliver a UART interrupt.
+The kernel HAL exposes bounded polling `write_byte`, non-blocking
+`read_byte`, and `flush` operations for the 16550 implementation.
+It also discovers the PLIC at root address `0x0c000000`, size
 `0x600000`, with `riscv,ndev=95` and two resolved interrupt contexts, then
 maps all 1536 covering pages into both roots. CI verifies identity translation,
 supervisor-only access and NX permissions for each mapped page; it does not
