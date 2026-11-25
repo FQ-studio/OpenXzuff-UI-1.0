@@ -57,3 +57,26 @@ For the earlier head `ff488c9`:
 1. Verify exact-head Actions for `02d8b96`; inspect the QEMU serial log and require both the UART IRQ marker and final runtime marker.
 2. If green, preserve the new host test coverage and proceed to UART FIFO draining/line-status handling, then a non-QEMU board UART contract.
 3. Continue independent per-process page-table roots and process-owned resources; do not claim the current shared kernel/probe-user Sv39 roots are a general process VM.
+
+
+## Exact-head verification completed after correction
+
+Code head: `55bd3784500553a453748b1fb4edd34edf5971f7`.
+
+- RV64 S-Mode Kernel PR run #45559688659: **SUCCESS**.
+  - Host suite: **130/130 passed**.
+  - RV64 ecall adapter cross-compile: success.
+  - Kernel: statically linked ELF64 RISC-V produced.
+  - OpenSBI/QEMU smoke: success, including all required serial assertions.
+  - New end-to-end marker: `UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a`.
+  - Existing PLIC priority/threshold readback, timer preemption/context switch, IPC, Sv39, U-mode syscall and final task-exit assertions also passed.
+  - [Kernel/QEMU artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45559688659/artifacts/14996488588).
+
+The two preceding QEMU workflow failures were diagnosed and corrected:
+1. Run #45559210690 stopped QEMU at the first UART IRQ marker, before the rest of the existing runtime smoke assertions. The harness was changed to wait for the final U-mode task-exit marker as well.
+2. Run #45559392042 then showed the UART interrupt and final runtime markers, but failed the old `PLIC MMIO access` assertion. Inspection found the earlier main.rs block replacement had inadvertently removed the priority/threshold readback smoke. Commit `55bd378` restored that block before dispatcher installation. The next exact-head run passed.
+
+Other workflows on code head `55bd378`:
+- Win32 Gravity Backend Bridge #45559688598: **SUCCESS**, host mock and RV64 adapter jobs.
+- VisionFive 2 Kernel Readiness #45559688607: **SUCCESS**, host/board-contract checks only; not a physical board boot.
+- OpenXzuff UI Runtime/Core #45559689062: still **IN PROGRESS** at the latest check. OS contract/Xzuff Go/Coder Checker, `.xexe`, Gravity RV64 NDK, Android ARM64 xgo cross-compile/package and SDK/NDK package steps have completed; Luau runtime build is still running. No overall Core PASS is claimed.
