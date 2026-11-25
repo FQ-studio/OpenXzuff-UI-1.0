@@ -4,14 +4,15 @@
 - Repository: `FQ-studio/OpenXzuff-UI-1.0`
 - Branch: `feat/fdt-ranges-root-translation`
 - Parent head: `a894b84ec04d3735edcd0309dedd78edd0975331`
+- Code checkpoint head: `79c004ff3af532091dac8842b197090b8306b196`
 - PR #15 remains open and targets `feature/win32-gaming-gravity-port`.
 - `main` is unchanged.
 
 ## Starting evidence inspected
-- Current PR head Actions run #45559961100: RV64 job succeeded.
-- The job log showed the existing one-byte UART RX -> PLIC -> S-mode trap -> handler -> claim completion assertion.
+- Previous PR head Actions run #45559961100: RV64 job succeeded.
+- Its log showed the existing one-byte UART RX -> PLIC -> S-mode trap -> handler -> claim completion assertion.
 - Host suite at the previous code head: 130/130.
-- OpenXzuff Core run #45559961205 completed successfully; the detailed job shows OS contracts/Xzuff Go, RV64 NDK, Android ARM64 xgo package, Luau, JavaScript, Lua, OpenXzuff3D and render steps all completed.
+- OpenXzuff Core run #45559961205 completed successfully; its job log shows OS contracts/Xzuff Go, RV64 NDK, Android ARM64 xgo package, Luau, JavaScript, Lua, OpenXzuff3D and render steps completed.
 - VisionFive 2 run #45559961079 completed host/board-contract checks; this is not a physical-board boot.
 
 ## Changes in this checkpoint
@@ -23,15 +24,22 @@
 6. Added host tests for FIFO ordering, bounded draining, pending-data reporting, line-status errors and queue wrap/full/zero-capacity behavior.
 7. Rewrote the driver/HAL matrix section to remove stale statements that the QEMU UART IRQ path was not yet connected.
 
-## Exact-head verification
-Pending at commit creation. The required checks are:
-- Rust host suite including the new queue and UART FIFO tests.
-- RV64 adapter cross-compile and kernel ELF build.
-- OpenSBI/QEMU four-byte UART RX interrupt burst.
-- Existing scheduler/context-switch, timer-preemption, IPC, Sv39 and U-mode exit assertions.
-- VisionFire 2 host/contract and OpenXzuff Core workflows where triggered.
+## Exact-head verification — code head 79c004f
+- [RV64 S-Mode Kernel PR run #45720938345](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345): **SUCCESS**.
+  - Host tests: **136 passed, 0 failed**.
+  - RV64 adapter cross-compile and kernel ELF build succeeded.
+  - OpenSBI/QEMU serial log contains:
+    `UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d`.
+  - Existing timer preemption/context switch (3 interrupts), IPC mailbox, Sv39, U-mode syscall and final task-exit assertions also passed.
+  - [Kernel ELF and QEMU serial artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345/artifacts/15070889449).
+- [RV64 S-Mode Kernel push run #45720931248](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720931248): **SUCCESS**, also 136/136 host tests and the same QEMU four-byte burst marker.
+  - [Push artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720931248/artifacts/15072307283).
+- [VisionFive 2 PR run #45720938335](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938335): **SUCCESS**, CTest **16/16** and host/board-contract checks. This is not a physical-board boot.
+- [VisionFive 2 push run #45720931257](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720931257): **SUCCESS**, CTest **16/16** and host/board-contract checks only.
+- [Win32 Gravity Backend Bridge PR run #45720938413](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938413): **SUCCESS**, host bridge and RV64 adapter jobs.
+- OpenXzuff UI Core PR run [#45720938336](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938336) and push run [#45720931254](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720931254) were still running at the last inspection, at **Build Luau runtime**. Earlier steps including OS contracts, Xzuff Go, RV64 NDK, Android ARM64 xgo and SDK/NDK packaging had completed. No overall Core PASS is claimed for this head.
 
-Do not claim the burst test passes until the exact commit's Actions and serial log prove it.
+The code head was tested before this documentation-only follow-up commit. The follow-up does not change kernel code or workflow logic.
 
 ## Limits
 - Single-hart QEMU `virt` only.
