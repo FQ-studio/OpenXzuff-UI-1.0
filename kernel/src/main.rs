@@ -10,6 +10,7 @@ mod mmio;
 mod mmio_map;
 mod plic;
 mod irq;
+mod byte_queue;
 mod uart16550;
 mod memory;
 mod page_alloc;
@@ -32,13 +33,20 @@ static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator
 struct HeapArena([u8; 64 * 1024]);
 static mut HEAP_ARENA: HeapArena = HeapArena([0; 64 * 1024]);
 
+const UART_IRQ_EXPECTED: [u8; 4] = [0x5a, 0x6b, 0x7c, 0x8d];
 static UART_IRQ_BASE: AtomicUsize = AtomicUsize::new(0);
 static UART_IRQ_SOURCE: AtomicUsize = AtomicUsize::new(0);
-static UART_IRQ_RECEIVED: AtomicUsize = AtomicUsize::new(usize::MAX);
+static UART_IRQ_RX_QUEUE: byte_queue::SpscByteQueue<256> = byte_queue::SpscByteQueue::new();
+static UART_IRQ_CONSUMED: AtomicUsize = AtomicUsize::new(0);
+static UART_IRQ_OBSERVED: [AtomicUsize; 4] =
+    [const { AtomicUsize::new(usize::MAX) }; 4];
+static UART_IRQ_LINE_STATUS: AtomicUsize = AtomicUsize::new(0);
+static UART_IRQ_MORE_PENDING: AtomicBool = AtomicBool::new(false);
+static UART_IRQ_EXTRA_BYTES: AtomicUsize = AtomicUsize::new(0);
 static UART_IRQ_REPORTED: AtomicBool = AtomicBool::new(false);
 
-/// QEMU 16550 RX handler. The region is taken only from the validated FDT
-/// resource after its Sv39 supervisor mapping has been installed.
+/// QEMU 16550 RX handler. It drains a bounded FIFO batch and publishes bytes
+/// to a single-consumer queue; it never prints or allocates in interrupt context.
 fn qemu_uart_irq_handler(source: u32) -> bool {
     if UART_IRQ_SOURCE.load(Ordering::Acquire) != source as usize {
         return false;
@@ -52,29 +60,61 @@ fn qemu_uart_irq_handler(source: u32) -> bool {
         Ok(uart) => uart,
         Err(_) => return false,
     };
-    match uart.service_rx_interrupt() {
-        Ok(Some(byte)) => {
-            UART_IRQ_RECEIVED.store(byte as usize, Ordering::Release);
+    let mut bytes = [0u8; 64];
+    match uart.drain_rx_interrupt(&mut bytes) {
+        Ok(batch) => {
+            if !batch.interrupt_handled {
+                return false;
+            }
+            UART_IRQ_LINE_STATUS.fetch_or(batch.line_status as usize, Ordering::AcqRel);
+            UART_IRQ_MORE_PENDING.store(batch.more_pending, Ordering::Release);
+            for byte in &bytes[..batch.bytes] {
+                let _ = UART_IRQ_RX_QUEUE.push(*byte);
+            }
             true
         }
-        _ => false,
+        Err(_) => false,
     }
 }
 
-/// Report the IRQ result from task context, not while executing the PLIC handler.
+/// Consume and verify the QEMU burst from task context, never in the PLIC handler.
 pub(crate) fn report_uart_irq_if_ready() {
-    let byte = UART_IRQ_RECEIVED.load(Ordering::Acquire);
-    if byte == usize::MAX || UART_IRQ_REPORTED.swap(true, Ordering::AcqRel) {
+    while let Some(byte) = UART_IRQ_RX_QUEUE.pop() {
+        let index = UART_IRQ_CONSUMED.fetch_add(1, Ordering::AcqRel);
+        if index < UART_IRQ_EXPECTED.len() {
+            UART_IRQ_OBSERVED[index].store(byte as usize, Ordering::Release);
+        } else {
+            UART_IRQ_EXTRA_BYTES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    if UART_IRQ_CONSUMED.load(Ordering::Acquire) < UART_IRQ_EXPECTED.len()
+        || UART_IRQ_MORE_PENDING.load(Ordering::Acquire)
+    {
         return;
     }
-    if byte != 0x5a {
-        console_write("UART PLIC RX IRQ round-trip: FAIL; unexpected byte\n");
+    if UART_IRQ_REPORTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let mut valid = UART_IRQ_RX_QUEUE.dropped() == 0
+        && UART_IRQ_EXTRA_BYTES.load(Ordering::Acquire) == 0
+        && UART_IRQ_LINE_STATUS.load(Ordering::Acquire) == 0;
+    for (index, expected) in UART_IRQ_EXPECTED.iter().enumerate() {
+        valid &= UART_IRQ_OBSERVED[index].load(Ordering::Acquire) == *expected as usize;
+    }
+    if !valid {
+        console_write("UART PLIC RX IRQ burst: FAIL; count/order/drop/error mismatch\n");
         halt();
     }
-    console_write("UART PLIC RX IRQ round-trip: PASS; source=");
+
+    console_write("UART PLIC RX IRQ burst: PASS; source=");
     print_hex(UART_IRQ_SOURCE.load(Ordering::Acquire));
-    console_write("; byte=");
-    print_hex(byte);
+    console_write("; count=4; bytes=");
+    for (index, byte) in UART_IRQ_EXPECTED.iter().enumerate() {
+        if index != 0 { console_putchar(b','); }
+        print_hex(*byte as usize);
+    }
     console_write("\n");
 }
 
