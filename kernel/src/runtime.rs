@@ -110,6 +110,7 @@ extern "C" fn task_a() -> ! {
     let stack_canary_ptr = &mut stack_canary as *mut usize;
     loop {
         unsafe { asm!("addi s2, s2, 0", inout("s2") register_marker, options(nomem, nostack)); }
+        crate::report_uart_irq_if_ready();
         if register_marker != 0xA11C_E000
             || unsafe { core::ptr::read_volatile(stack_canary_ptr) } != 0xA11C_E55A {
             crate::console_write("Task A register/stack context: FAIL\n");
