@@ -108,3 +108,24 @@ supervisor-only access and NX permissions for each mapped page, PLIC
 priority/threshold volatile readback, and the UART loopback probe. It does
 not register a UART IRQ handler or prove end-to-end PLIC interrupt delivery.
 No physical-board UART/PLIC driver operation or board boot is claimed.
+
+
+## 2026-11-25 — QEMU 16550 RX interrupt integration
+
+The QEMU `ns16550a` path now connects the parsed UART PLIC source to the
+single-hart dispatcher. After both Sv39 roots contain the validated
+supervisor-only UART mapping, the kernel registers a handler for the FDT
+source ID, sets PLIC priority 1, enables that source in the boot hart's S-mode
+context, and enables only the UART receiver-data-available interrupt.
+
+The handler checks the UART IIR cause and reads RBR to acknowledge one received
+byte. The QEMU workflow now connects to the serial TCP backend, waits for the
+kernel's ready marker, injects byte `0x5a`, and requires the trap path to
+dispatch, read the byte and complete the PLIC claim. The success marker is
+reported later from task context.
+
+This is an end-to-end QEMU UART RX -> PLIC -> S-mode external trap -> handler
+-> claim completion smoke test when the exact-head workflow passes. It is
+single-hart and one-byte only. It does not establish FIFO draining under burst
+traffic, SMP-safe enable-word locking, other UART IP variants, physical-board
+operation or long-duration stability.
