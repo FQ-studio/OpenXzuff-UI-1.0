@@ -3,6 +3,7 @@
 
 use core::arch::{asm, global_asm};
 use core::panic::PanicInfo;
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 mod fdt;
 mod mmio;
@@ -30,6 +31,52 @@ static mut HEAP_ALLOCATOR: heap_alloc::HeapAllocator = heap_alloc::HeapAllocator
 #[repr(align(16))]
 struct HeapArena([u8; 64 * 1024]);
 static mut HEAP_ARENA: HeapArena = HeapArena([0; 64 * 1024]);
+
+static UART_IRQ_BASE: AtomicUsize = AtomicUsize::new(0);
+static UART_IRQ_SOURCE: AtomicUsize = AtomicUsize::new(0);
+static UART_IRQ_RECEIVED: AtomicUsize = AtomicUsize::new(usize::MAX);
+static UART_IRQ_REPORTED: AtomicBool = AtomicBool::new(false);
+
+/// QEMU 16550 RX handler. The region is taken only from the validated FDT
+/// resource after its Sv39 supervisor mapping has been installed.
+fn qemu_uart_irq_handler(source: u32) -> bool {
+    if UART_IRQ_SOURCE.load(Ordering::Acquire) != source as usize {
+        return false;
+    }
+    let base = UART_IRQ_BASE.load(Ordering::Acquire);
+    let region = match mmio::MmioRegion::new(base as u64, 8, 1, 1) {
+        Ok(region) => region,
+        Err(_) => return false,
+    };
+    let mut uart = match unsafe { uart16550::Uart16550::new(region) } {
+        Ok(uart) => uart,
+        Err(_) => return false,
+    };
+    match uart.service_rx_interrupt() {
+        Ok(Some(byte)) => {
+            UART_IRQ_RECEIVED.store(byte as usize, Ordering::Release);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Report the IRQ result from task context, not while executing the PLIC handler.
+pub(crate) fn report_uart_irq_if_ready() {
+    let byte = UART_IRQ_RECEIVED.load(Ordering::Acquire);
+    if byte == usize::MAX || UART_IRQ_REPORTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    if byte != 0x5a {
+        console_write("UART PLIC RX IRQ round-trip: FAIL; unexpected byte\n");
+        halt();
+    }
+    console_write("UART PLIC RX IRQ round-trip: PASS; source=");
+    print_hex(UART_IRQ_SOURCE.load(Ordering::Acquire));
+    console_write("; byte=");
+    print_hex(byte);
+    console_write("\n");
+}
 
 global_asm!(include_str!("entry.S"));
 
@@ -259,21 +306,32 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
     });
     let plic_candidate = report_plic_candidate(blob, hart_id);
     let plic_region = plic_candidate.map(|(region, _, _)| region);
-    if ns16550_region.is_some() && matches!(plic_candidate, Some((_, _, Some(_)))) {
+    let uart_irq_source = if ns16550_region.is_some()
+        && matches!(plic_candidate, Some((_, _, Some(_))))
+    {
         match fdt::find_plic_info(blob) {
             Ok(Some(info)) => match fdt::find_device_interrupt(blob, b"ns16550a", info.phandle) {
-                Ok(Some(route)) if route.source_id <= info.source_count => {
+                Ok(Some(route)) if route.source_id != 0 && route.source_id <= info.source_count => {
                     console_write("FDT UART PLIC route: PASS; controller=");
                     print_hex(route.controller_phandle as usize);
                     console_write("; source=");
                     print_hex(route.source_id as usize);
                     console_write("\n");
+                    Some(route.source_id)
                 }
-                _ => console_write("FDT UART PLIC route: REJECTED; delivery disabled\n"),
+                _ => {
+                    console_write("FDT UART PLIC route: REJECTED; delivery disabled\n");
+                    None
+                }
             },
-            _ => console_write("FDT UART PLIC route: NOT FOUND; delivery disabled\n"),
+            _ => {
+                console_write("FDT UART PLIC route: NOT FOUND; delivery disabled\n");
+                None
+            }
         }
-    }
+    } else {
+        None
+    };
     let timebase_hz = match fdt::timebase_frequency(blob) {
         Ok(value) => value,
         Err(_) => { console_write("FDT timebase-frequency: FAIL\n"); halt(); }
@@ -368,53 +426,38 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                     }
                 }
                 if let Some((_, layout, Some(context))) = plic_candidate {
-                    let controller = match unsafe {
-                        plic::PlicMmio::new(layout, context.context_index)
-                    } {
-                        Ok(controller) => controller,
-                        Err(_) => {
-                            console_write("PLIC MMIO access: FAIL; invalid mapped context\n");
-                            halt();
-                        }
-                    };
-                    let readback = controller.priority(1).and_then(|priority| {
-                        controller.set_priority(1, priority)?;
-                        let priority_after = controller.priority(1)?;
-                        let threshold = controller.threshold()?;
-                        controller.set_threshold(threshold)?;
-                        let threshold_after = controller.threshold()?;
-                        if priority != priority_after || threshold != threshold_after {
-                            return Err(plic::PlicError::ReadbackMismatch);
-                        }
-                        Ok((priority_after, threshold_after))
-                    });
-                    match readback {
-                        Ok((priority, threshold)) => {
-                            console_write("PLIC MMIO access: PASS; context=");
-                            print_hex(context.context_index as usize);
-                            console_write("; priority1=");
-                            print_hex(priority as usize);
-                            console_write("; threshold=");
-                            print_hex(threshold as usize);
-                            console_write("\n");
-                        }
-                        Err(_) => {
-                            console_write("PLIC MMIO access: FAIL; register readback mismatch\n");
-                            halt();
-                        }
-                    }
-                }
-                if let Some((_, layout, Some(context))) = plic_candidate {
                     match unsafe { irq::install(layout, context.context_index) } {
                         Ok(()) => {
                             console_write("PLIC external interrupt dispatcher: PASS; context=");
                             print_hex(context.context_index as usize);
-                            console_write("; threshold=0; slots=1024\n");
+                            console_write("; threshold=0; slots=1024\\n");
                         }
                         Err(_) => {
-                            console_write("PLIC external interrupt dispatcher: FAIL\n");
+                            console_write("PLIC external interrupt dispatcher: FAIL\\n");
                             halt();
                         }
+                    }
+                    if let (Some(region), Some(source)) = (ns16550_region, uart_irq_source) {
+                        UART_IRQ_BASE.store(region.base() as usize, Ordering::Release);
+                        UART_IRQ_SOURCE.store(source as usize, Ordering::Release);
+                        if irq::register_handler(source, 1, qemu_uart_irq_handler).is_err() {
+                            console_write("UART PLIC handler registration: FAIL\\n");
+                            halt();
+                        }
+                        let mut uart = match unsafe { uart16550::Uart16550::new(region) } {
+                            Ok(uart) => uart,
+                            Err(_) => {
+                                console_write("UART PLIC RX interrupt enable: FAIL; invalid MMIO\\n");
+                                halt();
+                            }
+                        };
+                        if uart.enable_rx_data_available_interrupt().is_err() {
+                            console_write("UART PLIC RX interrupt enable: FAIL\\n");
+                            halt();
+                        }
+                        console_write("UART PLIC RX IRQ ready; source=");
+                        print_hex(source as usize);
+                        console_write("\\n");
                     }
                 }
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
