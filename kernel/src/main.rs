@@ -430,10 +430,10 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                         Ok(()) => {
                             console_write("PLIC external interrupt dispatcher: PASS; context=");
                             print_hex(context.context_index as usize);
-                            console_write("; threshold=0; slots=1024\\n");
+                            console_write("; threshold=0; slots=1024\n");
                         }
                         Err(_) => {
-                            console_write("PLIC external interrupt dispatcher: FAIL\\n");
+                            console_write("PLIC external interrupt dispatcher: FAIL\n");
                             halt();
                         }
                     }
@@ -441,23 +441,23 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                         UART_IRQ_BASE.store(region.base() as usize, Ordering::Release);
                         UART_IRQ_SOURCE.store(source as usize, Ordering::Release);
                         if irq::register_handler(source, 1, qemu_uart_irq_handler).is_err() {
-                            console_write("UART PLIC handler registration: FAIL\\n");
+                            console_write("UART PLIC handler registration: FAIL\n");
                             halt();
                         }
                         let mut uart = match unsafe { uart16550::Uart16550::new(region) } {
                             Ok(uart) => uart,
                             Err(_) => {
-                                console_write("UART PLIC RX interrupt enable: FAIL; invalid MMIO\\n");
+                                console_write("UART PLIC RX interrupt enable: FAIL; invalid MMIO\n");
                                 halt();
                             }
                         };
                         if uart.enable_rx_data_available_interrupt().is_err() {
-                            console_write("UART PLIC RX interrupt enable: FAIL\\n");
+                            console_write("UART PLIC RX interrupt enable: FAIL\n");
                             halt();
                         }
                         console_write("UART PLIC RX IRQ ready; source=");
                         print_hex(source as usize);
-                        console_write("\\n");
+                        console_write("\n");
                     }
                 }
                 console_write("Sv39 bootstrap page tables: PASS; U-mode mappings isolated\n");
