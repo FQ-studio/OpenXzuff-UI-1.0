@@ -74,21 +74,79 @@ jobs:
           echo "=== Full QEMU virt DTS ==="
           cat build/kernel/rv64-s-mode/qemu-virt.dts
 
-      - name: Boot with OpenSBI in QEMU
+      - name: Boot with OpenSBI and inject UART RX interrupt in QEMU
         shell: bash
         run: |
           set -euo pipefail
-          timeout 15s qemu-system-riscv64 \
-            -machine virt -m 256M -smp 1 \
-            -nographic -bios default \
-            -kernel build/kernel/rv64-s-mode/openxzuff-kernel.elf \
-            > build/kernel/rv64-s-mode/qemu-serial.log 2>&1 || status=$?
-          status="${status:-0}"
-          cat build/kernel/rv64-s-mode/qemu-serial.log
-          if [[ "$status" -ne 124 && "$status" -ne 0 ]]; then
-            echo "QEMU exited unexpectedly with status $status" >&2
-            exit "$status"
-          fi
+          python3 - <<'PY'
+          import os
+          import socket
+          import subprocess
+          import sys
+          import time
+
+          os.makedirs("build/kernel/rv64-s-mode", exist_ok=True)
+          log_path = "build/kernel/rv64-s-mode/qemu-serial.log"
+          command = [
+              "qemu-system-riscv64", "-machine", "virt", "-m", "256M", "-smp", "1",
+              "-display", "none", "-monitor", "none",
+              "-serial", "tcp:127.0.0.1:12345,server",
+              "-bios", "default", "-kernel", "build/kernel/rv64-s-mode/openxzuff-kernel.elf",
+          ]
+          process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+          connection = None
+          output = bytearray()
+          sent = False
+          passed = False
+          deadline = time.monotonic() + 20
+          try:
+              while time.monotonic() < deadline:
+                  if connection is None:
+                      try:
+                          connection = socket.create_connection(("127.0.0.1", 12345), timeout=0.25)
+                          connection.settimeout(0.25)
+                      except OSError:
+                          if process.poll() is not None:
+                              break
+                          time.sleep(0.05)
+                          continue
+                  try:
+                      chunk = connection.recv(4096)
+                  except socket.timeout:
+                      if process.poll() is not None:
+                          break
+                      continue
+                  if not chunk:
+                      if process.poll() is not None:
+                          break
+                      continue
+                  output.extend(chunk)
+                  if not sent and b"UART PLIC RX IRQ ready; source=a" in output:
+                      connection.sendall(bytes([0x5a]))
+                      sent = True
+                  if b"UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a" in output:
+                      passed = True
+                      break
+          finally:
+              if connection is not None:
+                  connection.close()
+              if process.poll() is None:
+                  process.terminate()
+                  try:
+                      process.wait(timeout=2)
+                  except subprocess.TimeoutExpired:
+                      process.kill()
+                      process.wait()
+              with open(log_path, "wb") as log:
+                  log.write(output)
+              print(output.decode("utf-8", errors="replace"))
+          if not sent:
+              print("QEMU UART test failed: readiness marker not observed or RX byte not sent.", file=sys.stderr)
+              sys.exit(1)
+          if not passed:
+              print("QEMU UART test failed: PLIC RX interrupt round-trip marker missing.", file=sys.stderr)
+              sys.exit(1)
+          PY
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT UART compatible-node discovery: PASS; ancestor ranges translated' build/kernel/rv64-s-mode/qemu-serial.log
@@ -103,6 +161,7 @@ jobs:
           grep -q 'PLIC MMIO access: PASS; context=1; priority1=' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'PLIC external interrupt dispatcher: PASS; context=1; threshold=0; slots=1024' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'UART 16550 loopback: PASS; tx=5a; rx=5a' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log
