@@ -1845,3 +1845,115 @@ mod mmio_tests {
         assert!(!region.contains_range(u64::MAX - 1, 8));
     }
 }
+
+
+#[cfg(test)]
+mod integrated_kernel_contract_tests {
+    use super::{
+        handle::{HandleError, HandleTable, ObjectKind, Rights},
+        ipc::{IpcError, MailboxSet},
+        process::{ProcessError, ProcessId, ProcessState, ProcessTable},
+        scheduler::{TaskId, MAX_TASKS},
+        task_manager::{TaskManager, TaskManagerError},
+        vfs::{NodeKind, RamFs, VfsError},
+    };
+
+    #[test]
+    fn process_exit_wait_reap_and_generation_prevent_stale_pid_reuse() {
+        let mut table = ProcessTable::new();
+        let parent = table.create(None, 0x1000, 0x9000).unwrap();
+        let child = table.create(Some(parent), 0x2000, 0xa000).unwrap();
+        table.transition(child, ProcessState::Running).unwrap();
+        table.exit(child, 23).unwrap();
+        assert_eq!(table.wait(parent, Some(child)), Ok((child, 23)));
+        assert_eq!(table.get(child), Err(ProcessError::InvalidProcess));
+
+        let replacement = table.create(Some(parent), 0x3000, 0xb000).unwrap();
+        assert_eq!(replacement.slot, child.slot);
+        assert_ne!(replacement.generation, child.generation);
+        assert_eq!(table.get(child), Err(ProcessError::InvalidProcess));
+    }
+
+    #[test]
+    fn task_manager_keeps_process_and_scheduler_states_in_sync() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x9000).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(parent)));
+
+        let child = manager.spawn(Some(parent), 0x2000, 0xa000).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(child)));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Running);
+
+        assert_eq!(manager.block_current(), Ok(Some(parent)));
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Blocked);
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Running);
+        manager.wake(child).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(child)));
+
+        assert_eq!(manager.exit_current_with_code(7), Ok(Some(parent)));
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Exited);
+        assert_eq!(manager.wait(parent, Some(child)), Ok((child, 7)));
+        assert_eq!(manager.get(child), Err(TaskManagerError::Process(ProcessError::InvalidProcess)));
+    }
+
+    #[test]
+    fn process_handles_enforce_owner_type_rights_and_generation() {
+        let owner = ProcessId { slot: 1, generation: 4 };
+        let other = ProcessId { slot: 2, generation: 9 };
+        let mut handles = HandleTable::new();
+        let rights = Rights::READ.union(Rights::DUPLICATE);
+        let original = handles.insert(owner, ObjectKind::File, 0x55, rights).unwrap();
+
+        assert_eq!(handles.get(owner, original, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(handles.get(other, original, None, Rights::NONE), Err(HandleError::WrongOwner));
+        assert_eq!(handles.get(owner, original, Some(ObjectKind::Device), Rights::NONE), Err(HandleError::WrongType));
+        assert_eq!(handles.get(owner, original, None, Rights::WRITE), Err(HandleError::AccessDenied));
+
+        let duplicate = handles.duplicate(owner, original, other, Rights::READ).unwrap();
+        assert_eq!(handles.get(other, duplicate, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(handles.get(other, duplicate, None, Rights::DUPLICATE), Err(HandleError::AccessDenied));
+        handles.close(owner, original).unwrap();
+        assert_eq!(handles.get(owner, original, None, Rights::NONE), Err(HandleError::InvalidHandle));
+        assert_eq!(handles.open_count(other), 1);
+    }
+
+    #[test]
+    fn ram_vfs_supports_file_io_and_rejects_stale_inode_handles() {
+        let mut fs = RamFs::new();
+        let directory = fs.create_dir(b"/sys").unwrap();
+        let file = fs.create_file(b"/sys/config").unwrap();
+        assert_eq!(fs.kind_by_id(directory), Ok(NodeKind::Directory));
+        assert_eq!(fs.write_node(file, 0, b"gravity").unwrap(), 7);
+        let mut bytes = [0u8; 8];
+        assert_eq!(fs.read(b"/sys/config", 0, &mut bytes).unwrap(), 7);
+        assert_eq!(&bytes[..7], b"gravity");
+        assert_eq!(fs.lookup(b"/sys/config").unwrap(), (file, NodeKind::File));
+        assert_eq!(fs.remove_node(file), Ok(()));
+        assert_eq!(fs.read_node(file, 0, &mut bytes), Err(VfsError::InvalidNode));
+
+        let replacement = fs.create_file(b"/sys/config").unwrap();
+        assert_eq!(replacement.slot, file.slot);
+        assert_ne!(replacement.generation, file.generation);
+        assert_eq!(fs.read_node(file, 0, &mut bytes), Err(VfsError::InvalidNode));
+        assert_eq!(fs.lookup(b"/../sys"), Err(VfsError::InvalidPath));
+    }
+
+    #[test]
+    fn task_mailboxes_preserve_fifo_and_reject_overflow() {
+        let mut mailboxes = MailboxSet::new();
+        let sender = TaskId(1);
+        let receiver = TaskId(2);
+        for payload in 0..8 {
+            mailboxes.send(sender, receiver, payload).unwrap();
+        }
+        assert_eq!(mailboxes.send(sender, receiver, 8), Err(IpcError::QueueFull));
+        for payload in 0..8 {
+            let message = mailboxes.receive(receiver).unwrap().unwrap();
+            assert_eq!(message.sender, sender);
+            assert_eq!(message.payload, payload);
+        }
+        assert_eq!(mailboxes.receive(receiver), Ok(None));
+        assert_eq!(mailboxes.send(TaskId(MAX_TASKS), receiver, 1), Err(IpcError::InvalidTask));
+    }
+}
