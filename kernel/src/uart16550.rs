@@ -185,7 +185,7 @@ impl UartConsole for Uart16550 {
 
 #[cfg(test)]
 mod tests {
-    use super::{Uart16550, UartError};
+    use super::{Uart16550, UartError, IIR, LCR_8N1, LSR, LSR_DATA_READY, RBR_THR_DLL};
     use crate::mmio::{MmioError, MmioRegion};
 
     #[test]
