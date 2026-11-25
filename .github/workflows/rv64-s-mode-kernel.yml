@@ -124,7 +124,8 @@ jobs:
                   if not sent and b"UART PLIC RX IRQ ready; source=a" in output:
                       connection.sendall(bytes([0x5a]))
                       sent = True
-                  if b"UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a" in output:
+                  if (b"UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a" in output
+                          and b"U-mode Exit syscall + scheduler task exit: PASS" in output):
                       passed = True
                       break
           finally:
@@ -144,7 +145,7 @@ jobs:
               print("QEMU UART test failed: readiness marker not observed or RX byte not sent.", file=sys.stderr)
               sys.exit(1)
           if not passed:
-              print("QEMU UART test failed: PLIC RX interrupt round-trip marker missing.", file=sys.stderr)
+              print("QEMU UART test failed: interrupt round-trip or final kernel runtime smoke marker missing.", file=sys.stderr)
               sys.exit(1)
           PY
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
