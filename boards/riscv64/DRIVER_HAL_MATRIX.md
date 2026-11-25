@@ -129,3 +129,15 @@ This is an end-to-end QEMU UART RX -> PLIC -> S-mode external trap -> handler
 single-hart and one-byte only. It does not establish FIFO draining under burst
 traffic, SMP-safe enable-word locking, other UART IP variants, physical-board
 operation or long-duration stability.
+
+
+Exact-head verification for this QEMU-only UART RX/PLIC path:
+- Code head `55bd3784500553a453748b1fb4edd34edf5971f7`, RV64 S-Mode Kernel PR run #45559688659: **SUCCESS**.
+- Host tests: **130/130**; RV64 adapter cross-compile and ELF64 kernel build succeeded.
+- QEMU injected one serial byte `0x5a` and passed
+  `UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a`, followed by
+  the existing timer-preemption, IPC, Sv39 and final U-mode exit assertions.
+- [QEMU serial log and kernel artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45559688659/artifacts/14996488588).
+
+This does not establish physical-board UART/PLIC operation, FIFO burst robustness,
+SMP safety or long-duration stability.
