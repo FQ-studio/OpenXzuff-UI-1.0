@@ -426,6 +426,41 @@ pub extern "C" fn rust_main(hart_id: usize, fdt_addr: usize) -> ! {
                     }
                 }
                 if let Some((_, layout, Some(context))) = plic_candidate {
+                    let controller = match unsafe {
+                        plic::PlicMmio::new(layout, context.context_index)
+                    } {
+                        Ok(controller) => controller,
+                        Err(_) => {
+                            console_write("PLIC MMIO access: FAIL; invalid mapped context\n");
+                            halt();
+                        }
+                    };
+                    let readback = controller.priority(1).and_then(|priority| {
+                        controller.set_priority(1, priority)?;
+                        let priority_after = controller.priority(1)?;
+                        let threshold = controller.threshold()?;
+                        controller.set_threshold(threshold)?;
+                        let threshold_after = controller.threshold()?;
+                        if priority != priority_after || threshold != threshold_after {
+                            return Err(plic::PlicError::ReadbackMismatch);
+                        }
+                        Ok((priority_after, threshold_after))
+                    });
+                    match readback {
+                        Ok((priority, threshold)) => {
+                            console_write("PLIC MMIO access: PASS; context=");
+                            print_hex(context.context_index as usize);
+                            console_write("; priority1=");
+                            print_hex(priority as usize);
+                            console_write("; threshold=");
+                            print_hex(threshold as usize);
+                            console_write("\n");
+                        }
+                        Err(_) => {
+                            console_write("PLIC MMIO access: FAIL; register readback mismatch\n");
+                            halt();
+                        }
+                    }
                     match unsafe { irq::install(layout, context.context_index) } {
                         Ok(()) => {
                             console_write("PLIC external interrupt dispatcher: PASS; context=");
