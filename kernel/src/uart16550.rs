@@ -9,6 +9,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 const RBR_THR_DLL: u64 = 0;
 const IER_DLM: u64 = 1;
 const FCR: u64 = 2;
+const IIR: u64 = 2;
 const LCR: u64 = 3;
 const MCR: u64 = 4;
 const LSR: u64 = 5;
@@ -17,6 +18,7 @@ const LCR_DLAB: u8 = 1 << 7;
 const LCR_8N1: u8 = 0x03;
 const MCR_LOOPBACK: u8 = 1 << 4;
 const LSR_DATA_READY: u8 = 1 << 0;
+const IER_RX_DATA_AVAILABLE: u8 = 1 << 0;
 const LSR_THR_EMPTY: u8 = 1 << 5;
 const LSR_TRANSMITTER_EMPTY: u8 = 1 << 6;
 const POLL_LIMIT: usize = 100_000;
@@ -110,6 +112,33 @@ impl Uart16550 {
         Ok(())
     }
 
+    /// Enable only the receiver-data-available interrupt, preserving other IER bits.
+    pub fn enable_rx_data_available_interrupt(&mut self) -> Result<(), UartError> {
+        if self.read_register(LCR)? & LCR_DLAB != 0 {
+            return Err(UartError::DivisorLatchActive);
+        }
+        let enabled = self.read_register(IER_DLM)? | IER_RX_DATA_AVAILABLE;
+        self.write_register(IER_DLM, enabled)
+    }
+
+    /// Service one 16550 receive interrupt. Reading RBR acknowledges the
+    /// single-byte QEMU smoke interrupt; callers must drain additional FIFO
+    /// bytes before returning if FIFO mode is enabled.
+    pub fn service_rx_interrupt(&mut self) -> Result<Option<u8>, UartError> {
+        let identification = self.read_register(IIR)?;
+        if identification & 1 != 0 {
+            return Ok(None);
+        }
+        let cause = (identification >> 1) & 0x07;
+        if !matches!(cause, 0x02 | 0x06) {
+            return Ok(None);
+        }
+        if self.read_register(LSR)? & LSR_DATA_READY == 0 {
+            return Ok(None);
+        }
+        self.read_register(RBR_THR_DLL).map(Some)
+    }
+
     /// QEMU virt smoke probe: use the 16550 internal loopback, then restore
     /// normal transmit mode. This performs real volatile IO against the UART.
     pub fn loopback_probe(&mut self, byte: u8) -> Result<u8, UartError> {
@@ -184,6 +213,31 @@ mod tests {
         let mut uart = unsafe { Uart16550::new(region).unwrap() };
         assert_eq!(uart.configure(0), Err(UartError::InvalidDivisor));
         assert_eq!(memory, [0; 8]);
+    }
+
+    #[test]
+    fn uart_rx_interrupt_enable_preserves_existing_ier_bits() {
+        let mut memory = [0u8; 8];
+        memory[1] = 0x04;
+        memory[3] = LCR_8N1;
+        let region = MmioRegion::new(memory.as_mut_ptr() as usize as u64, 8, 1, 1).unwrap();
+        let mut uart = unsafe { Uart16550::new(region).unwrap() };
+        uart.enable_rx_data_available_interrupt().unwrap();
+        assert_eq!(memory[1], 0x05);
+    }
+
+    #[test]
+    fn uart_rx_interrupt_service_reads_rbr_only_for_receive_causes() {
+        let mut memory = [0u8; 8];
+        memory[IIR as usize] = 0x04; // Receiver data available.
+        memory[LSR as usize] = LSR_DATA_READY;
+        memory[RBR_THR_DLL as usize] = 0x5a;
+        let region = MmioRegion::new(memory.as_mut_ptr() as usize as u64, 8, 1, 1).unwrap();
+        let mut uart = unsafe { Uart16550::new(region).unwrap() };
+        assert_eq!(uart.service_rx_interrupt(), Ok(Some(0x5a)));
+
+        memory[IIR as usize] = 0x01; // No interrupt pending.
+        assert_eq!(uart.service_rx_interrupt(), Ok(None));
     }
 
     #[test]
