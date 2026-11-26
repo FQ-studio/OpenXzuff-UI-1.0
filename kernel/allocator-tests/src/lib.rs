@@ -19,6 +19,14 @@ pub mod memory;
 pub mod page_alloc;
 #[path = "../../src/heap_alloc.rs"]
 pub mod heap_alloc;
+#[path = "../../src/process.rs"]
+pub mod process;
+#[path = "../../src/vfs.rs"]
+pub mod vfs;
+#[path = "../../src/handle.rs"]
+pub mod handle;
+#[path = "../../src/process_io.rs"]
+pub mod process_io;
 
 #[cfg(test)]
 mod tests {
@@ -1937,6 +1945,7 @@ mod integrated_kernel_contract_tests {
         scheduler::{TaskId, MAX_TASKS},
         task_manager::{TaskManager, TaskManagerError},
         vfs::{NodeKind, RamFs, VfsError},
+        process_io::{ProcessIo, ProcessIoError},
     };
 
     #[test]
@@ -2018,6 +2027,31 @@ mod integrated_kernel_contract_tests {
         assert_ne!(replacement.generation, file.generation);
         assert_eq!(fs.read_node(file, 0, &mut bytes), Err(VfsError::InvalidNode));
         assert_eq!(fs.lookup(b"/../sys"), Err(VfsError::InvalidPath));
+    }
+
+ 
+    #[test]
+    fn process_exit_closes_all_owned_file_capabilities_and_invalidates_handles() {
+        let owner = ProcessId { slot: 4, generation: 2 };
+        let other = ProcessId { slot: 5, generation: 7 };
+        let mut io = ProcessIo::new();
+        let rights = Rights::READ.union(Rights::WRITE).union(Rights::DUPLICATE);
+        let first = io.create_file(owner, b"/owner-a", rights).unwrap();
+        let second = io.create_file(owner, b"/owner-b", rights).unwrap();
+        let foreign = io.create_file(other, b"/foreign", rights).unwrap();
+        assert_eq!(io.open_count(owner), 2);
+        assert_eq!(io.open_count(other), 1);
+
+        assert_eq!(io.close_all(owner), 2);
+        assert_eq!(io.open_count(owner), 0);
+        assert_eq!(io.open_count(other), 1);
+        let mut bytes = [0u8; 4];
+        assert_eq!(io.read(owner, first, 0, &mut bytes),
+            Err(ProcessIoError::Handle(HandleError::InvalidHandle)));
+        assert_eq!(io.read(owner, second, 0, &mut bytes),
+            Err(ProcessIoError::Handle(HandleError::InvalidHandle)));
+        assert_eq!(io.close(other, foreign), Ok(()));
+        assert_eq!(io.close_all(owner), 0);
     }
 
     #[test]
