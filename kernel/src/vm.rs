@@ -40,8 +40,10 @@ static mut USER_STACK_LEVEL0: PageTable = PageTable([0; ENTRIES]);
 static mut USER_HEAP_LEVEL0: PageTable = PageTable([0; ENTRIES]);
 // Shared supervisor-only device mappings are present in both roots so S-mode
 // trap handlers can access them while a U-mode process root is active.
-static mut MMIO_LEVEL1: PageTable = PageTable([0; ENTRIES]);
+static mut MMIO_LEVEL1_TABLES: [PageTable; MMIO_TABLE_COUNT] = [PageTable([0; ENTRIES]); MMIO_TABLE_COUNT];
+static mut MMIO_LEVEL1_ROOTS: [usize; MMIO_TABLE_COUNT] = [usize::MAX; MMIO_TABLE_COUNT];
 static mut MMIO_LEVEL0_TABLES: [PageTable; MMIO_TABLE_COUNT] = [PageTable([0; ENTRIES]); MMIO_TABLE_COUNT];
+static mut MMIO_LEVEL0_KEYS: [(usize, usize); MMIO_TABLE_COUNT] = [(usize::MAX, usize::MAX); MMIO_TABLE_COUNT];
 static KERNEL_SATP: AtomicUsize = AtomicUsize::new(0);
 static USER_SATP: AtomicUsize = AtomicUsize::new(0);
 
@@ -298,16 +300,12 @@ pub fn switch_to_user() -> bool {
     true
 }
 
-/// Install an identity-mapped, supervisor-only Sv39 window for an FDT-validated
-/// device resource. The first HAL pass is deliberately limited to physical
-/// addresses below 1 GiB and uses 4 KiB leaves. Base Sv39 has no cacheability
-/// PTE field: platform PMA defines the region as device memory.
+/// Install identity-mapped, supervisor-only Sv39 pages for an FDT-validated
+/// device resource. Sparse intermediate tables support any address in the
+/// lower canonical Sv39 half (0..2^38), not just the first physical GiB.
 pub fn map_kernel_mmio_region(region: crate::mmio::MmioRegion) -> Result<(), VmError> {
     let plan = crate::mmio_map::plan(region.base(), region.size())
         .map_err(VmError::MmioPlan)?;
-    if plan.table_count > MMIO_TABLE_COUNT {
-        return Err(VmError::MmioTableExhausted);
-    }
     let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
     let user_satp = USER_SATP.load(Ordering::Acquire);
     if kernel_satp == 0 || user_satp == 0 || !active() {
@@ -315,96 +313,83 @@ pub fn map_kernel_mmio_region(region: crate::mmio::MmioRegion) -> Result<(), VmE
     }
     let current: usize;
     unsafe { asm!("csrr {value}, satp", value = out(reg) current, options(nomem, nostack)); }
-    if current != kernel_satp {
-        return Err(VmError::MmioNotReady);
-    }
+    if current != kernel_satp { return Err(VmError::MmioNotReady); }
 
     let kernel_root_address = pte_table_root(kernel_satp);
     let user_root_address = pte_table_root(user_satp);
     unsafe {
-        let mmio_level1 = core::ptr::addr_of_mut!(MMIO_LEVEL1);
-        let mmio_level0_tables = core::ptr::addr_of_mut!(MMIO_LEVEL0_TABLES).cast::<PageTable>();
-        let root_entry = table_pte(mmio_level1 as usize);
-
-        for root_address in [kernel_root_address, user_root_address] {
-            let root = &mut *(root_address as *mut PageTable);
-            let existing = root.0[0];
-            if existing != 0 && existing != root_entry {
-                return Err(VmError::MmioConflict);
-            }
-        }
+        let level1_tables = core::ptr::addr_of_mut!(MMIO_LEVEL1_TABLES).cast::<PageTable>();
+        let level1_roots = core::ptr::addr_of_mut!(MMIO_LEVEL1_ROOTS).cast::<usize>();
+        let level0_tables = core::ptr::addr_of_mut!(MMIO_LEVEL0_TABLES).cast::<PageTable>();
+        let level0_keys = core::ptr::addr_of_mut!(MMIO_LEVEL0_KEYS).cast::<(usize, usize)>();
+        let kernel_root = kernel_root_address as *mut PageTable;
+        let user_root = user_root_address as *mut PageTable;
 
         let mut address = plan.page_start;
         while address < plan.page_end {
-            let level1_index = (address / L1_SPAN as u64) as usize;
-            let level0_index = ((address % L1_SPAN as u64) / PAGE as u64) as usize;
-            let level1_entry = (*mmio_level1).0[level1_index];
-            let table = if level1_entry & V != 0 {
-                if level1_entry & (R | W | X) != 0 {
+            let root_index = (address >> 30) as usize;
+            let level1_index = ((address >> 21) & 0x1ff) as usize;
+            let level0_index = ((address >> 12) & 0x1ff) as usize;
+
+            let mut level1_slot = None;
+            for slot in 0..MMIO_TABLE_COUNT {
+                if *level1_roots.add(slot) == root_index {
+                    level1_slot = Some(slot);
+                    break;
+                }
+            }
+            if level1_slot.is_none() {
+                let free = (0..MMIO_TABLE_COUNT)
+                    .find(|slot| *level1_roots.add(*slot) == usize::MAX)
+                    .ok_or(VmError::MmioTableExhausted)?;
+                (*level1_tables.add(free)).0.fill(0);
+                *level1_roots.add(free) = root_index;
+                level1_slot = Some(free);
+            }
+            let l1_slot = level1_slot.unwrap();
+            let l1_table = level1_tables.add(l1_slot);
+            let root_entry = table_pte(l1_table as usize);
+            for root in [kernel_root, user_root] {
+                let existing = (*root).0[root_index];
+                if existing != 0 && existing != root_entry {
                     return Err(VmError::MmioConflict);
                 }
-                let table_address = pte_table_address(level1_entry);
-                let mut found = core::ptr::null_mut();
-                for slot in 0..MMIO_TABLE_COUNT {
-                    let candidate = mmio_level0_tables.add(slot);
-                    if candidate as usize == table_address {
-                        found = candidate;
-                        break;
-                    }
-                }
-                if found.is_null() {
-                    return Err(VmError::MmioConflict);
-                }
+                (*root).0[root_index] = root_entry;
+            }
+
+            let l1_entry = (*l1_table).0[level1_index];
+            let l0_slot = if l1_entry & V != 0 {
+                if l1_entry & (R | W | X) != 0 { return Err(VmError::MmioConflict); }
+                let table_address = pte_table_address(l1_entry);
+                let found = (0..MMIO_TABLE_COUNT).find(|slot| {
+                    *level0_keys.add(*slot) == (root_index, level1_index)
+                        && level0_tables.add(*slot) as usize == table_address
+                }).ok_or(VmError::MmioConflict)?;
                 found
             } else {
-                let mut free_table = core::ptr::null_mut();
-                for slot in 0..MMIO_TABLE_COUNT {
-                    let candidate = mmio_level0_tables.add(slot);
-                    let mut used = false;
-                    for index in 0..ENTRIES {
-                        let entry = (*mmio_level1).0[index];
-                        if entry & V != 0 && entry & (R | W | X) == 0
-                            && pte_table_address(entry) == candidate as usize {
-                            used = true;
-                            break;
-                        }
-                    }
-                    if !used {
-                        free_table = candidate;
-                        break;
-                    }
-                }
-                if free_table.is_null() {
-                    return Err(VmError::MmioTableExhausted);
-                }
-                (*free_table).0.fill(0);
-                (*mmio_level1).0[level1_index] = table_pte(free_table as usize);
-                free_table
+                let free = (0..MMIO_TABLE_COUNT)
+                    .find(|slot| *level0_keys.add(*slot) == (usize::MAX, usize::MAX))
+                    .ok_or(VmError::MmioTableExhausted)?;
+                (*level0_tables.add(free)).0.fill(0);
+                *level0_keys.add(free) = (root_index, level1_index);
+                (*l1_table).0[level1_index] = table_pte(level0_tables.add(free) as usize);
+                free
             };
 
+            let table = level0_tables.add(l0_slot);
             let page_entry = leaf_pte(address as usize, DEVICE_SUPERVISOR_RW);
             let existing = (*table).0[level0_index];
-            if existing != 0 && existing != page_entry {
-                return Err(VmError::MmioConflict);
-            }
+            if existing != 0 && existing != page_entry { return Err(VmError::MmioConflict); }
             (*table).0[level0_index] = page_entry;
             address += PAGE as u64;
         }
-
-        (*((kernel_root_address) as *mut PageTable)).0[0] = root_entry;
-        (*((user_root_address) as *mut PageTable)).0[0] = root_entry;
         asm!("fence iorw, iorw", "sfence.vma zero, zero", options(nostack));
     }
 
-    if verify_kernel_mmio_region(region) {
-        Ok(())
-    } else {
-        Err(VmError::MmioConflict)
-    }
+    if verify_kernel_mmio_region(region) { Ok(()) } else { Err(VmError::MmioConflict) }
 }
 
 /// Verify identity translation and supervisor RW/NX permissions in both roots.
-/// U-mode remains unable to access the mapping even while its root is active.
 pub fn verify_kernel_mmio_region(region: crate::mmio::MmioRegion) -> bool {
     let plan = match crate::mmio_map::plan(region.base(), region.size()) {
         Ok(plan) => plan,
@@ -420,8 +405,7 @@ pub fn verify_kernel_mmio_region(region: crate::mmio::MmioRegion) -> bool {
     let end = plan.page_end as usize;
     while address < end {
         for root in roots {
-            let mapping = unsafe { lookup_mapping(root, address) };
-            match mapping {
+            match unsafe { lookup_mapping(root, address) } {
                 Some((physical, flags))
                     if physical == address
                         && flags & required == required
