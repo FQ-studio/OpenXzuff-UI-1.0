@@ -77,6 +77,20 @@ impl HandleTable {
         self.insert(target, source.kind, source.object_id, rights)
     }
 
+    /// Close every capability owned by a process during exit/reap.
+    /// Each released slot advances its generation so stale handles cannot be reused.
+    pub fn close_all(&mut self, owner: ProcessId) -> usize {
+        let mut closed = 0;
+        for slot in &mut self.slots {
+            if slot.info.map_or(false, |info| info.owner == owner) {
+                slot.info = None;
+                slot.generation = slot.generation.wrapping_add(1).max(1);
+                closed += 1;
+            }
+        }
+        closed
+    }
+
     pub fn open_count(&self, owner: ProcessId) -> usize {
         self.slots.iter().filter(|slot| slot.info.map_or(false, |info| info.owner == owner)).count()
     }
