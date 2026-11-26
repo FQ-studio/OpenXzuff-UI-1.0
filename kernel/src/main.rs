@@ -21,6 +21,7 @@ mod process;
 mod task_manager;
 mod handle;
 mod vfs;
+mod process_io;
 mod ipc;
 mod runtime;
 mod vm;
