@@ -566,10 +566,10 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
     if closed_handles != 1 || unsafe {
         (&*core::ptr::addr_of!(PROCESS_IO)).open_count(process) != 0
     } {
-        crate::console_write("Process exit handle cleanup: FAIL\\n");
+        crate::console_write("Process exit handle cleanup: FAIL\n");
         crate::halt();
     }
-    crate::console_write("Process exit handle cleanup: PASS; closed=1; remaining=0\\n");
+    crate::console_write("Process exit handle cleanup: PASS; closed=1; remaining=0\n");
     USER_EXIT_STATUS.store(status, Ordering::Release);
     USER_TASK_EXITED.store(true, Ordering::Release);
 
