@@ -88,11 +88,16 @@ The previous exact-head QEMU test verified one injected byte end-to-end:
 host tests 130/130 and marker
 `UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a`.
 
-This checkpoint extends the QEMU harness to inject a four-byte sequence
-(`5a, 6b, 7c, 8d`) and require exact order, no queue drops, no reported line
-errors, and no pending FIFO data before reporting success. The exact-head
-workflow for this burst change is pending; do not treat it as verified until
-the new RV64 Actions run and serial artifact pass.
+The bounded four-byte RX burst is verified on code head
+`79c004ff3af532091dac8842b197090b8306b196` by [RV64 PR run
+#45720938345](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345):
+host tests **136/136**, RV64 adapter cross-compile, ELF64 RISC-V kernel build,
+and OpenSBI/QEMU serial marker
+`UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d`.
+The kernel ELF and serial log are in
+[artifact 15070889449](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345/artifacts/15070889449).
+This proves one injected four-byte burst, not sustained-throughput or
+continuous-overrun behavior.
 
 These tests remain single-hart QEMU smoke tests. They do not establish
 sustained UART throughput, FIFO overflow immunity under continuous traffic,
