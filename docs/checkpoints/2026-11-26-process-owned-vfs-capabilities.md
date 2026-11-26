@@ -94,3 +94,60 @@ claimed PASS. Earlier baseline results above do not prove this new change.
 3. If green, connect OPEN/READ/WRITE/CLOSE ABI calls to ProcessIo with
    user-pointer validation and process identity lookup.
 4. Then implement real per-process Sv39 roots and process teardown cleanup.
+
+
+## 2026-11-26 exact-head verification update
+
+The queued workflows have completed. GitHub Actions checked out merge commit
+`0f8a168`, which includes PR head `03cf17960ead367ca74ae760417d54b05fd10cd3`
+and the ProcessIo implementation/fix commits.
+
+- RV64 S-Mode Kernel run [#45770332404](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332404):
+  **SUCCESS**. Rust host suite: **138/138 passed, 0 failed**.
+  RV64 ecall adapter cross-build succeeded; release kernel ELF build succeeded.
+  OpenSBI + QEMU smoke succeeded and required assertions included:
+  `Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1`.
+  Serial log also confirms the four-byte UART RX burst
+  `5a,6b,7c,8d`, timer preemption, U-mode saved-frame resume,
+  Sv39 map/protect/unmap and W^X rejection, IPC round-trip, and U-mode exit.
+  [Kernel ELF/QEMU artifact](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332404/artifacts/15094542362).
+- OpenXzuff UI Core run [#45770332533](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332533):
+  **SUCCESS**. All workflow steps completed: root OS contracts/Xzuff Go/Coder
+  Checker, .xexe fixture, Gravity RV64 NDK example, Android ARM64 xgo build and
+  package, SDK/NDK package, Luau build/source/package smoke, JavaScript host
+  prototype, Lua host prototype, OpenXzuff3D build/tests, render smoke and
+  rendered-image verification.
+  Lua CTest **2/2** and OpenXzuff3D CTest **1/1** passed in the job log.
+  [Core smoke artifacts](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332533/artifacts/15094425785).
+- Win32 Gravity Backend Bridge run [#45770332399](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332399):
+  **SUCCESS**; RV64 adapter cross-build and host bridge tests both completed.
+- VisionFive 2 readiness run [#45770332437](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45770332437):
+  **SUCCESS**; host CTest **16/16**, strict-warning build and board-contract
+  checks completed. This is not a physical-board boot.
+
+The RV64 kernel job emitted 22 non-fatal compiler warnings for the kernel
+binary (including unused methods/constants and unnecessary unsafe blocks).
+These remain cleanup work; warnings were not suppressed.
+
+## Updated scope boundaries
+
+The ProcessIo QEMU smoke verifies the kernel-internal process-owned file
+capability path with two ProcessIds supplied by TaskManager. It does NOT yet
+prove that U-mode OPEN/READ/WRITE/CLOSE syscalls expose ProcessIo, that the
+process identity is derived securely from a live process table entry, or that
+file buffers are copied safely across user/kernel boundaries.
+
+RAM VFS remains bounded and volatile. No persistent block storage, mount
+system or production filesystem is claimed. The QEMU run is a bounded smoke
+test, not long-duration stability or physical-board validation.
+
+## Next engineering checkpoint
+
+1. Add syscall dispatcher integration for OPEN/READ/WRITE/CLOSE, validating
+   process identity, handle rights, user pointers, lengths and overflow.
+2. Add copy-in/copy-out tests for invalid, unmapped, read-only and cross-page
+   user buffers.
+3. Ensure process exit/reap closes all owned handles and releases resources.
+4. Continue independent Sv39 address-space lifecycle and teardown tests.
+5. Keep the physical VisionFive 2 boot and persistent storage as separate
+   validation gates.
