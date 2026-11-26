@@ -19,52 +19,87 @@ prove physical-board driver operation.
 
 ## Driver implementation order
 
-1. FDT node discovery: exact compatible-list matching, `status`, inherited
-   bus cell widths, `reg` translation through `ranges`, and interrupt-parent
-   resolution.
-2. UART console: SiFive UART IP and DesignWare APB UART implementations behind
-   one narrow polling-console interface. JH7110 requires its clock/reset and
-   register-width/register-shift properties to be honoured.
-3. Timer: SBI TIME first; direct ACLINT only when FDT and privilege contract allow it.
-4. Interrupt controller: PLIC first for these three initial board families;
-   parse each DTB's compatible, context/interrupt wiring and source count.
-5. Storage/network/display only after concrete compatible, clocks, resets, DMA
-   and interrupt dependencies are parsed.
+1. **FDT discovery and resource validation.** Exact compatible-list matching,
+   inherited `status`, bus cell widths, `reg` translation through ancestor
+   `ranges`, interrupt-parent resolution, and checked MMIO windows are present.
+2. **UART.** The QEMU `ns16550a` driver supports byte-wide volatile register
+   access, polling console operations, RX interrupt identification and bounded
+   FIFO draining. SiFive UART and DesignWare APB UART variants, board-clock
+   baud calculation, and JH7110 clock/reset/register-shift handling remain
+   separate drivers and are not claimed implemented.
+3. **Timer.** SBI TIME is used for the current QEMU S-mode timer path. Direct
+   ACLINT support remains conditional on the active FDT and privilege contract.
+4. **PLIC.** FDT discovery, boot-hart S-mode context selection, translated
+   MMIO mapping, bounds-checked volatile register access, source enable,
+   priority, claim/complete and the S-mode external-trap dispatcher are
+   implemented. The dispatcher and handler table are single-hart; SMP requires
+   IRQ-safe serialization for registration and enable-word read/modify/write.
 
 ## HAL contract
 
 The HAL exposes validated capabilities, not raw board addresses:
 
-- `UartConsole`: initialize, write byte, read byte, flush.
-- `Timer`: frequency, set deadline, acknowledge/dispatch.
-- `InterruptController`: register source, enable, claim, complete.
-- `MmioRegion`: validated mapped range and explicit access width.
-- `BlockDevice`, `NetworkDevice`, `DisplayDevice`: only after concrete
-  drivers and lifecycle/error contracts exist.
+- `UartConsole`: bounded polling write/read/flush for the QEMU 16550 path.
+- `Timer`: frequency and SBI TIME deadline programming.
+- `InterruptController`: register source, enable, claim, complete and dispatch.
+- `MmioRegion`: validated translated range and explicit register access width.
+- `BlockDevice`, `NetworkDevice`, `DisplayDevice`: not implemented as
+  hardware-backed drivers yet.
 
 Drivers receive validated resources from the FDT/platform layer. They must not
 parse arbitrary DTB offsets themselves or assume another board's MMIO address.
 
 ## Validation boundary
 
-The kernel parses FDT RAM ranges and timebase-frequency. `has_compatible`
-remains a boolean exact-match helper. `find_compatible_node` now returns the
-first available node name and its first `reg` tuple, decoded using the
-parent bus's `#address-cells` and `#size-cells`. A missing `reg` is represented
-explicitly; zero size-cells yields an address with unknown size. Unselected
-buses may declare up to four address/size cells without aborting discovery,
-while a selected resource must fit the current u64 representation (one or two
-address cells and zero, one or two size cells).
+The FDT parser rejects unavailable nodes, malformed cell geometry, missing
+intermediate `ranges`, ambiguous translation windows, address-width overflow,
+out-of-window resources, invalid interrupt-parent phandles and malformed
+interrupt specifiers. The boot-hart S-mode context is selected by resolving
+CPU interrupt-controller phandles to CPU `reg` hart IDs and cause 9, while
+preserving context indexes when OpenSBI masks an M-mode entry.
 
-The returned `reg` address is still a raw parent-bus address. The parser does
-not translate ancestor `ranges`, validate a mapped MMIO window, resolve
-clocks/resets, or route interrupts. The metadata scanners require one root
-node, balanced nesting and a terminal `FDT_END`; the timebase scanner also
-rejects duplicate `/cpus/timebase-frequency` properties. Regression coverage
-rejects a second root through `timebase_frequency`, `parse_memory`,
-`has_compatible` and `find_compatible_node`.
+The MMIO descriptor requires a known non-zero resource size, checked exclusive
+end, caller-specified minimum extent and power-of-two base alignment. Register
+access validates natural alignment and full access bounds. The initial Sv39
+device mapper installs identity-mapped 4 KiB leaves into both kernel and probe
+user roots with supervisor RW, U=0 and X=0. Base Sv39 has no standard
+cacheability PTE field; device classification depends on platform PMA and
+explicit I/O fences.
 
-QEMU `virt` smoke boot discovers its `ns16550a` UART candidate at raw bus
-address `0x10000000`, size `0x100`; this is discovery only, not UART
-initialization or MMIO access. No physical UART driver or board boot is
-claimed by this matrix.
+## QEMU evidence and limitations
+
+On QEMU `virt`, OpenSBI transfers to the kernel in S-mode on hart 0. The active
+FDT reports the `ns16550a` UART at root address `0x10000000`, size `0x100`,
+and the PLIC at `0x0c000000`, size `0x600000`, with 95 sources and two
+interrupt contexts. The kernel selects context 1 for S-mode external interrupt
+cause 9, maps the UART and PLIC windows into both bootstrap roots, and performs
+volatile PLIC priority/threshold readback.
+
+The UART source is resolved from FDT (source 10 on this QEMU FDT), registered
+with the single-hart PLIC dispatcher, and enabled only after the handler is
+installed. The UART RX handler services receiver-data, character-timeout and
+line-status causes, drains a caller-bounded batch from the 16550 FIFO, and
+publishes bytes to a single-producer/single-consumer queue for task-context
+consumption. It does not print or allocate inside the interrupt handler.
+
+The previous exact-head QEMU test verified one injected byte end-to-end:
+`55bd3784500553a453748b1fb4edd34edf5971f7`, run
+[#45559688659](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45559688659),
+host tests 130/130 and marker
+`UART PLIC RX IRQ round-trip: PASS; source=a; byte=5a`.
+
+The bounded four-byte RX burst is verified on code head
+`79c004ff3af532091dac8842b197090b8306b196` by [RV64 PR run
+#45720938345](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345):
+host tests **136/136**, RV64 adapter cross-compile, ELF64 RISC-V kernel build,
+and OpenSBI/QEMU serial marker
+`UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d`.
+The kernel ELF and serial log are in
+[artifact 15070889449](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45720938345/artifacts/15070889449).
+This proves one injected four-byte burst, not sustained-throughput or
+continuous-overrun behavior.
+
+These tests remain single-hart QEMU smoke tests. They do not establish
+sustained UART throughput, FIFO overflow immunity under continuous traffic,
+SMP safety, SiFive/JH7110/TH1520 UART operation, physical-board interrupt
+delivery, long-duration stability or a production-ready HAL.

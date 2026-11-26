@@ -20,10 +20,13 @@ const SUPERVISOR_RX: u64 = V | R | X | A;
 const SUPERVISOR_R: u64 = V | R | A;
 const SV39_MODE: usize = 8usize << 60;
 const SATP_PPN_MASK: usize = (1usize << 44) - 1;
+const MMIO_TABLE_COUNT: usize = 8;
+const DEVICE_SUPERVISOR_RW: u64 = V | R | W | A | D;
 static USER_HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
 static KERNEL_WINDOW_BASE: AtomicUsize = AtomicUsize::new(0);
 const USER_HEAP_SIZE: usize = crate::vm_policy::USER_HEAP_SIZE;
 
+#[derive(Clone, Copy)]
 #[repr(C, align(4096))]
 struct PageTable([u64; ENTRIES]);
 
@@ -35,6 +38,10 @@ static mut USER_LEVEL1: PageTable = PageTable([0; ENTRIES]);
 static mut USER_CODE_LEVEL0: PageTable = PageTable([0; ENTRIES]);
 static mut USER_STACK_LEVEL0: PageTable = PageTable([0; ENTRIES]);
 static mut USER_HEAP_LEVEL0: PageTable = PageTable([0; ENTRIES]);
+// Shared supervisor-only device mappings are present in both roots so S-mode
+// trap handlers can access them while a U-mode process root is active.
+static mut MMIO_LEVEL1: PageTable = PageTable([0; ENTRIES]);
+static mut MMIO_LEVEL0_TABLES: [PageTable; MMIO_TABLE_COUNT] = [PageTable([0; ENTRIES]); MMIO_TABLE_COUNT];
 static KERNEL_SATP: AtomicUsize = AtomicUsize::new(0);
 static USER_SATP: AtomicUsize = AtomicUsize::new(0);
 
@@ -43,6 +50,8 @@ pub enum VmError {
     InvalidRange, OutsideBootstrapWindow, UserRegionsOverlap,
     UserRegionTooLarge, KernelImageTooLarge, MisalignedTable, SatpReadback,
     NoMemory, InvalidProtection, AddressNotMapped, OutsideUserHeap,
+    MmioNotReady, MmioConflict, MmioTableExhausted,
+    MmioPlan(crate::mmio_map::MmioMapPlanError),
 }
 
 fn table_pte(address: usize) -> u64 { (((address as u64) >> 12) << 10) | V }
@@ -96,19 +105,33 @@ unsafe fn fill_user_region(
     }
 }
 
-unsafe fn lookup_flags(root_address: usize, virtual_address: usize) -> Option<u64> {
+unsafe fn lookup_mapping(
+    root_address: usize,
+    virtual_address: usize,
+) -> Option<(usize, u64)> {
     let root = &*(root_address as *const PageTable);
     let pte2 = root.0[(virtual_address >> 30) & 0x1ff];
     if pte2 & V == 0 { return None; }
-    if pte2 & (R | W | X) != 0 { return Some(pte2 & 0x3ff); }
+    if pte2 & (R | W | X) != 0 {
+        let physical = pte_table_address(pte2) | (virtual_address & (L2_SPAN - 1));
+        return Some((physical, pte2 & 0x3ff));
+    }
     let level1 = &*(pte_table_address(pte2) as *const PageTable);
     let pte1 = level1.0[(virtual_address >> 21) & 0x1ff];
     if pte1 & V == 0 { return None; }
-    if pte1 & (R | W | X) != 0 { return Some(pte1 & 0x3ff); }
+    if pte1 & (R | W | X) != 0 {
+        let physical = pte_table_address(pte1) | (virtual_address & (L1_SPAN - 1));
+        return Some((physical, pte1 & 0x3ff));
+    }
     let level0 = &*(pte_table_address(pte1) as *const PageTable);
     let pte0 = level0.0[(virtual_address >> 12) & 0x1ff];
     if pte0 & V == 0 || pte0 & (R | W | X) == 0 { return None; }
-    Some(pte0 & 0x3ff)
+    let physical = pte_table_address(pte0) | (virtual_address & (PAGE - 1));
+    Some((physical, pte0 & 0x3ff))
+}
+
+unsafe fn lookup_flags(root_address: usize, virtual_address: usize) -> Option<u64> {
+    lookup_mapping(root_address, virtual_address).map(|(_, flags)| flags)
 }
 
 /// Construct separate kernel and probe-user roots and activate the kernel root.
@@ -183,8 +206,11 @@ pub unsafe fn enable_bootstrap(
     let code_l0 = core::ptr::addr_of_mut!(USER_CODE_LEVEL0);
     let stack_l0 = core::ptr::addr_of_mut!(USER_STACK_LEVEL0);
     let heap_l0 = core::ptr::addr_of_mut!(USER_HEAP_LEVEL0);
+    let mmio_level1 = core::ptr::addr_of_mut!(MMIO_LEVEL1);
+    let mmio_level0_tables = core::ptr::addr_of_mut!(MMIO_LEVEL0_TABLES);
     for address in [kernel_root as usize, kernel_level1 as usize, kernel_image_l0 as usize, user_root as usize,
-        user_level1 as usize, code_l0 as usize, stack_l0 as usize, heap_l0 as usize] {
+        user_level1 as usize, code_l0 as usize, stack_l0 as usize, heap_l0 as usize,
+        mmio_level1 as usize, mmio_level0_tables as usize] {
         if address & (PAGE - 1) != 0 { return Err(VmError::MisalignedTable); }
     }
 
@@ -195,6 +221,11 @@ pub unsafe fn enable_bootstrap(
     (*user_level1).0.fill(0);
     (*code_l0).0.fill(0);
     (*stack_l0).0.fill(0);
+    (*mmio_level1).0.fill(0);
+    let mmio_tables = mmio_level0_tables.cast::<PageTable>();
+    for index in 0..MMIO_TABLE_COUNT {
+        (*mmio_tables.add(index)).0.fill(0);
+    }
 
     for i in 0..ENTRIES {
         (*kernel_level1).0[i] = leaf_pte(base + i * L1_SPAN, SUPERVISOR_RW);
@@ -264,6 +295,142 @@ pub fn switch_to_user() -> bool {
     let satp = USER_SATP.load(Ordering::Acquire);
     if satp == 0 { return false; }
     write_satp(satp);
+    true
+}
+
+/// Install an identity-mapped, supervisor-only Sv39 window for an FDT-validated
+/// device resource. The first HAL pass is deliberately limited to physical
+/// addresses below 1 GiB and uses 4 KiB leaves. Base Sv39 has no cacheability
+/// PTE field: platform PMA defines the region as device memory.
+pub fn map_kernel_mmio_region(region: crate::mmio::MmioRegion) -> Result<(), VmError> {
+    let plan = crate::mmio_map::plan(region.base(), region.size())
+        .map_err(VmError::MmioPlan)?;
+    if plan.table_count > MMIO_TABLE_COUNT {
+        return Err(VmError::MmioTableExhausted);
+    }
+    let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
+    let user_satp = USER_SATP.load(Ordering::Acquire);
+    if kernel_satp == 0 || user_satp == 0 || !active() {
+        return Err(VmError::MmioNotReady);
+    }
+    let current: usize;
+    unsafe { asm!("csrr {value}, satp", value = out(reg) current, options(nomem, nostack)); }
+    if current != kernel_satp {
+        return Err(VmError::MmioNotReady);
+    }
+
+    let kernel_root_address = pte_table_root(kernel_satp);
+    let user_root_address = pte_table_root(user_satp);
+    unsafe {
+        let mmio_level1 = core::ptr::addr_of_mut!(MMIO_LEVEL1);
+        let mmio_level0_tables = core::ptr::addr_of_mut!(MMIO_LEVEL0_TABLES).cast::<PageTable>();
+        let root_entry = table_pte(mmio_level1 as usize);
+
+        for root_address in [kernel_root_address, user_root_address] {
+            let root = &mut *(root_address as *mut PageTable);
+            let existing = root.0[0];
+            if existing != 0 && existing != root_entry {
+                return Err(VmError::MmioConflict);
+            }
+        }
+
+        let mut address = plan.page_start;
+        while address < plan.page_end {
+            let level1_index = (address / L1_SPAN as u64) as usize;
+            let level0_index = ((address % L1_SPAN as u64) / PAGE as u64) as usize;
+            let level1_entry = (*mmio_level1).0[level1_index];
+            let table = if level1_entry & V != 0 {
+                if level1_entry & (R | W | X) != 0 {
+                    return Err(VmError::MmioConflict);
+                }
+                let table_address = pte_table_address(level1_entry);
+                let mut found = core::ptr::null_mut();
+                for slot in 0..MMIO_TABLE_COUNT {
+                    let candidate = mmio_level0_tables.add(slot);
+                    if candidate as usize == table_address {
+                        found = candidate;
+                        break;
+                    }
+                }
+                if found.is_null() {
+                    return Err(VmError::MmioConflict);
+                }
+                found
+            } else {
+                let mut free_table = core::ptr::null_mut();
+                for slot in 0..MMIO_TABLE_COUNT {
+                    let candidate = mmio_level0_tables.add(slot);
+                    let mut used = false;
+                    for index in 0..ENTRIES {
+                        let entry = (*mmio_level1).0[index];
+                        if entry & V != 0 && entry & (R | W | X) == 0
+                            && pte_table_address(entry) == candidate as usize {
+                            used = true;
+                            break;
+                        }
+                    }
+                    if !used {
+                        free_table = candidate;
+                        break;
+                    }
+                }
+                if free_table.is_null() {
+                    return Err(VmError::MmioTableExhausted);
+                }
+                (*free_table).0.fill(0);
+                (*mmio_level1).0[level1_index] = table_pte(free_table as usize);
+                free_table
+            };
+
+            let page_entry = leaf_pte(address as usize, DEVICE_SUPERVISOR_RW);
+            let existing = (*table).0[level0_index];
+            if existing != 0 && existing != page_entry {
+                return Err(VmError::MmioConflict);
+            }
+            (*table).0[level0_index] = page_entry;
+            address += PAGE as u64;
+        }
+
+        (*((kernel_root_address) as *mut PageTable)).0[0] = root_entry;
+        (*((user_root_address) as *mut PageTable)).0[0] = root_entry;
+        asm!("fence iorw, iorw", "sfence.vma zero, zero", options(nostack));
+    }
+
+    if verify_kernel_mmio_region(region) {
+        Ok(())
+    } else {
+        Err(VmError::MmioConflict)
+    }
+}
+
+/// Verify identity translation and supervisor RW/NX permissions in both roots.
+/// U-mode remains unable to access the mapping even while its root is active.
+pub fn verify_kernel_mmio_region(region: crate::mmio::MmioRegion) -> bool {
+    let plan = match crate::mmio_map::plan(region.base(), region.size()) {
+        Ok(plan) => plan,
+        Err(_) => return false,
+    };
+    let kernel_satp = KERNEL_SATP.load(Ordering::Acquire);
+    let user_satp = USER_SATP.load(Ordering::Acquire);
+    if kernel_satp == 0 || user_satp == 0 { return false; }
+    let required = V | R | W | A | D;
+    let forbidden = X | U;
+    let roots = [pte_table_root(kernel_satp), pte_table_root(user_satp)];
+    let mut address = plan.page_start as usize;
+    let end = plan.page_end as usize;
+    while address < end {
+        for root in roots {
+            let mapping = unsafe { lookup_mapping(root, address) };
+            match mapping {
+                Some((physical, flags))
+                    if physical == address
+                        && flags & required == required
+                        && flags & forbidden == 0 => {}
+                _ => return false,
+            }
+        }
+        address += PAGE;
+    }
     true
 }
 

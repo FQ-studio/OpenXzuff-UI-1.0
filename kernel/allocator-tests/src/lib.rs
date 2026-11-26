@@ -1,6 +1,18 @@
 //! Host-side tests for the exact allocator and FDT modules used by the RV64 kernel.
 #[path = "../../src/fdt.rs"]
 pub mod fdt;
+#[path = "../../src/mmio.rs"]
+pub mod mmio;
+#[path = "../../src/mmio_map.rs"]
+pub mod mmio_map;
+#[path = "../../src/plic.rs"]
+pub mod plic;
+#[path = "../../src/irq.rs"]
+pub mod irq;
+#[path = "../../src/byte_queue.rs"]
+pub mod byte_queue;
+#[path = "../../src/uart16550.rs"]
+pub mod uart16550;
 #[path = "../../src/memory.rs"]
 pub mod memory;
 #[path = "../../src/page_alloc.rs"]
@@ -833,6 +845,85 @@ mod vfs_inode_tests {
 }
 
 
+#[path = "../../src/process_io.rs"]
+pub mod process_io;
+
+#[cfg(test)]
+mod process_io_tests {
+    use super::{
+        handle::{HandleError, Rights, MAX_HANDLES},
+        process::ProcessId,
+        process_io::{ProcessIo, ProcessIoError},
+        vfs::VfsError,
+    };
+
+    fn process(slot: u16) -> ProcessId {
+        ProcessId { slot, generation: 1 }
+    }
+
+    #[test]
+    fn process_owned_file_io_enforces_owner_and_reduced_duplicate_rights() {
+        let owner = process(0);
+        let recipient = process(1);
+        let mut io = ProcessIo::new();
+        let rights = Rights::READ.union(Rights::WRITE).union(Rights::DUPLICATE);
+        let file = io.create_file(owner, b"/boot.log", rights).unwrap();
+
+        assert_eq!(io.write(owner, file, 0, b"gravity"), Ok(7));
+        let mut original = [0u8; 7];
+        assert_eq!(io.read(owner, file, 0, &mut original), Ok(7));
+        assert_eq!(&original, b"gravity");
+
+        let mut denied = [0u8; 7];
+        assert_eq!(
+            io.read(recipient, file, 0, &mut denied),
+            Err(ProcessIoError::Handle(HandleError::WrongOwner))
+        );
+
+        let shared = io.duplicate(owner, file, recipient, Rights::READ).unwrap();
+        let mut copied = [0u8; 7];
+        assert_eq!(io.read(recipient, shared, 0, &mut copied), Ok(7));
+        assert_eq!(&copied, b"gravity");
+        assert_eq!(
+            io.write(recipient, shared, 0, b"tamper"),
+            Err(ProcessIoError::Handle(HandleError::AccessDenied))
+        );
+
+        io.close(recipient, shared).unwrap();
+        assert_eq!(
+            io.read(recipient, shared, 0, &mut copied),
+            Err(ProcessIoError::Handle(HandleError::InvalidHandle))
+        );
+        io.close(owner, file).unwrap();
+        assert_eq!(io.open_count(owner), 0);
+        assert_eq!(io.open_count(recipient), 0);
+    }
+
+    #[test]
+    fn process_io_rejects_directory_open_and_rolls_back_inode_when_handles_are_full() {
+        let owner = process(2);
+        let mut io = ProcessIo::new();
+        assert_eq!(
+            io.open_file(owner, b"/", Rights::READ),
+            Err(ProcessIoError::Vfs(VfsError::IsDirectory))
+        );
+
+        io.create_file(owner, b"/seed", Rights::READ).unwrap();
+        for _ in 1..MAX_HANDLES {
+            io.open_file(owner, b"/seed", Rights::READ).unwrap();
+        }
+        assert_eq!(io.open_count(owner), MAX_HANDLES);
+        assert_eq!(
+            io.create_file(owner, b"/rollback", Rights::READ),
+            Err(ProcessIoError::Handle(HandleError::Full))
+        );
+        assert_eq!(
+            io.open_file(owner, b"/rollback", Rights::READ),
+            Err(ProcessIoError::Vfs(VfsError::NotFound))
+        );
+    }
+}
+
 #[path = "../../src/task_manager.rs"]
 pub mod task_manager;
 
@@ -950,7 +1041,9 @@ mod task_manager_capacity_tests {
 
 #[cfg(test)]
 mod fdt_node_discovery_tests {
-    use super::fdt::{self, FdtError, FdtNode, FdtRegion};
+    use super::fdt::{self, FdtError, FdtMappedNode, FdtNode, FdtRegion};
+    use super::mmio::MmioRegion;
+    use super::plic::PlicLayout;
 
     const BEGIN_NODE: u32 = 1;
     const END_NODE: u32 = 2;
@@ -1141,5 +1234,807 @@ mod fdt_node_discovery_tests {
             fdt::find_compatible_node(&bad_compatible, b"test,serial"),
             Err(FdtError::Structure)
         );
+    }
+    fn mapped_device_tree(ranges_cells: Option<&[u32]>, reg_cells: &[u32]) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        if let Some(cells) = ranges_cells {
+            let mut raw = Vec::new();
+            for cell in cells { push_be32(&mut raw, *cell); }
+            property(&mut structure, ranges, &raw);
+        }
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in reg_cells { push_be32(&mut raw_reg, *cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    fn nested_mapped_device_tree() -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0ranges\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let ranges = string_offset(strings, b"ranges");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"soc");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut soc_ranges = Vec::new();
+        for cell in [0x2000, 0, 0x8000, 0x2000] { push_be32(&mut soc_ranges, cell); }
+        property(&mut structure, ranges, &soc_ranges);
+        begin_node(&mut structure, b"bridge@2000");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &1u32.to_be_bytes());
+        let mut bridge_ranges = Vec::new();
+        for cell in [0x1000, 0x2000, 0x1000] { push_be32(&mut bridge_ranges, cell); }
+        property(&mut structure, ranges, &bridge_ranges);
+        begin_node(&mut structure, b"serial@1100");
+        property(&mut structure, compatible, b"test,serial\0");
+        let mut raw_reg = Vec::new();
+        for cell in [0x1100, 0x100] { push_be32(&mut raw_reg, cell); }
+        property(&mut structure, reg, &raw_reg);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn translated_node_treats_explicit_empty_ranges_as_identity() {
+        let blob = mapped_device_tree(Some(&[]), &[0x1000, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x1000, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_applies_child_to_parent_ranges_offset() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x1000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Ok(Some(FdtMappedNode {
+                name: b"serial@1100",
+                bus_reg: Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }),
+                root_reg: Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }),
+            }))
+        );
+    }
+
+    #[test]
+    fn translated_node_walks_multiple_ancestor_ranges() {
+        let blob = nested_mapped_device_tree();
+        let node = fdt::find_compatible_node_translated(&blob, b"test,serial")
+            .unwrap().unwrap();
+        assert_eq!(node.bus_reg, Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) }));
+        assert_eq!(node.root_reg, Some(FdtRegion { bus_address: 0x8100, size: Some(0x100) }));
+    }
+
+    #[test]
+    fn translated_node_fails_closed_when_ranges_is_absent() {
+        let blob = mapped_device_tree(None, &[0x1100, 0x100]);
+        assert_eq!(
+            fdt::find_compatible_node(&blob, b"test,serial").unwrap().unwrap().reg,
+            Some(FdtRegion { bus_address: 0x1100, size: Some(0x100) })
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_resources_outside_ranges_and_malformed_tuples() {
+        let outside = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000, 0x100]),
+            &[0x10f0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&outside, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+
+        let malformed = mapped_device_tree(
+            Some(&[0x1000, 0, 0x8000]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&malformed, b"test,serial"),
+            Err(FdtError::Cells)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_ambiguous_overlapping_ranges() {
+        let blob = mapped_device_tree(
+            Some(&[
+                0x1000, 0, 0x8000, 0x1000,
+                0x1000, 0, 0x9000, 0x1000,
+            ]),
+            &[0x1100, 0x100],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+    #[test]
+    fn translated_node_rejects_child_window_exceeding_one_cell_address_space() {
+        let blob = mapped_device_tree(
+            Some(&[0xffff_fff0, 0, 0, 0x20]),
+            &[0xffff_fff0, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_identity_rejects_resource_exceeding_child_address_width() {
+        let blob = mapped_device_tree(
+            Some(&[]),
+            &[0xffff_fff0, 0x20],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    #[test]
+    fn translated_node_rejects_parent_window_u64_overflow() {
+        let blob = mapped_device_tree(
+            Some(&[0x1000, 0xffff_ffff, 0xffff_fff0, 0x20]),
+            &[0x1000, 0x10],
+        );
+        assert_eq!(
+            fdt::find_compatible_node_translated(&blob, b"test,serial"),
+            Err(FdtError::Translation)
+        );
+    }
+
+    fn plic_device_tree(
+        extended_cells: &[u32],
+        second_controller_cells: Option<u32>,
+        plic_status: Option<&[u8]>,
+        source_count: u32,
+        compatible_list: &[u8],
+    ) -> Vec<u8> {
+        plic_device_tree_with_uart(
+            extended_cells, second_controller_cells, plic_status, source_count,
+            compatible_list, 4, &[10], true,
+        )
+    }
+
+    fn plic_device_tree_with_uart(
+        extended_cells: &[u32],
+        second_controller_cells: Option<u32>,
+        plic_status: Option<&[u8]>,
+        source_count: u32,
+        compatible_list: &[u8],
+        uart_parent_phandle: u32,
+        uart_interrupt_cells: &[u32],
+        explicit_uart_parent: bool,
+    ) -> Vec<u8> {
+        let strings = b"#address-cells\0#size-cells\0compatible\0reg\0phandle\0#interrupt-cells\0interrupt-controller\0riscv,ndev\0interrupts-extended\0status\0device_type\0interrupt-parent\0interrupts\0";
+        let address = string_offset(strings, b"#address-cells");
+        let size = string_offset(strings, b"#size-cells");
+        let compatible = string_offset(strings, b"compatible");
+        let reg = string_offset(strings, b"reg");
+        let phandle = string_offset(strings, b"phandle");
+        let interrupt_cells = string_offset(strings, b"#interrupt-cells");
+        let interrupt_controller = string_offset(strings, b"interrupt-controller");
+        let ndev = string_offset(strings, b"riscv,ndev");
+        let extended = string_offset(strings, b"interrupts-extended");
+        let status = string_offset(strings, b"status");
+        let device_type = string_offset(strings, b"device_type");
+        let interrupt_parent = string_offset(strings, b"interrupt-parent");
+        let interrupts = string_offset(strings, b"interrupts");
+
+        let mut structure = Vec::new();
+        begin_node(&mut structure, b"");
+        property(&mut structure, address, &2u32.to_be_bytes());
+        property(&mut structure, size, &2u32.to_be_bytes());
+        begin_node(&mut structure, b"cpus");
+        property(&mut structure, address, &1u32.to_be_bytes());
+        property(&mut structure, size, &0u32.to_be_bytes());
+        begin_node(&mut structure, b"cpu@0");
+        property(&mut structure, device_type, b"cpu\0");
+        property(&mut structure, reg, &0u32.to_be_bytes());
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, compatible, b"riscv,cpu-intc\0");
+        property(&mut structure, phandle, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        begin_node(&mut structure, b"cpu@1");
+        property(&mut structure, device_type, b"cpu\0");
+        property(&mut structure, reg, &1u32.to_be_bytes());
+        begin_node(&mut structure, b"interrupt-controller");
+        property(&mut structure, compatible, b"riscv,cpu-intc\0");
+        property(&mut structure, phandle, &2u32.to_be_bytes());
+        if let Some(cells) = second_controller_cells {
+            property(&mut structure, interrupt_cells, &cells.to_be_bytes());
+        }
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"mswi@2000000");
+        property(&mut structure, phandle, &3u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &0u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"plic@c000000");
+        property(&mut structure, compatible, compatible_list);
+        property(&mut structure, phandle, &4u32.to_be_bytes());
+        property(&mut structure, interrupt_cells, &1u32.to_be_bytes());
+        property(&mut structure, interrupt_controller, &[]);
+        let mut reg_cells = Vec::new();
+        for value in [0, 0x0c00_0000, 0, 0x0060_0000] { push_be32(&mut reg_cells, value); }
+        property(&mut structure, reg, &reg_cells);
+        property(&mut structure, ndev, &source_count.to_be_bytes());
+        let mut raw_extended = Vec::new();
+        for value in extended_cells { push_be32(&mut raw_extended, *value); }
+        property(&mut structure, extended, &raw_extended);
+        if let Some(value) = plic_status { property(&mut structure, status, value); }
+        push_be32(&mut structure, END_NODE);
+
+        begin_node(&mut structure, b"soc");
+        if !explicit_uart_parent {
+            property(&mut structure, interrupt_parent, &uart_parent_phandle.to_be_bytes());
+        }
+        begin_node(&mut structure, b"serial@10000000");
+        property(&mut structure, compatible, b"ns16550a\0");
+        if explicit_uart_parent {
+            property(&mut structure, interrupt_parent, &uart_parent_phandle.to_be_bytes());
+        }
+        let mut raw_interrupts = Vec::new();
+        for value in uart_interrupt_cells { push_be32(&mut raw_interrupts, *value); }
+        property(&mut structure, interrupts, &raw_interrupts);
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END_NODE);
+
+        push_be32(&mut structure, END_NODE);
+        push_be32(&mut structure, END);
+
+        const RESERVE_OFFSET: u32 = 40;
+        const STRUCT_OFFSET: u32 = 56;
+        let strings_offset = STRUCT_OFFSET + structure.len() as u32;
+        let total_size = strings_offset + strings.len() as u32;
+        let mut blob = Vec::with_capacity(total_size as usize);
+        for value in [
+            0xd00d_feed, total_size, STRUCT_OFFSET, strings_offset,
+            RESERVE_OFFSET, 17, 16, 0, strings.len() as u32, structure.len() as u32,
+        ] {
+            push_be32(&mut blob, value);
+        }
+        push_be64(&mut blob, 0);
+        push_be64(&mut blob, 0);
+        blob.extend_from_slice(&structure);
+        blob.extend_from_slice(strings);
+        assert_eq!(blob.len(), total_size as usize);
+        blob
+    }
+
+    #[test]
+    fn plic_fdt_resolves_qemu_virt_resource_and_interrupt_contexts() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], Some(1), None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.name, b"plic@c000000");
+        assert_eq!(info.root_reg, FdtRegion {
+            bus_address: 0x0c00_0000,
+            size: Some(0x0060_0000),
+        });
+        assert_eq!(info.phandle, 4);
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", info.phandle),
+            Ok(Some(fdt::FdtDeviceInterrupt { controller_phandle: 4, source_id: 10 })),
+        );
+
+        let region = MmioRegion::from_translated_fdt_region(info.root_reg, 8, 4).unwrap();
+        let layout = PlicLayout::new(region, info.source_count, info.context_count).unwrap();
+        assert_eq!(layout.threshold_address(1), Ok(0x0c20_1000));
+        assert_eq!(layout.claim_complete_address(1), Ok(0x0c20_1004));
+    }
+
+    #[test]
+    fn uart_interrupt_parent_is_inherited_from_soc_bus() {
+        let blob = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 4, &[10], false,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", 4),
+            Ok(Some(fdt::FdtDeviceInterrupt { controller_phandle: 4, source_id: 10 })),
+        );
+    }
+
+    #[test]
+    fn uart_interrupt_route_rejects_wrong_parent_and_bad_specifier_width() {
+        let wrong_parent = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 3, &[10], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&wrong_parent, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
+
+        let two_cells = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 4, &[10, 1], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&two_cells, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
+    }
+
+    #[test]
+    fn uart_interrupt_route_rejects_unknown_parent_phandle() {
+        let blob = plic_device_tree_with_uart(
+            &[1, 11, 2, 9], Some(1), None, 95,
+            b"sifive,plic-1.0.0\0", 99, &[10], true,
+        );
+        assert_eq!(
+            fdt::find_device_interrupt(&blob, b"ns16550a", 4),
+            Err(FdtError::Interrupts),
+        );
+    }
+
+    #[test]
+    fn plic_fdt_counts_opensbi_masked_machine_context() {
+        let blob = plic_device_tree(
+            &[1, u32::MAX, 1, 9],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\0riscv,plic0\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        // OpenSBI masks M-mode IRQ 11 with 0xffffffff, but its register
+        // context remains index 0; the S-mode context remains index 1.
+        assert_eq!(info.context_count, 2);
+    }
+
+    #[test]
+    fn plic_fdt_selects_smode_context_by_cpu_reg_hart_id() {
+        let blob = plic_device_tree(
+            &[1, 11, 1, 9, 2, 11, 2, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 0, context_index: 1, cause: 9 })));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 1),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 1, context_index: 3, cause: 9 })));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 2), Ok(None));
+    }
+
+    #[test]
+    fn plic_fdt_selects_smode_context_after_opensbi_masks_mmode_entry() {
+        let blob = plic_device_tree(
+            &[1, u32::MAX, 1, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 0, context_index: 1, cause: 9 })));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_duplicate_smode_context_for_same_hart() {
+        let blob = plic_device_tree(
+            &[1, 9, 1, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_keeps_context_order_when_boot_hart_has_no_smode_entry() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            Some(1), None, 95, b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 0), Ok(None));
+        assert_eq!(fdt::find_plic_context_for_hart(&blob, 1),
+            Ok(Some(fdt::FdtPlicContext { hart_id: 1, context_index: 1, cause: 9 })));
+    }
+
+    #[test]
+    fn plic_fdt_discovers_starfive_jh7110_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            Some(1),
+            None,
+            95,
+            b"starfive,jh7110-plic\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.bus_address, 0x0c00_0000);
+    }
+
+    #[test]
+    fn plic_fdt_discovers_generic_riscv_compatible() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9],
+            Some(1),
+            None,
+            95,
+            b"riscv,plic0\0",
+        );
+        let info = fdt::find_plic_info(&blob).unwrap().unwrap();
+        assert_eq!(info.source_count, 95);
+        assert_eq!(info.context_count, 2);
+        assert_eq!(info.root_reg.size, Some(0x0060_0000));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_unknown_interrupt_controller_phandle() {
+        let blob = plic_device_tree(&[1, 11, 99, 9], Some(1), None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_interrupt_controller_without_interrupt_cells() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], None, None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_skips_disabled_controller_node() {
+        let blob = plic_device_tree(&[1, 11, 2, 9], Some(1), Some(b"disabled\0"), 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&blob), Ok(None));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_non_external_interrupt_causes() {
+        let invalid_machine = plic_device_tree(
+            &[1, 3, 2, 9],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_info(&invalid_machine), Err(FdtError::Interrupts));
+
+        let invalid_supervisor = plic_device_tree(
+            &[1, 11, 2, 3],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_info(&invalid_supervisor), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_zero_cell_target_interrupt_controller() {
+        let blob = plic_device_tree(
+            &[3, 11],
+            Some(1),
+            None,
+            95,
+            b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_multi_cell_cpu_interrupt_specifiers() {
+        let blob = plic_device_tree(
+            &[1, 11, 2, 9, 0],
+            Some(2),
+            None,
+            95,
+            b"sifive,plic-1.0.0\0",
+        );
+        assert_eq!(fdt::find_plic_info(&blob), Err(FdtError::Interrupts));
+    }
+
+    #[test]
+    fn plic_fdt_rejects_malformed_context_list_and_source_count() {
+        let truncated = plic_device_tree(&[1, 11, 2], Some(1), None, 95, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&truncated), Err(FdtError::Interrupts));
+        let invalid_sources = plic_device_tree(&[1, 11, 2, 9], Some(1), None, 1024, b"sifive,plic-1.0.0\0riscv,plic0\0");
+        assert_eq!(fdt::find_plic_info(&invalid_sources), Err(FdtError::Interrupts));
+    }
+
+}
+
+
+#[cfg(test)]
+mod mmio_tests {
+    use super::{fdt::FdtRegion, mmio::{MmioError, MmioRegion}};
+
+    fn translated_region(base: u64, size: Option<u64>) -> FdtRegion {
+        FdtRegion { bus_address: base, size }
+    }
+
+    #[test]
+    fn mmio_region_accepts_translated_window_and_bounds_register_access() {
+        let region = MmioRegion::from_translated_fdt_region(
+            translated_region(0x1000, Some(0x100)), 4, 4,
+        ).unwrap();
+        assert_eq!(region.base(), 0x1000);
+        assert_eq!(region.size(), 0x100);
+        assert_eq!(region.end(), 0x1100);
+        assert_eq!(region.alignment(), 4);
+        assert_eq!(region.register_address(0, 4), Ok(0x1000));
+        assert_eq!(region.register_address(0xfc, 4), Ok(0x10fc));
+    }
+
+    #[test]
+    fn mmio_region_rejects_unknown_empty_and_short_resources() {
+        assert_eq!(
+            MmioRegion::from_translated_fdt_region(translated_region(0x1000, None), 4, 4),
+            Err(MmioError::UnknownSize),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0, 4, 4),
+            Err(MmioError::Empty),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 3, 4, 4),
+            Err(MmioError::TooSmall),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 4, 0, 4),
+            Err(MmioError::InvalidMinimumSize),
+        );
+    }
+
+    #[test]
+    fn mmio_region_requires_power_of_two_alignment_and_aligned_base() {
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 0),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1000, 0x100, 4, 3),
+            Err(MmioError::InvalidAlignment),
+        );
+        assert_eq!(
+            MmioRegion::new(0x1002, 0x100, 4, 4),
+            Err(MmioError::MisalignedBase),
+        );
+    }
+
+    #[test]
+    fn mmio_region_rejects_exclusive_end_overflow() {
+        assert_eq!(
+            MmioRegion::new(u64::MAX - 3, 4, 4, 1),
+            Err(MmioError::AddressOverflow),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_requires_supported_width_and_natural_alignment() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 1).unwrap();
+        assert_eq!(
+            region.register_address(0, 3),
+            Err(MmioError::UnsupportedAccessWidth),
+        );
+        assert_eq!(
+            region.register_address(2, 4),
+            Err(MmioError::MisalignedOffset),
+        );
+        assert_eq!(
+            region.register_address(0, 8),
+            Ok(0x1000),
+        );
+    }
+
+    #[test]
+    fn mmio_register_access_must_fit_entirely_inside_window() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert_eq!(
+            region.register_address(0x100, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
+            region.register_address(0xff, 4),
+            Err(MmioError::OutOfBounds),
+        );
+        assert_eq!(
+            region.register_address(u64::MAX, 8),
+            Err(MmioError::OutOfBounds),
+        );
+    }
+
+    #[test]
+    fn mmio_region_contains_only_nonempty_nonoverflowing_subranges() {
+        let region = MmioRegion::new(0x1000, 0x100, 4, 4).unwrap();
+        assert!(region.contains_range(0x1000, 4));
+        assert!(region.contains_range(0x10fc, 4));
+        assert!(!region.contains_range(0x10fc, 8));
+        assert!(!region.contains_range(0x1000, 0));
+        assert!(!region.contains_range(u64::MAX - 1, 8));
+    }
+}
+
+
+#[cfg(test)]
+mod integrated_kernel_contract_tests {
+    use super::{
+        handle::{HandleError, HandleTable, ObjectKind, Rights},
+        ipc::{IpcError, MailboxSet},
+        process::{ProcessError, ProcessId, ProcessState, ProcessTable},
+        scheduler::{TaskId, MAX_TASKS},
+        task_manager::{TaskManager, TaskManagerError},
+        vfs::{NodeKind, RamFs, VfsError},
+    };
+
+    #[test]
+    fn process_exit_wait_reap_and_generation_prevent_stale_pid_reuse() {
+        let mut table = ProcessTable::new();
+        let parent = table.create(None, 0x1000, 0x9000).unwrap();
+        let child = table.create(Some(parent), 0x2000, 0xa000).unwrap();
+        table.transition(child, ProcessState::Running).unwrap();
+        table.exit(child, 23).unwrap();
+        assert_eq!(table.wait(parent, Some(child)), Ok((child, 23)));
+        assert_eq!(table.get(child), Err(ProcessError::InvalidProcess));
+
+        let replacement = table.create(Some(parent), 0x3000, 0xb000).unwrap();
+        assert_eq!(replacement.slot, child.slot);
+        assert_ne!(replacement.generation, child.generation);
+        assert_eq!(table.get(child), Err(ProcessError::InvalidProcess));
+    }
+
+    #[test]
+    fn task_manager_keeps_process_and_scheduler_states_in_sync() {
+        let mut manager = TaskManager::new();
+        let parent = manager.spawn(None, 0x1000, 0x9000).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(parent)));
+
+        let child = manager.spawn(Some(parent), 0x2000, 0xa000).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(child)));
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Ready);
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Running);
+
+        assert_eq!(manager.block_current(), Ok(Some(parent)));
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Blocked);
+        assert_eq!(manager.get(parent).unwrap().state, ProcessState::Running);
+        manager.wake(child).unwrap();
+        assert_eq!(manager.schedule_next_process(), Ok(Some(child)));
+
+        assert_eq!(manager.exit_current_with_code(7), Ok(Some(parent)));
+        assert_eq!(manager.get(child).unwrap().state, ProcessState::Exited);
+        assert_eq!(manager.wait(parent, Some(child)), Ok((child, 7)));
+        assert_eq!(manager.get(child), Err(TaskManagerError::Process(ProcessError::InvalidProcess)));
+    }
+
+    #[test]
+    fn process_handles_enforce_owner_type_rights_and_generation() {
+        let owner = ProcessId { slot: 1, generation: 4 };
+        let other = ProcessId { slot: 2, generation: 9 };
+        let mut handles = HandleTable::new();
+        let rights = Rights::READ.union(Rights::DUPLICATE);
+        let original = handles.insert(owner, ObjectKind::File, 0x55, rights).unwrap();
+
+        assert_eq!(handles.get(owner, original, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(handles.get(other, original, None, Rights::NONE), Err(HandleError::WrongOwner));
+        assert_eq!(handles.get(owner, original, Some(ObjectKind::Device), Rights::NONE), Err(HandleError::WrongType));
+        assert_eq!(handles.get(owner, original, None, Rights::WRITE), Err(HandleError::AccessDenied));
+
+        let duplicate = handles.duplicate(owner, original, other, Rights::READ).unwrap();
+        assert_eq!(handles.get(other, duplicate, Some(ObjectKind::File), Rights::READ).unwrap().object_id, 0x55);
+        assert_eq!(handles.get(other, duplicate, None, Rights::DUPLICATE), Err(HandleError::AccessDenied));
+        handles.close(owner, original).unwrap();
+        assert_eq!(handles.get(owner, original, None, Rights::NONE), Err(HandleError::InvalidHandle));
+        assert_eq!(handles.open_count(other), 1);
+    }
+
+    #[test]
+    fn ram_vfs_supports_file_io_and_rejects_stale_inode_handles() {
+        let mut fs = RamFs::new();
+        let directory = fs.create_dir(b"/sys").unwrap();
+        let file = fs.create_file(b"/sys/config").unwrap();
+        assert_eq!(fs.kind_by_id(directory), Ok(NodeKind::Directory));
+        assert_eq!(fs.write_node(file, 0, b"gravity").unwrap(), 7);
+        let mut bytes = [0u8; 8];
+        assert_eq!(fs.read(b"/sys/config", 0, &mut bytes).unwrap(), 7);
+        assert_eq!(&bytes[..7], b"gravity");
+        assert_eq!(fs.lookup(b"/sys/config").unwrap(), (file, NodeKind::File));
+        assert_eq!(fs.remove_node(file), Ok(()));
+        assert_eq!(fs.read_node(file, 0, &mut bytes), Err(VfsError::InvalidNode));
+
+        let replacement = fs.create_file(b"/sys/config").unwrap();
+        assert_eq!(replacement.slot, file.slot);
+        assert_ne!(replacement.generation, file.generation);
+        assert_eq!(fs.read_node(file, 0, &mut bytes), Err(VfsError::InvalidNode));
+        assert_eq!(fs.lookup(b"/../sys"), Err(VfsError::InvalidPath));
+    }
+
+    #[test]
+    fn task_mailboxes_preserve_fifo_and_reject_overflow() {
+        let mut mailboxes = MailboxSet::new();
+        let sender = TaskId(1);
+        let receiver = TaskId(2);
+        for payload in 0..8 {
+            mailboxes.send(sender, receiver, payload).unwrap();
+        }
+        assert_eq!(mailboxes.send(sender, receiver, 8), Err(IpcError::QueueFull));
+        for payload in 0..8 {
+            let message = mailboxes.receive(receiver).unwrap().unwrap();
+            assert_eq!(message.sender, sender);
+            assert_eq!(message.payload, payload);
+        }
+        assert_eq!(mailboxes.receive(receiver), Ok(None));
+        assert_eq!(mailboxes.send(TaskId(MAX_TASKS), receiver, 1), Err(IpcError::InvalidTask));
     }
 }

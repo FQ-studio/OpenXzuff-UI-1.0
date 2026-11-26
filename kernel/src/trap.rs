@@ -107,6 +107,14 @@ pub extern "C" fn gravity_s_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     let frame = unsafe { &mut *frame_ptr };
     let interrupt_bit = 1usize << (usize::BITS - 1);
 
+    if frame.scause == (interrupt_bit | 9) {
+        if crate::irq::dispatch_external().is_err() {
+            crate::console_write("S-mode external interrupt dispatch: FAIL\n");
+            crate::halt();
+        }
+        return frame_ptr;
+    }
+
     if frame.scause == (interrupt_bit | 5) {
         return crate::runtime::on_timer(frame_ptr);
     }
@@ -226,6 +234,14 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
     }
 
     let interrupt_bit = 1usize << (usize::BITS - 1);
+    if frame.scause == (interrupt_bit | 9) {
+        if crate::irq::dispatch_external().is_err() {
+            crate::console_write("U-mode external interrupt dispatch: FAIL\n");
+            crate::halt();
+        }
+        return frame_ptr;
+    }
+
     if frame.scause == (interrupt_bit | 5) {
         return crate::runtime::on_timer(frame_ptr);
     }

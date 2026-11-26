@@ -32,7 +32,7 @@ jobs:
         run: |
           rustup target add riscv64imac-unknown-none-elf
           sudo apt-get update
-          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu
+          sudo apt-get install -y qemu-system-misc binutils-riscv64-unknown-elf g++-riscv64-linux-gnu device-tree-compiler
 
       - name: Compile Win32 Gravity RV64 ecall adapter
         run: |
@@ -52,24 +52,118 @@ jobs:
       - name: Build kernel ELF
         run: bash scripts/build-kernel-rv64-s-mode.sh
 
-      - name: Boot with OpenSBI in QEMU
+      - name: Dump QEMU virt FDT for interrupt-metadata diagnosis
         shell: bash
         run: |
           set -euo pipefail
-          timeout 15s qemu-system-riscv64 \
-            -machine virt -m 256M -smp 1 \
-            -nographic -bios default \
-            -kernel build/kernel/rv64-s-mode/openxzuff-kernel.elf \
-            > build/kernel/rv64-s-mode/qemu-serial.log 2>&1 || status=$?
-          status="${status:-0}"
-          cat build/kernel/rv64-s-mode/qemu-serial.log
-          if [[ "$status" -ne 124 && "$status" -ne 0 ]]; then
-            echo "QEMU exited unexpectedly with status $status" >&2
-            exit "$status"
-          fi
+          mkdir -p build/kernel/rv64-s-mode
+          qemu-system-riscv64 \
+            -machine virt,dumpdtb=build/kernel/rv64-s-mode/qemu-virt.dtb \
+            -m 256M -smp 1 -nographic -bios default
+          dtc -I dtb -O dts \
+            -o build/kernel/rv64-s-mode/qemu-virt.dts \
+            build/kernel/rv64-s-mode/qemu-virt.dtb
+          echo "=== QEMU CPU interrupt-controller nodes ==="
+          grep -n -A 10 -B 4 'interrupt-controller {' build/kernel/rv64-s-mode/qemu-virt.dts
+          echo "=== QEMU interrupt-cell declarations ==="
+          grep -n -A 5 -B 5 '#interrupt-cells' build/kernel/rv64-s-mode/qemu-virt.dts || true
+          echo "=== QEMU interrupt routing properties ==="
+          grep -n -A 5 -B 8 'interrupts-extended' build/kernel/rv64-s-mode/qemu-virt.dts || true
+          echo "=== QEMU PLIC node ==="
+          grep -n -A 18 -B 5 'riscv,ndev' build/kernel/rv64-s-mode/qemu-virt.dts || true
+          echo "=== Full QEMU virt DTS ==="
+          cat build/kernel/rv64-s-mode/qemu-virt.dts
+
+      - name: Boot with OpenSBI and inject UART RX interrupt in QEMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import socket
+          import subprocess
+          import sys
+          import time
+
+          os.makedirs("build/kernel/rv64-s-mode", exist_ok=True)
+          log_path = "build/kernel/rv64-s-mode/qemu-serial.log"
+          command = [
+              "qemu-system-riscv64", "-machine", "virt", "-m", "256M", "-smp", "1",
+              "-display", "none", "-monitor", "none",
+              "-serial", "tcp:127.0.0.1:12345,server",
+              "-bios", "default", "-kernel", "build/kernel/rv64-s-mode/openxzuff-kernel.elf",
+          ]
+          process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+          connection = None
+          output = bytearray()
+          sent = False
+          passed = False
+          deadline = time.monotonic() + 20
+          try:
+              while time.monotonic() < deadline:
+                  if connection is None:
+                      try:
+                          connection = socket.create_connection(("127.0.0.1", 12345), timeout=0.25)
+                          connection.settimeout(0.25)
+                      except OSError:
+                          if process.poll() is not None:
+                              break
+                          time.sleep(0.05)
+                          continue
+                  try:
+                      chunk = connection.recv(4096)
+                  except socket.timeout:
+                      if process.poll() is not None:
+                          break
+                      continue
+                  if not chunk:
+                      if process.poll() is not None:
+                          break
+                      continue
+                  output.extend(chunk)
+                  if not sent and b"UART PLIC RX IRQ ready; source=a" in output:
+                      connection.sendall(bytes([0x5a, 0x6b, 0x7c, 0x8d]))
+                      sent = True
+                  if (b"UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d" in output
+                          and b"U-mode Exit syscall + scheduler task exit: PASS" in output):
+                      passed = True
+                      break
+          finally:
+              if connection is not None:
+                  connection.close()
+              if process.poll() is None:
+                  process.terminate()
+                  try:
+                      process.wait(timeout=2)
+                  except subprocess.TimeoutExpired:
+                      process.kill()
+                      process.wait()
+              with open(log_path, "wb") as log:
+                  log.write(output)
+              print(output.decode("utf-8", errors="replace"))
+          if not sent:
+              print("QEMU UART test failed: readiness marker not observed or RX byte not sent.", file=sys.stderr)
+              sys.exit(1)
+          if not passed:
+              print("QEMU UART test failed: interrupt round-trip or final kernel runtime smoke marker missing.", file=sys.stderr)
+              sys.exit(1)
+          PY
           grep -q 'RV64 S-mode entry: OK' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'SBI legacy console: OK' build/kernel/rv64-s-mode/qemu-serial.log
-          grep -q 'FDT UART compatible-node discovery: PASS; raw bus reg parsed' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART compatible-node discovery: PASS; ancestor ranges translated' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART bus address: 10000000; root address: 10000000; size: 100' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART MMIO window: PASS; 32-bit base register in bounds; pending Sv39 mapping' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC discovery: PASS; ndev=5f; contexts=2; root=c000000; size=600000' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC S-mode context: PASS; hart=0; context=1; cause=9' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT UART PLIC route: PASS; controller=3; source=a' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC register layout: PASS; priority/pending/enable/threshold/claim in bounds; pending Sv39 mapping' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'FDT PLIC MMIO mapping: PASS; identity; supervisor-only; non-executable; shared kernel/user roots' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'PLIC MMIO access: PASS; context=1; priority1=' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'PLIC external interrupt dispatcher: PASS; context=1; threshold=0; slots=1024' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'UART 16550 loopback: PASS; tx=5a; rx=5a' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log
@@ -97,6 +191,7 @@ jobs:
           grep -q 'U-mode unknown syscall -ENOSYS: PASS' build/kernel/rv64-s-mode/qemu-serial.log
 
       - name: Upload kernel and serial log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: openxzuff-gravity-kernel-rv64-s-mode
@@ -104,5 +199,7 @@ jobs:
             build/kernel/rv64-s-mode/openxzuff-kernel.elf
             build/kernel/rv64-s-mode/openxzuff-kernel.bin
             build/kernel/rv64-s-mode/qemu-serial.log
+            build/kernel/rv64-s-mode/qemu-virt.dtb
+            build/kernel/rv64-s-mode/qemu-virt.dts
           if-no-files-found: warn
           retention-days: 30
