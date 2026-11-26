@@ -54,16 +54,26 @@ The preceding UART RX FIFO checkpoint is verified on code head
   evidence (no driver behavior changed).
 
 ## Verification status for ProcessIo change
-At checkpoint creation, Actions for the current PR head
-`03cf17960ead367ca74ae760417d54b05fd10cd3` were queued/in progress:
-- RV64 S-Mode Kernel run #45770332404: QUEUED at last inspection.
-- OpenXzuff UI Core run #45770332533: QUEUED.
-- Win32 bridge run #45770332399: QUEUED.
-- VisionFive 2 readiness run #45770332437: QUEUED.
 
-Therefore the new ProcessIo host tests, RV64 build, kernel ELF, QEMU marker
-and latest-head regression are NOT yet claimed PASS. Earlier baseline results
-above do not prove this new change.
+### Intermediate failure diagnosed and corrected
+RV64 run #45770102321 failed in the host test compile before RV64 build or
+QEMU. Its log showed Rust E0428: `process_io` and `process_io_tests` were
+declared twice in `kernel/allocator-tests/src/lib.rs`. The duplicate
+insertion was removed in commit `026910df80d47699ebb4db95d0e0c3f8dc073efc`.
+This was a test-module declaration error, not a ProcessIo implementation or
+kernel runtime failure.
+
+### Latest verification in progress
+For code head `03cf17960ead367ca74ae760417d54b05fd10cd3`:
+- RV64 S-Mode Kernel run #45770332404: IN PROGRESS.
+- OpenXzuff UI Core run #45770332533: IN PROGRESS.
+- Win32 bridge run #45770332399: both jobs SUCCESS.
+- VisionFive 2 readiness run #45770332437: SUCCESS; CTest 16/16 and
+  board-contract checks only, not physical-board boot.
+
+The RV64 QEMU serial log for the new ProcessIo marker is not yet available.
+Therefore the new ProcessIo host suite, RV64 ELF and QEMU marker are NOT
+claimed PASS. Earlier baseline results above do not prove this new change.
 
 ## Scope boundaries
 - This is a kernel-internal process-owned file capability layer, not yet
