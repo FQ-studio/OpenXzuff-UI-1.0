@@ -12,6 +12,7 @@ add_library(xzuff_os_base
     Kernel/src/syscall.cpp
     Kernel/arch/riscv64/trap_dispatch.cpp
     sys/src/service_registry.cpp
+    sys/src/device.cpp
     gui/src/framebuffer.cpp
     drivers/serial/uart.cpp
 )
