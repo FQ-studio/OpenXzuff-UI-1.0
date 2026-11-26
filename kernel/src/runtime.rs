@@ -91,6 +91,7 @@ fn activate_address_space(task: TaskId) {
 fn process_io_boot_smoke(
     owner: crate::process::ProcessId,
     recipient: crate::process::ProcessId,
+    exiting: crate::process::ProcessId,
 ) -> bool {
     use crate::handle::{HandleError, Rights};
     use crate::process_io::ProcessIoError;
@@ -133,7 +134,16 @@ fn process_io_boot_smoke(
     {
         return false;
     }
-    io.open_count(owner) == 0 && io.open_count(recipient) == 0
+    // Leave one live capability for the U-mode process. Its Exit syscall must
+    // close it as part of process teardown, not merely mark the task Exited.
+    let exit_file = match io.create_file(exiting, b"/exit-owned.log", Rights::READ.union(Rights::WRITE)) {
+        Ok(handle) => handle,
+        Err(_) => return false,
+    };
+    io.write(exiting, exit_file, 0, b"cleanup") == Ok(7)
+        && io.open_count(owner) == 0
+        && io.open_count(recipient) == 0
+        && io.open_count(exiting) == 1
 }
 
 fn arm_next_timer() {
@@ -248,14 +258,15 @@ pub fn start() -> ! {
         (a, b, user)
     };
 
-    let (owner_process, recipient_process) = unsafe {
+    let (owner_process, recipient_process, exiting_process) = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
         (
             (*scheduler).process_for_task(a).unwrap_or_else(|_| crate::halt()),
             (*scheduler).process_for_task(b).unwrap_or_else(|_| crate::halt()),
+            (*scheduler).process_for_task(user).unwrap_or_else(|_| crate::halt()),
         )
     };
-    if !process_io_boot_smoke(owner_process, recipient_process) {
+    if !process_io_boot_smoke(owner_process, recipient_process, exiting_process) {
         crate::console_write("Process-owned VFS handles: FAIL\n");
         crate::halt();
     }
@@ -545,6 +556,20 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
         _ => { crate::console_write("Exit syscall: invalid current task\n"); crate::halt(); }
     };
     let status = unsafe { (*frame).x[10] };
+    let process = unsafe {
+        (*core::ptr::addr_of!(SCHEDULER)).process_for_task(current)
+            .unwrap_or_else(|_| crate::halt())
+    };
+    let closed_handles = unsafe {
+        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).close_all(process)
+    };
+    if closed_handles != 1 || unsafe {
+        (&*core::ptr::addr_of!(PROCESS_IO)).open_count(process) != 0
+    } {
+        crate::console_write("Process exit handle cleanup: FAIL\\n");
+        crate::halt();
+    }
+    crate::console_write("Process exit handle cleanup: PASS; closed=1; remaining=0\\n");
     USER_EXIT_STATUS.store(status, Ordering::Release);
     USER_TASK_EXITED.store(true, Ordering::Release);
 
