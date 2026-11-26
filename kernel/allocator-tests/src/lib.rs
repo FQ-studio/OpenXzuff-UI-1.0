@@ -653,8 +653,6 @@ mod fdt_compatible_tests {
     }
 }
 
-#[path = "../../src/process.rs"]
-pub mod process;
 
 #[cfg(test)]
 mod process_tests {
@@ -699,8 +697,6 @@ mod process_tests {
     }
 }
 
-#[path = "../../src/handle.rs"]
-pub mod handle;
 
 #[cfg(test)]
 mod handle_tests {
@@ -751,8 +747,6 @@ mod handle_tests {
     }
 }
 
-#[path = "../../src/vfs.rs"]
-pub mod vfs;
 
 #[cfg(test)]
 mod vfs_tests {
@@ -853,8 +847,6 @@ mod vfs_inode_tests {
 }
 
 
-#[path = "../../src/process_io.rs"]
-pub mod process_io;
 
 #[cfg(test)]
 mod process_io_tests {
