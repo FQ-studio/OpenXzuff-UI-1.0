@@ -99,7 +99,7 @@ mod tests {
         // Representative high MMIO window (well above the first GiB).
         let plan = plan(0x0fd8_0000_00, 0x0040_0000).unwrap();
         assert_eq!(plan.root_index, 63);
-        assert_eq!(plan.page_start, 0x0ffd_8000_000);
+        assert_eq!(plan.page_start, 0x0fd8_0000_00);
         assert_eq!(plan.page_count, 1024);
     }
 
