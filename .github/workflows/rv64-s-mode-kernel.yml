@@ -125,6 +125,7 @@ jobs:
                       connection.sendall(bytes([0x5a, 0x6b, 0x7c, 0x8d]))
                       sent = True
                   if (b"UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d" in output
+                          and b"Process exit handle cleanup: PASS; closed=1; remaining=0" in output
                           and b"U-mode Exit syscall + scheduler task exit: PASS" in output):
                       passed = True
                       break
@@ -164,6 +165,7 @@ jobs:
           grep -q 'UART 16550 loopback: PASS; tx=5a; rx=5a' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'UART PLIC RX IRQ burst: PASS; source=a; count=4; bytes=5a,6b,7c,8d' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1' build/kernel/rv64-s-mode/qemu-serial.log
+          grep -q 'Process exit handle cleanup: PASS; closed=1; remaining=0' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'FDT timebase-frequency: parsed' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 bootstrap page tables: PASS; U-mode mappings isolated' build/kernel/rv64-s-mode/qemu-serial.log
           grep -q 'Sv39 kernel/user address spaces: PASS; distinct roots and U-only probe mappings' build/kernel/rv64-s-mode/qemu-serial.log
