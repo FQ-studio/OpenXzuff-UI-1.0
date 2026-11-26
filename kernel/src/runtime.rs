@@ -256,11 +256,11 @@ pub fn start() -> ! {
         )
     };
     if !process_io_boot_smoke(owner_process, recipient_process) {
-        crate::console_write("Process-owned VFS handles: FAIL\\n");
+        crate::console_write("Process-owned VFS handles: FAIL\n");
         crate::halt();
     }
     crate::console_write(
-        "Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1\\n",
+        "Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1\n",
     );
 
     let first = unsafe {
