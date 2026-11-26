@@ -5,17 +5,26 @@
 
 pub const PAGE_SIZE: u64 = 4096;
 pub const LEVEL1_SPAN: u64 = 2 * 1024 * 1024;
-pub const LOW_WINDOW_END: u64 = 1 << 30;
+pub const SV39_LOW_WINDOW_END: u64 = 1 << 38;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MmioMapPlanError {
     Empty,
     AddressOverflow,
     OutsideLowWindow,
+    #[test]
+    fn high_physical_resource_inside_sv39_low_half_is_supported() {
+        let plan = plan(0x0ffd_8000_000, 0x0040_0000).unwrap();
+        assert_eq!(plan.root_index, 3);
+        assert_eq!(plan.page_start, 0x0ffd_8000_000);
+        assert_eq!(plan.page_count, 1024);
+    }
+
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MmioMapPlan {
+    pub root_index: usize,
     pub page_start: u64,
     pub page_end: u64,
     pub first_level1_index: usize,
@@ -36,10 +45,12 @@ pub fn plan(base: u64, size: u64) -> Result<MmioMapPlan, MmioMapPlanError> {
         .ok_or(MmioMapPlanError::AddressOverflow)?;
     let page_end = rounded_end & !(PAGE_SIZE - 1);
 
-    if page_start >= LOW_WINDOW_END || page_end > LOW_WINDOW_END || page_start >= page_end {
+    if page_start >= SV39_LOW_WINDOW_END || page_end > SV39_LOW_WINDOW_END || page_start >= page_end {
         return Err(MmioMapPlanError::OutsideLowWindow);
     }
 
+    let root_index = usize::try_from(page_start >> 30)
+        .map_err(|_| MmioMapPlanError::OutsideLowWindow)?;
     let first_level1_index = usize::try_from(page_start / LEVEL1_SPAN)
         .map_err(|_| MmioMapPlanError::OutsideLowWindow)?;
     let last_level1_index = usize::try_from((page_end - 1) / LEVEL1_SPAN)
@@ -48,6 +59,7 @@ pub fn plan(base: u64, size: u64) -> Result<MmioMapPlan, MmioMapPlanError> {
         .map_err(|_| MmioMapPlanError::AddressOverflow)?;
 
     Ok(MmioMapPlan {
+        root_index,
         page_start,
         page_end,
         first_level1_index,
@@ -100,9 +112,9 @@ mod tests {
     }
 
     #[test]
-    fn resource_outside_initial_low_window_is_rejected() {
+    fn resource_outside_sv39_low_canonical_window_is_rejected() {
         assert_eq!(
-            plan(0x4000_0000, 0x1000),
+            plan(0x4000_0000_0000, 0x1000),
             Err(MmioMapPlanError::OutsideLowWindow),
         );
     }
