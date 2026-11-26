@@ -23,6 +23,7 @@ struct TaskStack([u8; STACK_SIZE]);
 static mut TASK0_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
 static mut TASK1_STACK: TaskStack = TaskStack([0; STACK_SIZE]);
 static mut SCHEDULER: TaskManager = TaskManager::new();
+static mut PROCESS_IO: crate::process_io::ProcessIo = crate::process_io::ProcessIo::new();
 static mut TASK_FRAMES: [usize; TASK_COUNT] = [0; TASK_COUNT];
 static TIMER_INTERRUPTS: AtomicUsize = AtomicUsize::new(0);
 static TASK_A_TICKS: AtomicUsize = AtomicUsize::new(0);
@@ -84,6 +85,55 @@ fn activate_address_space(task: TaskId) {
         crate::console_write("Task address-space switch: FAIL\n");
         crate::halt();
     }
+}
+
+/// Exercise process-owned VFS capabilities before entering the task scheduler.
+fn process_io_boot_smoke(
+    owner: crate::process::ProcessId,
+    recipient: crate::process::ProcessId,
+) -> bool {
+    use crate::handle::{HandleError, Rights};
+    use crate::process_io::ProcessIoError;
+
+    let io = unsafe { &mut *core::ptr::addr_of_mut!(PROCESS_IO) };
+    let rights = Rights::READ.union(Rights::WRITE).union(Rights::DUPLICATE);
+    let file = match io.create_file(owner, b"/boot.log", rights) {
+        Ok(handle) => handle,
+        Err(_) => return false,
+    };
+    if io.write(owner, file, 0, b"gravity") != Ok(7) {
+        return false;
+    }
+    let mut original = [0u8; 7];
+    if io.read(owner, file, 0, &mut original) != Ok(7) || original != *b"gravity" {
+        return false;
+    }
+
+    let mut denied = [0u8; 7];
+    if io.read(recipient, file, 0, &mut denied)
+        != Err(ProcessIoError::Handle(HandleError::WrongOwner)) {
+        return false;
+    }
+    let shared = match io.duplicate(owner, file, recipient, Rights::READ) {
+        Ok(handle) => handle,
+        Err(_) => return false,
+    };
+    let mut copied = [0u8; 7];
+    if io.read(recipient, shared, 0, &mut copied) != Ok(7) || copied != *b"gravity" {
+        return false;
+    }
+    if io.write(recipient, shared, 0, b"tamper")
+        != Err(ProcessIoError::Handle(HandleError::AccessDenied)) {
+        return false;
+    }
+    if io.close(recipient, shared).is_err()
+        || io.read(recipient, shared, 0, &mut copied)
+            != Err(ProcessIoError::Handle(HandleError::InvalidHandle))
+        || io.close(owner, file).is_err()
+    {
+        return false;
+    }
+    io.open_count(owner) == 0 && io.open_count(recipient) == 0
 }
 
 fn arm_next_timer() {
@@ -197,6 +247,21 @@ pub fn start() -> ! {
         TASK_FRAMES[user.0] = user_frame as usize;
         (a, b, user)
     };
+
+    let (owner_process, recipient_process) = unsafe {
+        let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
+        (
+            (*scheduler).process_for_task(a).unwrap_or_else(|_| crate::halt()),
+            (*scheduler).process_for_task(b).unwrap_or_else(|_| crate::halt()),
+        )
+    };
+    if !process_io_boot_smoke(owner_process, recipient_process) {
+        crate::console_write("Process-owned VFS handles: FAIL\\n");
+        crate::halt();
+    }
+    crate::console_write(
+        "Process-owned VFS handles: PASS; owner-isolation=1; duplicate-read=1; stale-close=1\\n",
+    );
 
     let first = unsafe {
         let scheduler = core::ptr::addr_of_mut!(SCHEDULER);
