@@ -208,11 +208,13 @@ pub unsafe fn enable_bootstrap(
     let code_l0 = core::ptr::addr_of_mut!(USER_CODE_LEVEL0);
     let stack_l0 = core::ptr::addr_of_mut!(USER_STACK_LEVEL0);
     let heap_l0 = core::ptr::addr_of_mut!(USER_HEAP_LEVEL0);
-    let mmio_level1 = core::ptr::addr_of_mut!(MMIO_LEVEL1);
+    let mmio_level1_tables = core::ptr::addr_of_mut!(MMIO_LEVEL1_TABLES);
+    let mmio_level1_roots = core::ptr::addr_of_mut!(MMIO_LEVEL1_ROOTS);
     let mmio_level0_tables = core::ptr::addr_of_mut!(MMIO_LEVEL0_TABLES);
+    let mmio_level0_keys = core::ptr::addr_of_mut!(MMIO_LEVEL0_KEYS);
     for address in [kernel_root as usize, kernel_level1 as usize, kernel_image_l0 as usize, user_root as usize,
         user_level1 as usize, code_l0 as usize, stack_l0 as usize, heap_l0 as usize,
-        mmio_level1 as usize, mmio_level0_tables as usize] {
+        mmio_level1_tables as usize, mmio_level0_tables as usize] {
         if address & (PAGE - 1) != 0 { return Err(VmError::MisalignedTable); }
     }
 
@@ -223,10 +225,15 @@ pub unsafe fn enable_bootstrap(
     (*user_level1).0.fill(0);
     (*code_l0).0.fill(0);
     (*stack_l0).0.fill(0);
-    (*mmio_level1).0.fill(0);
-    let mmio_tables = mmio_level0_tables.cast::<PageTable>();
+    let mmio_l1 = mmio_level1_tables.cast::<PageTable>();
+    let mmio_l0 = mmio_level0_tables.cast::<PageTable>();
+    let mmio_roots = mmio_level1_roots.cast::<usize>();
+    let mmio_keys = mmio_level0_keys.cast::<(usize, usize)>();
     for index in 0..MMIO_TABLE_COUNT {
-        (*mmio_tables.add(index)).0.fill(0);
+        (*mmio_l1.add(index)).0.fill(0);
+        *mmio_roots.add(index) = usize::MAX;
+        (*mmio_l0.add(index)).0.fill(0);
+        *mmio_keys.add(index) = (usize::MAX, usize::MAX);
     }
 
     for i in 0..ENTRIES {
