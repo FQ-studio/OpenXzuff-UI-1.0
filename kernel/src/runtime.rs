@@ -41,6 +41,10 @@ static USER_VM_MAP_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_VM_PROTECT_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_VM_UNMAP_OBSERVED: AtomicBool = AtomicBool::new(false);
 static USER_VM_WX_REJECTED: AtomicBool = AtomicBool::new(false);
+static USER_FILE_OPEN_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_FILE_READ_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_FILE_WRITE_OBSERVED: AtomicBool = AtomicBool::new(false);
+static USER_FILE_CLOSE_OBSERVED: AtomicBool = AtomicBool::new(false);
 
 extern "C" {
     fn __gravity_s_trap_resume(frame: *mut TrapFrame) -> !;
@@ -636,7 +640,7 @@ pub fn on_user_open(frame: *mut TrapFrame) -> *mut TrapFrame {
         (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).open_file(process, &path[..path_len], rights)
     };
     match result {
-        Ok(handle) => finish_user_syscall(frame, encode_user_handle(handle) as isize),
+        Ok(handle) => { USER_FILE_OPEN_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, encode_user_handle(handle) as isize) },
         Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     }
 }
@@ -647,7 +651,7 @@ pub fn on_user_read(frame: *mut TrapFrame) -> *mut TrapFrame {
     let (handle_arg, buffer, length, offset) = unsafe {
         ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
     };
-    if length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, true) {
+    if length == 0 || length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, true) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
     let handle = match decode_user_handle(handle_arg) {
@@ -664,6 +668,7 @@ pub fn on_user_read(frame: *mut TrapFrame) -> *mut TrapFrame {
     };
     match result {
         Ok(count) => {
+            USER_FILE_READ_OBSERVED.store(true, Ordering::Release);
             unsafe { core::ptr::copy_nonoverlapping(temporary.as_ptr(), buffer as *mut u8, count); }
             finish_user_syscall(frame, count as isize)
         }
@@ -677,7 +682,7 @@ pub fn on_user_write(frame: *mut TrapFrame) -> *mut TrapFrame {
     let (handle_arg, buffer, length, offset) = unsafe {
         ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
     };
-    if length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, false) {
+    if length == 0 || length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, false) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
     let handle = match decode_user_handle(handle_arg) {
@@ -693,7 +698,7 @@ pub fn on_user_write(frame: *mut TrapFrame) -> *mut TrapFrame {
         (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).write(process, handle, offset, bytes)
     };
     match result {
-        Ok(count) => finish_user_syscall(frame, count as isize),
+        Ok(count) => { USER_FILE_WRITE_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, count as isize) },
         Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     }
 }
@@ -710,7 +715,15 @@ pub fn on_user_close(frame: *mut TrapFrame) -> *mut TrapFrame {
         None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     };
     let result = unsafe { (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).close(process, handle) };
-    finish_user_syscall(frame, if result.is_ok() { 0 } else { crate::syscall_abi::EINVAL })
+    if result.is_ok() { USER_FILE_CLOSE_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, 0) }
+    else { finish_user_syscall(frame, crate::syscall_abi::EINVAL) }
+}
+
+pub fn user_file_io_roundtrip_observed() -> bool {
+    USER_FILE_OPEN_OBSERVED.load(Ordering::Acquire)
+        && USER_FILE_READ_OBSERVED.load(Ordering::Acquire)
+        && USER_FILE_WRITE_OBSERVED.load(Ordering::Acquire)
+        && USER_FILE_CLOSE_OBSERVED.load(Ordering::Acquire)
 }
 
 pub fn user_timer_preemption_observed() -> bool {
