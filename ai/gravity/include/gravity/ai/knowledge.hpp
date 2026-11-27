@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <utility>
 namespace gravity::ai {
 struct KnowledgeDocument { std::uint64_t id{}; std::string title; std::string body; };
 struct KnowledgeHit { KnowledgeDocument document; double score{}; };
