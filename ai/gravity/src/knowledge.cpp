@@ -56,7 +56,7 @@ bool KnowledgeStore::load(const std::filesystem::path& p,std::string* error){
  if(in.peek()!=EOF){if(error)*error="unexpected trailing data";return false;}documents_=std::move(loaded);table_created_=true;return true;
 }
 std::vector<KnowledgeHit> RagEngine::search(std::string_view query,std::size_t limit)const{
- const auto qt=tokens(query), docs=store_.documents();std::vector<KnowledgeHit> hits;if(qt.empty()||docs.empty()||limit==0)return hits;
+ const auto qt=tokens(query); const auto docs=store_.documents(); std::vector<KnowledgeHit> hits; if(qt.empty()||docs.empty()||limit==0)return hits;
  std::unordered_map<std::string,std::size_t> df;std::vector<std::unordered_map<std::string,std::size_t>> tf;std::vector<std::size_t> lengths;std::size_t total=0;
  for(const auto& d:docs){auto words=tokens(d.title+" "+d.body);std::unordered_map<std::string,std::size_t> counts;for(const auto& w:words)++counts[w];for(const auto& e:counts)++df[e.first];total+=words.size();lengths.push_back(words.size());tf.push_back(std::move(counts));}
  const double avg=static_cast<double>(total)/static_cast<double>(docs.size());
