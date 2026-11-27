@@ -37,6 +37,5 @@ code_end;)GAIL";
  assert(addOnly.load("@start { mode native; precision int8; } @ai { quest : have + mechanism : plus number with number answer + sentence { sentence by_ai(); } } code_end;",&error));
  assert(!addOnly.ask("2 * 3").ok);
  assert(!GailRuntime{}.load("@start {}",&error));
- std::cout<<"GAIL runtime + arithmetic + sentence: PASS
-";
+ std::cout<<"GAIL runtime + arithmetic + sentence: PASS\\n";
 }
