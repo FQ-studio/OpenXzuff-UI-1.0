@@ -50,3 +50,32 @@ No PASS is claimed for these latest runs until their job logs complete.
 3. Generalize OPEN/READ/WRITE/CLOSE from task-ID-2-only probe handlers to process-derived current-task dispatch.
 4. Implement independent Sv39 roots with per-process page-table allocation, switching and teardown.
 5. Wire process wait/reap and all task-owned resources, then move RAM VFS toward a storage backend.
+
+
+## Verification update — 2026-11-27 14:16 MYT
+
+The code hardening at `f5190b4f2530e0bcc19b2657971f748c09cfe3fb` has now been validated by the RV64 workflow on the PR branch's subsequent documentation-only head:
+- RV64 S-Mode Kernel [#45950603236](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45950603236): **SUCCESS**.
+- Rust host allocator suite: **141/141 passed; 0 failed**.
+- RV64 ecall adapter cross-build: completed successfully.
+- Release kernel ELF build: completed successfully.
+- OpenSBI + QEMU UART-injected smoke: **SUCCESS**.
+- QEMU serial assertions include `Process exit handle cleanup: PASS; remaining=0`,
+  `U-mode Exit syscall + scheduler task exit: PASS`, UART PLIC RX burst,
+  timer preemption, U-mode trap-stack preservation, Sv39 VM operations and
+  unknown-syscall -ENOSYS.
+- The U-mode assembly probe reaches Exit only after its invalid-OPEN-rights,
+  zero-length-READ, normal OPEN/WRITE/READ/CLOSE, supervisor-only-pointer
+  rejection and stale-handle checks succeed. The setup leaves two live
+  ProcessIo handles for Exit; the cleanup path now verifies no handles remain.
+- Kernel binary still emits **21 non-fatal warnings**.
+
+Additional workflows on the same PR branch:
+- VisionFive 2 readiness [#45950603118](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45950603118): **SUCCESS**, host CTest **16/16** and board-contract checks. No physical board boot is claimed.
+- Win32 Gravity Bridge [#45950603148](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45950603148): **SUCCESS**, host bridge tests and RV64 adapter cross-build.
+
+OpenXzuff UI Core:
+- The previous complete Core run [#45942407438](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45942407438) on the earlier PR head was **SUCCESS**.
+- Current Core runs [#45950514848](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45950514848) and [#45950603114](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45950603114) were still **IN PROGRESS** at the Luau runtime build step when this update was recorded. They are not claimed PASS.
+
+This update supersedes the earlier pending RV64/VisionFive/Win32 status above. The PR remains open and unmerged.
