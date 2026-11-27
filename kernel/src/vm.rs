@@ -600,6 +600,27 @@ pub fn protect_user_memory(
     Ok(())
 }
 
+/// Validate a complete user virtual range before the kernel dereferences it.
+/// Every covered page must be mapped with U permission and the requested access.
+pub fn validate_user_range(address: usize, length: usize, write: bool) -> bool {
+    if !active() || !current_is_user() { return false; }
+    if length == 0 { return true; }
+    let end = match address.checked_add(length) { Some(end) => end, None => return false };
+    let satp = USER_SATP.load(Ordering::Acquire);
+    if satp == 0 { return false; }
+    let root = (satp & SATP_PPN_MASK) << 12;
+    let mut page = address & !(PAGE - 1);
+    while page < end {
+        let flags = unsafe { lookup_flags(root, page) };
+        let flags = match flags { Some(flags) => flags, None => return false };
+        if flags & U == 0 || flags & R == 0 || (write && flags & W == 0) {
+            return false;
+        }
+        page = match page.checked_add(PAGE) { Some(next) => next, None => return false };
+    }
+    true
+}
+
 pub fn current_is_user() -> bool {
     let current: usize;
     unsafe { asm!("csrr {value}, satp", value = out(reg) current, options(nomem, nostack)); }
