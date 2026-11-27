@@ -25,10 +25,17 @@ std::string trim(std::string_view s){std::size_t a=0,b=s.size();while(a<b&&std::
 ArithmeticResult ArithmeticEngine::evaluate(std::string_view e)const{return Parser(e).run();}
 std::string SentenceEngine::compose(std::string_view question,std::int64_t answer)const{return "Hasil pengiraan bagi "+trim(question)+" ialah "+std::to_string(answer)+".";}
 bool GailRuntime::load(std::string_view source,std::string* error){
- const bool start=source.find("@start")!=std::string_view::npos,ai=source.find("@ai")!=std::string_view::npos;
- const bool native=source.find("mode native;")!=std::string_view::npos,precision=source.find("precision int8;")!=std::string_view::npos,end=source.find("code_end;")!=std::string_view::npos;
- if(!(start&&ai&&native&&precision&&end)){loaded_=false;if(error)*error="GAIL program requires @start, native mode, precision int8, @ai and code_end;";return false;}
- loaded_=true;return true;
+ loaded_=false;add_=subtract_=multiply_=divide_=false;
+ const bool envelope=has(source,"@start")&&has(source,"@ai")&&has(source,"mode native;")&&has(source,"precision int8;")&&has(source,"code_end;");
+ const bool sentence=has(source,"answer + sentence")&&has(source,"sentence by_ai();");
+ if(!envelope){if(error)*error="GAIL requires @start, @ai, native mode, int8 precision and code_end;";return false;}
+ if(!sentence){if(error)*error="GAIL requires answer + sentence { sentence by_ai(); }";return false;}
+ add_=has(source,"quest : have +")&&has(source,"mechanism : plus number with number");
+ subtract_=has(source,"quest : have -")&&has(source,"mechanism : subtract number from number");
+ multiply_=has(source,"quest : have *")&&has(source,"mechanism : multiply number with number");
+ divide_=has(source,"quest : have ÷")&&has(source,"mechanism : divide number by number");
+ if(!(add_||subtract_||multiply_||divide_)){if(error)*error="GAIL declares no supported arithmetic mechanisms";return false;}
+ loaded_=true;if(error)error->clear();return true;
 }
 GailResult GailRuntime::ask(std::string_view question)const{if(!loaded_)return {false,0,{},"GAIL program is not loaded"};auto r=arithmetic_.evaluate(question);if(!r.ok)return {false,0,{},r.error};return {true,r.value,sentence_.compose(question,r.value),{}};}
 } // namespace gravity::ai
