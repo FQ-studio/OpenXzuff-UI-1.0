@@ -138,16 +138,21 @@ fn process_io_boot_smoke(
     {
         return false;
     }
-    // Leave one live capability for the U-mode process. Its Exit syscall must
-    // close it as part of process teardown, not merely mark the task Exited.
+    // Leave multiple live capabilities for the U-mode process. Exit must
+    // close every one, not assume a process owns exactly one file.
     let exit_file = match io.create_file(exiting, b"/exit-owned.log", Rights::READ.union(Rights::WRITE)) {
         Ok(handle) => handle,
         Err(_) => return false,
     };
+    let second_exit_file = match io.create_file(exiting, b"/exit-owned-2.log", Rights::READ.union(Rights::WRITE)) {
+        Ok(handle) => handle,
+        Err(_) => return false,
+    };
     io.write(exiting, exit_file, 0, b"cleanup") == Ok(7)
+        && io.write(exiting, second_exit_file, 0, b"cleanup2") == Ok(8)
         && io.open_count(owner) == 0
         && io.open_count(recipient) == 0
-        && io.open_count(exiting) == 1
+        && io.open_count(exiting) == 2
 }
 
 fn arm_next_timer() {
@@ -567,13 +572,13 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
     let closed_handles = unsafe {
         (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).close_all(process)
     };
-    if closed_handles != 1 || unsafe {
+    if closed_handles == 0 || unsafe {
         (&*core::ptr::addr_of!(PROCESS_IO)).open_count(process) != 0
     } {
         crate::console_write("Process exit handle cleanup: FAIL\n");
         crate::halt();
     }
-    crate::console_write("Process exit handle cleanup: PASS; closed=1; remaining=0\n");
+    crate::console_write("Process exit handle cleanup: PASS; remaining=0\n");
     USER_EXIT_STATUS.store(status, Ordering::Release);
     USER_TASK_EXITED.store(true, Ordering::Release);
 
@@ -636,8 +641,10 @@ pub fn on_user_open(frame: *mut TrapFrame) -> *mut TrapFrame {
     if current_task_id() != Some(2) { return finish_user_syscall(frame, crate::syscall_abi::EINVAL); }
     let path_ptr = unsafe { (*frame).x[10] };
     let rights_arg = unsafe { (*frame).x[11] };
-    if rights_arg == 0 || rights_arg > 3
-        || !crate::vm::validate_user_range(path_ptr, USER_IO_MAX_PATH, false) {
+    if rights_arg == 0 || rights_arg > 3 {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    if !crate::vm::validate_user_range(path_ptr, USER_IO_MAX_PATH, false) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
     let mut path_copy = [0u8; USER_IO_MAX_PATH];
@@ -668,7 +675,10 @@ pub fn on_user_read(frame: *mut TrapFrame) -> *mut TrapFrame {
     let (handle_arg, buffer, length, offset) = unsafe {
         ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
     };
-    if length == 0 || length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, true) {
+    if length == 0 || length > USER_IO_MAX_TRANSFER {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    if !crate::vm::validate_user_range(buffer, length, true) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
     let handle = match decode_user_handle(handle_arg) {
@@ -699,7 +709,10 @@ pub fn on_user_write(frame: *mut TrapFrame) -> *mut TrapFrame {
     let (handle_arg, buffer, length, offset) = unsafe {
         ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
     };
-    if length == 0 || length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, false) {
+    if length == 0 || length > USER_IO_MAX_TRANSFER {
+        return finish_user_syscall(frame, crate::syscall_abi::EINVAL);
+    }
+    if !crate::vm::validate_user_range(buffer, length, false) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
     let handle = match decode_user_handle(handle_arg) {
