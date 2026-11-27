@@ -110,6 +110,8 @@ public:
     }
 
 private:
+    static bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
     const Token& current() const { return tokens_.at(index_); }
 
     [[noreturn]] void fail(const std::string& message) const {
