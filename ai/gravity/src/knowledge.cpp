@@ -32,7 +32,8 @@ bool KnowledgeStore::execute(std::string_view sql,std::string* error){
  std::string q(sql);std::transform(q.begin(),q.end(),q.begin(),[](unsigned char c){return static_cast<char>(std::toupper(c));});
  if(q.find("CREATE TABLE KNOWLEDGE")==0){table_created_=true;return true;}
  if(q.find("SELECT ")==0&&q.find(" FROM KNOWLEDGE")!=std::string::npos){if(!table_created_){if(error)*error="knowledge table does not exist";return false;}return true;}
- if(error)*error="unsupported SQL statement; supported: CREATE TABLE knowledge and SELECT ... FROM knowledge";return false;
+ if (error) *error = "unsupported SQL statement; supported: CREATE TABLE knowledge and SELECT ... FROM knowledge";
+ return false;
 }
 bool KnowledgeStore::insert(KnowledgeDocument d,std::string* error){
  if(!table_created_){if(error)*error="create knowledge table before inserting";return false;}
@@ -45,7 +46,13 @@ std::size_t KnowledgeStore::size()const noexcept{return documents_.size();}
 bool KnowledgeStore::save(const std::filesystem::path& p,std::string* error)const{
  std::ofstream out(p,std::ios::binary|std::ios::trunc);if(!out){if(error)*error="cannot create database";return false;}
  out.write(kMagic,sizeof(kMagic)-1);if(!writeU32(out,static_cast<std::uint32_t>(documents_.size()))){if(error)*error="header write failed";return false;}
- for(const auto& d:documents_)if(!writeU64(out,d.id)||!writeString(out,d.title)||!writeString(out,d.body)){if(error)*error="record write failed";return false;}return true;
+ for (const auto& d : documents_) {
+  if (!writeU64(out, d.id) || !writeString(out, d.title) || !writeString(out, d.body)) {
+   if (error) *error = "record write failed";
+   return false;
+  }
+ }
+ return true;
 }
 bool KnowledgeStore::load(const std::filesystem::path& p,std::string* error){
  std::ifstream in(p,std::ios::binary);if(!in){if(error)*error="cannot open database";return false;}
@@ -66,7 +73,8 @@ std::vector<KnowledgeHit> RagEngine::search(std::string_view query,std::size_t l
 QuantizedLinear::QuantizedLinear(std::size_t in,std::size_t out,std::vector<std::int8_t>w,std::vector<float>b,float s):input_size_(in),output_size_(out),weights_(std::move(w)),bias_(std::move(b)),weight_scale_(s){}
 bool QuantizedLinear::valid()const noexcept{return input_size_>0&&output_size_>0&&weights_.size()==input_size_*output_size_&&bias_.size()==output_size_&&std::isfinite(weight_scale_)&&weight_scale_>0;}
 std::vector<float> QuantizedLinear::infer(const std::vector<float>& input)const{
- if(!valid()||input.size()!=input_size_)return {};std::vector<float> out(output_size_,0);
+ if (!valid() || input.size() != input_size_) return {};
+ std::vector<float> out(output_size_, 0.0F);
  for(std::size_t r=0;r<output_size_;++r){float sum=bias_[r];for(std::size_t c=0;c<input_size_;++c)sum+=input[c]*static_cast<float>(weights_[r*input_size_+c])*weight_scale_;out[r]=sum;}return out;
 }
 std::vector<float> NativeBrain::infer_logits(const std::vector<float>& features)const{auto v=projection_.infer(features);for(auto& x:v)x=std::tanh(x);return v;}
