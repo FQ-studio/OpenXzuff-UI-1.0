@@ -209,6 +209,14 @@ __gravity_u_mode_ecall_probe:
     sb      t0, 69(s0)
     li      t0, 101
     sb      t0, 70(s0)
+    /* Invalid rights are an argument error, not a user-pointer fault. */
+    addi    a0, s0, 16
+    li      a1, 0
+    li      a7, 9                  /* OPEN */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
     addi    a0, s0, 16
     li      a1, 3                  /* READ | WRITE */
     li      a7, 9                  /* OPEN */
@@ -223,6 +231,16 @@ __gravity_u_mode_ecall_probe:
     ecall
     li      t0, 7
     bne     a0, t0, .Lumode_probe_failed
+    /* Zero-length transfer is EINVAL; an invalid mapped range is EFAULT. */
+    mv      a0, s1
+    addi    a1, s0, 80
+    li      a2, 0
+    li      a3, 0
+    li      a7, 10                 /* READ */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
     mv      a0, s1
     addi    a1, s0, 80
     li      a2, 7
