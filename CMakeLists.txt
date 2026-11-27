@@ -11,7 +11,7 @@ target_include_directories(gravity-ai-native PUBLIC ai/gravity/include)
 target_compile_options(gravity-ai-native PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_executable(gravity-ai-test ai/gravity/tests/gravity_ai_test.cpp)
 target_link_libraries(gravity-ai-test PRIVATE gravity-ai-native)
-target_compile_options(gravity-ai-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(gravity-ai-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG;-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-ai-sql-rag-native-inference COMMAND gravity-ai-test)
 
 add_library(xzuff_os_base
