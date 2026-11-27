@@ -16,12 +16,12 @@ public:
 struct GailResult { bool ok{}; std::int64_t answer{}; std::string sentence; std::string error; };
 class GailRuntime {
 public:
- // Validates the declared GAIL program shape and runs an arithmetic question.
+ // Loads supported GAIL arithmetic declarations and runs their mechanisms.
  bool load(std::string_view source, std::string* error = nullptr);
  GailResult ask(std::string_view question) const;
  bool ready() const noexcept { return loaded_; }
 private:
- bool loaded_{false};
+ bool loaded_{false};\n bool add_{false}, subtract_{false}, multiply_{false}, divide_{false};
  ArithmeticEngine arithmetic_;
  SentenceEngine sentence_;
 };
