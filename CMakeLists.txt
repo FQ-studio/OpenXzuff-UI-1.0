@@ -6,13 +6,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 enable_testing()
 
 # Gravity AI: custom knowledge store, BM25 RAG and native quantized inference.
-add_library(gravity-ai-native ai/gravity/src/knowledge.cpp ai/gravity/src/shared_knowledge_pack.cpp)
+add_library(gravity-ai-native ai/gravity/src/knowledge.cpp ai/gravity/src/shared_knowledge_pack.cpp ai/gravity/src/gail.cpp)
 target_include_directories(gravity-ai-native PUBLIC ai/gravity/include)
 target_compile_options(gravity-ai-native PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_executable(gravity-ai-test ai/gravity/tests/gravity_ai_test.cpp)
 target_link_libraries(gravity-ai-test PRIVATE gravity-ai-native)
 target_compile_options(gravity-ai-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG;-Wall;-Wextra;-Wpedantic;-Werror>)
-add_test(NAME gravity-ai-sql-rag-native-inference COMMAND gravity-ai-test)
+add_test(NAME gravity-ai-sql-rag-native-inference COMMAND gravity-ai-test)\n\nadd_executable(gravity-gail-test ai/gravity/tests/gail_arithmetic_test.cpp)\ntarget_link_libraries(gravity-gail-test PRIVATE gravity-ai-native)\ntarget_compile_options(gravity-gail-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG;-Wall;-Wextra;-Wpedantic;-Werror>)\nadd_test(NAME gravity-gail-arithmetic-sentence COMMAND gravity-gail-test)
 
 add_library(xzuff_os_base
     Kernel/src/boot_contract.cpp
