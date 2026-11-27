@@ -30,7 +30,13 @@ code_end;)GAIL";
  const auto result=runtime.ask("1 + 1");
  assert(result.ok&&result.answer==2);
  assert(result.sentence=="Hasil pengiraan bagi 1 + 1 ialah 2.");
- assert(runtime.ask("6 * 7").answer==42);\n assert(runtime.ask("20 ÷ 5").answer==4);\n assert(!runtime.ask("2 / 0").ok);\n GailRuntime addOnly;\n assert(addOnly.load("@start { mode native; precision int8; } @ai { quest : have + mechanism : plus number with number answer + sentence { sentence by_ai(); } } code_end;",&error));\n assert(!addOnly.ask("2 * 3").ok);
+ assert(runtime.ask("6 * 7").answer==42);
+ assert(runtime.ask("20 ÷ 5").answer==4);
+ assert(!runtime.ask("2 / 0").ok);
+ GailRuntime addOnly;
+ assert(addOnly.load("@start { mode native; precision int8; } @ai { quest : have + mechanism : plus number with number answer + sentence { sentence by_ai(); } } code_end;",&error));
+ assert(!addOnly.ask("2 * 3").ok);
  assert(!GailRuntime{}.load("@start {}",&error));
- std::cout<<"GAIL runtime + arithmetic + sentence: PASS\n";
+ std::cout<<"GAIL runtime + arithmetic + sentence: PASS
+";
 }
