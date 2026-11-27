@@ -1,0 +1,24 @@
+name: Gravity AI GAIL Runtime
+on:
+  push:
+    paths:
+      - "ai/gravity/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/gravity-gail.yml"
+  pull_request:
+    paths:
+      - "ai/gravity/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/gravity-gail.yml"
+  workflow_dispatch:
+jobs:
+  gail-arithmetic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure C++20 build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build Gravity AI GAIL test
+        run: cmake --build build --target gravity-gail-test --parallel 2
+      - name: Run GAIL arithmetic and sentence tests
+        run: ctest --test-dir build -R gravity-gail-arithmetic-sentence --output-on-failure
