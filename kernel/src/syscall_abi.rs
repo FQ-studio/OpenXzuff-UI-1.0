@@ -8,6 +8,10 @@ pub const MAP_MEMORY: usize = 3;
 pub const YIELD: usize = 4;
 pub const UNMAP_MEMORY: usize = 7;
 pub const PROTECT_MEMORY: usize = 8;
+pub const OPEN: usize = 9;
+pub const READ: usize = 10;
+pub const WRITE: usize = 11;
+pub const CLOSE: usize = 12;
 
 pub const EAGAIN: isize = -11;
 pub const EFAULT: isize = -14;
@@ -21,8 +25,8 @@ mod tests {
 
     #[test]
     fn syscall_numbers_match_the_public_v1_contract() {
-        assert_eq!([EXIT, SEND_MESSAGE, RECEIVE_MESSAGE, MAP_MEMORY, YIELD, UNMAP_MEMORY, PROTECT_MEMORY],
-                   [0, 1, 2, 3, 4, 7, 8]);
+        assert_eq!([EXIT, SEND_MESSAGE, RECEIVE_MESSAGE, MAP_MEMORY, YIELD, UNMAP_MEMORY, PROTECT_MEMORY, OPEN, READ, WRITE, CLOSE],
+                   [0, 1, 2, 3, 4, 7, 8, 9, 10, 11, 12]);
     }
 
     #[test]

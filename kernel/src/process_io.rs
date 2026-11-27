@@ -121,6 +121,12 @@ impl ProcessIo {
         self.handles.close(owner, handle).map_err(ProcessIoError::Handle)
     }
 
+    /// Release every file capability owned by a terminating process.
+    /// The RAM filesystem nodes remain mounted; only process handles are closed.
+    pub fn close_all(&mut self, owner: ProcessId) -> usize {
+        self.handles.close_all(owner)
+    }
+
     pub fn open_count(&self, owner: ProcessId) -> usize {
         self.handles.open_count(owner)
     }

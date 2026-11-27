@@ -3,6 +3,7 @@ on:
   push:
     paths:
       - "Kernel/**"
+      - "ai/gravity/**"
       - "kernel/**"
       - "sys/**"
       - "user/**"

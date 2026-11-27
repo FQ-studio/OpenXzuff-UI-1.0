@@ -169,6 +169,107 @@ __gravity_u_mode_ecall_probe:
     bnez    a0, .Lumode_probe_failed
     ld      t1, 0(s0)
     bne     t1, t0, .Lumode_probe_failed
+    mv      a0, s0
+    li      a1, 4096
+    li      a2, 11                 /* restore READ | WRITE for I/O buffers */
+    li      a7, 8
+    ecall
+    bnez    a0, .Lumode_probe_failed
+
+    /* Exercise real process-owned file syscalls through the U-mode trap path. */
+    li      t0, 47
+    sb      t0, 16(s0)             /* /boot.log */
+    li      t0, 98
+    sb      t0, 17(s0)
+    li      t0, 111
+    sb      t0, 18(s0)
+    sb      t0, 19(s0)
+    li      t0, 116
+    sb      t0, 20(s0)
+    li      t0, 46
+    sb      t0, 21(s0)
+    li      t0, 108
+    sb      t0, 22(s0)
+    li      t0, 111
+    sb      t0, 23(s0)
+    li      t0, 103
+    sb      t0, 24(s0)
+    sb      zero, 25(s0)
+    li      t0, 114
+    sb      t0, 64(s0)             /* runtime */
+    li      t0, 117
+    sb      t0, 65(s0)
+    li      t0, 110
+    sb      t0, 66(s0)
+    li      t0, 116
+    sb      t0, 67(s0)
+    li      t0, 105
+    sb      t0, 68(s0)
+    li      t0, 109
+    sb      t0, 69(s0)
+    li      t0, 101
+    sb      t0, 70(s0)
+    /* Invalid rights are an argument error, not a user-pointer fault. */
+    addi    a0, s0, 16
+    li      a1, 0
+    li      a7, 9                  /* OPEN */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
+    addi    a0, s0, 16
+    li      a1, 3                  /* READ | WRITE */
+    li      a7, 9                  /* OPEN */
+    ecall
+    bltz    a0, .Lumode_probe_failed
+    mv      s1, a0
+    mv      a0, s1
+    addi    a1, s0, 64
+    li      a2, 7
+    li      a3, 0
+    li      a7, 11                 /* WRITE */
+    ecall
+    li      t0, 7
+    bne     a0, t0, .Lumode_probe_failed
+    /* Zero-length transfer is EINVAL; an invalid mapped range is EFAULT. */
+    mv      a0, s1
+    addi    a1, s0, 80
+    li      a2, 0
+    li      a3, 0
+    li      a7, 10                 /* READ */
+    ecall
+    li      t0, -22
+    bne     a0, t0, .Lumode_probe_failed
+
+    mv      a0, s1
+    addi    a1, s0, 80
+    li      a2, 7
+    li      a3, 0
+    li      a7, 10                 /* READ */
+    ecall
+    li      t0, 7
+    bne     a0, t0, .Lumode_probe_failed
+    ld      t1, 80(s0)
+    li      t0, 0x00656d69746e7572 /* "runtime" + NUL */
+    bne     t1, t0, .Lumode_probe_failed
+    /* A supervisor-only kernel pointer must be rejected before dereference. */
+    mv      a0, s1
+    la      a1, __kernel_start
+    li      a2, 1
+    li      a3, 0
+    li      a7, 10
+    ecall
+    li      t0, -14
+    bne     a0, t0, .Lumode_probe_failed
+    mv      a0, s1
+    li      a7, 12                 /* CLOSE */
+    ecall
+    bnez    a0, .Lumode_probe_failed
+    mv      a0, s1
+    li      a7, 12
+    ecall
+    li      t0, -22                /* stale handle rejected */
+    bne     a0, t0, .Lumode_probe_failed
 
     mv      a0, s0
     li      a1, 8192

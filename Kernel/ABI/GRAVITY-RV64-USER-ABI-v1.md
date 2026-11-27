@@ -23,13 +23,17 @@ Status: ABI v1 contract with a limited live RV64 trap/runtime probe. The supervi
 
 | ID | Name | Current RV64 trap/runtime status |
 |---:|---|---|
-| 0 | Exit | Implemented for the current U-mode test task; marks it Exited and schedules the next task. General resource reaping is not implemented |
+| 0 | Exit | Implemented for the current built-in U-mode task; closes all of that process's ProcessIo handles before marking it Exited and scheduling the next task. General wait/reap and full task-resource teardown remain incomplete |
 | 1 | SendMessage | Implemented for the built-in U-mode probe task; sends one scalar machine word to a task FIFO mailbox and returns 0, -EAGAIN, or -EINVAL |
 | 2 | ReceiveMessage | Implemented as non-blocking receive; returns payload in a0 and sender task ID in a1, or -EAGAIN when empty |
 | 3 | MapMemory | Implemented for the built-in U-mode probe: first-fit or hinted mapping in a bounded 2 MiB heap; zero-filled frames; READ/WRITE/EXECUTE/USER flags; W+X and write-only requests rejected |
 | 4 | Yield | Implemented for the current U-mode test task; saves its trap frame, rotates the run queue, and resumes it later |
 | 7 | UnmapMemory | Implemented for pages in the built-in 2 MiB user heap; preflights ownership, invalidates mappings, scrubs frames and returns them to the physical allocator |
 | 8 | ProtectMemory | Implemented for mapped heap pages; accepts R, RW or X user permissions and rejects W+X |
+| 9 | Open | Implemented for the current U-mode process; opens an existing RAM-VFS regular file with READ/WRITE rights and returns a generation-tagged process handle |
+| 10 | Read | Implemented for the current U-mode process; validates writable user pages, reads at an explicit file offset, and copies at most 256 bytes to U-mode |
+| 11 | Write | Implemented for the current U-mode process; validates readable user pages and writes at an explicit file offset, up to 256 bytes |
+| 12 | Close | Implemented for the current U-mode process; closes a generation-tagged handle and rejects stale handles |
 
 The host-testable C++ dispatcher in Kernel/src/syscall.cpp remains a policy boundary with injected hooks. The live RV64 implementation is the Rust trap path in kernel/src/trap.rs and kernel/src/runtime.rs.
 
@@ -63,7 +67,7 @@ The compiler does not depend on the initial value of a7. The live hardware path 
 
 ## Implementation boundary
 
-The QEMU probe uses dedicated U-mode text and stack pages plus a single statically provisioned user address space. The kernel and probe roots share supervisor identity mappings, while U permission is granted only to the probe's RX text, RW stack and explicitly allocated heap leaves. The linked kernel image uses section-aware W^X permissions: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss.
+The QEMU probe uses dedicated U-mode text and stack pages plus a single statically provisioned user address space. The live file-I/O probe uses the separately mapped U-mode heap page as its path and transfer buffers; syscall handlers validate every covered page's U and read/write PTE bits before copying user pointers; bounded copyin/copyout temporarily enables supervisor SUM only around the copy instructions and clears it immediately afterwards. OPEN only opens existing regular files in the bounded RAM VFS; READ/WRITE use explicit offsets and a 256-byte transfer cap. The current OPEN/READ/WRITE/CLOSE trap handlers are restricted to the built-in U-mode task (task ID 2), not a general multi-process syscall service. Exit closes all ProcessIo handles owned by that task before scheduling away, but general wait/reap and full task-resource teardown are not yet wired. This does not provide a persistent filesystem or independent per-process address spaces. The kernel and probe roots share supervisor identity mappings, while U permission is granted only to the probe's RX text, RW stack and explicitly allocated heap leaves. The linked kernel image uses section-aware W^X permissions: supervisor RX for .text, supervisor R for .rodata, and supervisor RW for .data/.bss.
 
 The built-in probe has a bounded 2 MiB heap arena. MapMemory allocates zero-filled physical frames from the active 1 GiB identity window; ProtectMemory changes permissions only on mapped heap pages; UnmapMemory preflights the full range and allocator ownership, switches to the supervisor root, clears mappings, scrubs frames, and returns them to the allocator. The heap VA is derived from the bootstrap window base plus a 256 MiB offset, rather than hard-coded to QEMU's 0x80000000 RAM base. User leaf permissions enforce W^X. The QEMU probe checks W+X rejection for both MapMemory and ProtectMemory, verifies an invalid oversized unmap leaves the first page mapped, and verifies a second unmap returns -EFAULT.
 

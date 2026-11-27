@@ -1,5 +1,6 @@
 #include "openxzuff/app/manifest.hpp"
 #include "openxzuff/gui/framebuffer.hpp"
+#include "openxzuff/hal/device.hpp"
 #include "openxzuff/kernel/contracts.hpp"
 #include "openxzuff/sys/service_registry.hpp"
 #include <cstdlib>
@@ -16,6 +17,25 @@ int main() {
     require(!kernel::valid_user_range(0x7ff8, 16, 0x8000), "range crossing user limit rejected");
     require(!kernel::valid_user_range(UINT64_MAX - 2, 8, UINT64_MAX), "overflowing range rejected");
     require(!kernel::valid_user_range(0x1000, 0, 0x8000), "zero-length range rejected");
+    hal::DeviceCatalog devices;
+    require(devices.add(hal::DeviceDescriptor{
+        "/soc/serial@10000000", "ns16550a", {0x10000000, 0x100}, 10, true
+    }), "valid firmware device registration");
+    require(!devices.add(hal::DeviceDescriptor{
+        "/soc/serial@10000000", "snps,dw-apb-uart", {0x10001000, 0x100}, 11, true
+    }), "duplicate device path rejected");
+    require(!devices.add(hal::DeviceDescriptor{
+        "/soc/bad@0", "broken,device", {UINT64_MAX - 3, 8}, 0, false
+    }), "overflowing MMIO resource rejected");
+    const auto* uart = devices.find_compatible("ns16550a");
+    require(uart != nullptr && uart->registers.contains(0x10000000, 8),
+            "compatible lookup and in-window register access");
+    require(!uart->registers.contains(0x100000f8, 16),
+            "register range crossing MMIO boundary rejected");
+    require(devices.find_compatible("NS16550A") == nullptr,
+            "compatible matching is exact and case-sensitive");
+    require(devices.size() == 1, "device catalog count");
+
     sys::ServiceRegistry registry;
     require(registry.add("display", 1), "service registration");
     require(!registry.add("display", 2), "duplicate service rejected");
