@@ -1,14 +1,15 @@
 #pragma once
+#include <gravity/abi.h>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 
 namespace openxzuff::kernel {
 
-inline constexpr std::size_t xexe_header_size = 32;
-inline constexpr std::uint16_t xexe_format_version = 1;
-inline constexpr std::uint16_t xexe_architecture_rv64 = 1;
-inline constexpr std::uint16_t xexe_gravity_abi_v1 = 1;
+inline constexpr std::size_t xexe_header_size = GRAVITY_XEXE_HEADER_SIZE;
+inline constexpr std::uint16_t xexe_format_version = GRAVITY_XEXE_FORMAT_VERSION;
+inline constexpr std::uint16_t xexe_architecture_rv64 = GRAVITY_XEXE_ARCH_RV64;
+inline constexpr std::uint16_t xexe_gravity_abi_v1 = GRAVITY_ABI_VERSION;
 
 enum class XexeValidationError : std::uint8_t {
     None, TooSmall, BadMagic, UnsupportedFormat, BadHeaderSize,

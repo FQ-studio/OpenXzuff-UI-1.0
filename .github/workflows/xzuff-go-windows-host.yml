@@ -4,15 +4,19 @@ on:
   push:
     paths:
       - "language/xzuff-go/**"
+      - "sdk/gravity/sysroot/usr/include/gravity/abi.h"
       - "Kernel/include/openxzuff/kernel/xexe_loader.hpp"
       - "Kernel/src/xexe_loader.cpp"
+      - "tests/xexe_loader_test.cpp"
       - "CMakeLists.txt"
       - ".github/workflows/xzuff-go-windows-host.yml"
   pull_request:
     paths:
       - "language/xzuff-go/**"
+      - "sdk/gravity/sysroot/usr/include/gravity/abi.h"
       - "Kernel/include/openxzuff/kernel/xexe_loader.hpp"
       - "Kernel/src/xexe_loader.cpp"
+      - "tests/xexe_loader_test.cpp"
       - "CMakeLists.txt"
       - ".github/workflows/xzuff-go-windows-host.yml"
   workflow_dispatch:
@@ -30,4 +34,4 @@ jobs:
       - name: Run compiler, CLI, and .xexe tests
         run: >-
           ctest --test-dir build -C Release --output-on-failure
-          -R "^(xzuff-go-codegen-self-test|xgo-cli-help|xgo-cli-command-smoke|xzuff-check-valid-source|xzuff-check-json-output|xzuff-check-rejects-out-of-range-i32|gravity-xexe-validation|xzuff-go-compile-fixture|xzuff-go-xexe-validation)$"
+          -R "^(xzuff-go-codegen-self-test|xgo-cli-help|xgo-cli-command-smoke|xzuff-check-valid-source|xzuff-check-json-output|xzuff-check-constant-expression|xzuff-check-rejects-out-of-range-i32|xzuff-check-rejects-division-by-zero|xzuff-check-rejects-i64-overflow|xzuff-check-rejects-malformed-expression|gravity-xexe-validation|xzuff-go-compile-fixture|xzuff-go-xexe-validation|xzuff-go-compile-expression-fixture|xzuff-go-expression-xexe-validation)$"
