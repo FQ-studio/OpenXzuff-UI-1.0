@@ -169,6 +169,12 @@ __gravity_u_mode_ecall_probe:
     bnez    a0, .Lumode_probe_failed
     ld      t1, 0(s0)
     bne     t1, t0, .Lumode_probe_failed
+    mv      a0, s0
+    li      a1, 4096
+    li      a2, 11                 /* restore READ | WRITE for I/O buffers */
+    li      a7, 8
+    ecall
+    bnez    a0, .Lumode_probe_failed
 
     /* Exercise real process-owned file syscalls through the U-mode trap path. */
     li      t0, 47
