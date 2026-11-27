@@ -6,7 +6,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 enable_testing()
 
 # Gravity AI: custom knowledge store, BM25 RAG and native quantized inference.
-add_library(gravity-ai-native ai/gravity/src/knowledge.cpp)
+add_library(gravity-ai-native ai/gravity/src/knowledge.cpp ai/gravity/src/shared_knowledge_pack.cpp)
 target_include_directories(gravity-ai-native PUBLIC ai/gravity/include)
 target_compile_options(gravity-ai-native PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
 add_executable(gravity-ai-test ai/gravity/tests/gravity_ai_test.cpp)
