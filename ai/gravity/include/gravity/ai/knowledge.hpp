@@ -21,7 +21,10 @@ private:
  bool table_created_{false};
  std::vector<KnowledgeDocument> documents_;
 };
-// Adds an initial assistant-authored technical knowledge pack; no self-training is implied.\nbool install_shared_knowledge_pack(KnowledgeStore& store, std::string* error = nullptr);\n\nclass RagEngine {
+// Adds an initial assistant-authored technical knowledge pack; no self-training is implied.
+bool install_shared_knowledge_pack(KnowledgeStore& store, std::string* error = nullptr);
+
+class RagEngine {
 public:
  explicit RagEngine(const KnowledgeStore& store) : store_(store) {}
  std::vector<KnowledgeHit> search(std::string_view query, std::size_t limit = 5) const;
