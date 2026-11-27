@@ -602,6 +602,22 @@ fn current_user_process() -> Option<crate::process::ProcessId> {
     unsafe { (*core::ptr::addr_of!(SCHEDULER)).process_for_task(task).ok() }
 }
 
+/// Copy user memory only after a PTE permission check. SUM is enabled for
+/// the bounded copy instruction sequence and cleared immediately afterwards.
+unsafe fn copy_from_user(source: usize, destination: *mut u8, length: usize) {
+    let sum = 1usize << 18;
+    core::arch::asm!("csrs sstatus, {sum}", sum = in(reg) sum, options(nostack));
+    core::ptr::copy_nonoverlapping(source as *const u8, destination, length);
+    core::arch::asm!("csrc sstatus, {sum}", sum = in(reg) sum, options(nostack));
+}
+
+unsafe fn copy_to_user(destination: usize, source: *const u8, length: usize) {
+    let sum = 1usize << 18;
+    core::arch::asm!("csrs sstatus, {sum}", sum = in(reg) sum, options(nostack));
+    core::ptr::copy_nonoverlapping(source, destination as *mut u8, length);
+    core::arch::asm!("csrc sstatus, {sum}", sum = in(reg) sum, options(nostack));
+}
+
 fn encode_user_handle(handle: crate::handle::HandleId) -> usize {
     ((handle.generation as usize) << 16) | handle.slot as usize
 }
@@ -624,8 +640,9 @@ pub fn on_user_open(frame: *mut TrapFrame) -> *mut TrapFrame {
         || !crate::vm::validate_user_range(path_ptr, USER_IO_MAX_PATH, false) {
         return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
     }
-    let path = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, USER_IO_MAX_PATH) };
-    let path_len = match path.iter().position(|byte| *byte == 0) {
+    let mut path_copy = [0u8; USER_IO_MAX_PATH];
+    unsafe { copy_from_user(path_ptr, path_copy.as_mut_ptr(), USER_IO_MAX_PATH); }
+    let path_len = match path_copy.iter().position(|byte| *byte == 0) {
         Some(length) if length > 0 => length,
         _ => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     };
@@ -637,7 +654,7 @@ pub fn on_user_open(frame: *mut TrapFrame) -> *mut TrapFrame {
         None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     };
     let result = unsafe {
-        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).open_file(process, &path[..path_len], rights)
+        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).open_file(process, &path_copy[..path_len], rights)
     };
     match result {
         Ok(handle) => { USER_FILE_OPEN_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, encode_user_handle(handle) as isize) },
@@ -669,7 +686,7 @@ pub fn on_user_read(frame: *mut TrapFrame) -> *mut TrapFrame {
     match result {
         Ok(count) => {
             USER_FILE_READ_OBSERVED.store(true, Ordering::Release);
-            unsafe { core::ptr::copy_nonoverlapping(temporary.as_ptr(), buffer as *mut u8, count); }
+            unsafe { copy_to_user(buffer, temporary.as_ptr(), count); }
             finish_user_syscall(frame, count as isize)
         }
         Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
@@ -693,9 +710,10 @@ pub fn on_user_write(frame: *mut TrapFrame) -> *mut TrapFrame {
         Some(process) => process,
         None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
     };
-    let bytes = unsafe { core::slice::from_raw_parts(buffer as *const u8, length) };
+    let mut temporary = [0u8; USER_IO_MAX_TRANSFER];
+    unsafe { copy_from_user(buffer, temporary.as_mut_ptr(), length); }
     let result = unsafe {
-        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).write(process, handle, offset, bytes)
+        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).write(process, handle, offset, &temporary[..length])
     };
     match result {
         Ok(count) => { USER_FILE_WRITE_OBSERVED.store(true, Ordering::Release); finish_user_syscall(frame, count as isize) },
