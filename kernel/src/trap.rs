@@ -273,7 +273,8 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                     || !crate::runtime::register_context_observed()
                     || !crate::runtime::ipc_roundtrip_observed()
                     || !crate::runtime::ipc_empty_receive_observed()
-                    || !crate::runtime::user_vm_roundtrip_observed() {
+                    || !crate::runtime::user_vm_roundtrip_observed()
+                    || !crate::runtime::user_file_io_roundtrip_observed() {
                     crate::console_write("U-mode syscall integration: FAIL\n");
                     crate::halt();
                 }
