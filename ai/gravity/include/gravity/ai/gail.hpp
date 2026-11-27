@@ -21,7 +21,8 @@ public:
  GailResult ask(std::string_view question) const;
  bool ready() const noexcept { return loaded_; }
 private:
- bool loaded_{false};\n bool add_{false}, subtract_{false}, multiply_{false}, divide_{false};
+ bool loaded_{false};
+ bool add_{false}, subtract_{false}, multiply_{false}, divide_{false};
  ArithmeticEngine arithmetic_;
  SentenceEngine sentence_;
 };
