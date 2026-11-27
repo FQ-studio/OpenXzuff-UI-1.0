@@ -590,6 +590,129 @@ pub fn on_user_exit(frame: *mut TrapFrame) -> *mut TrapFrame {
     next_frame
 }
 
+const USER_IO_MAX_PATH: usize = 128;
+const USER_IO_MAX_TRANSFER: usize = 256;
+
+fn current_user_process() -> Option<crate::process::ProcessId> {
+    let task = crate::scheduler::TaskId(current_task_id()?);
+    unsafe { (*core::ptr::addr_of!(SCHEDULER)).process_for_task(task).ok() }
+}
+
+fn encode_user_handle(handle: crate::handle::HandleId) -> usize {
+    ((handle.generation as usize) << 16) | handle.slot as usize
+}
+
+fn decode_user_handle(value: usize) -> Option<crate::handle::HandleId> {
+    let slot = value & 0xffff;
+    let generation = value >> 16;
+    if slot >= crate::handle::MAX_HANDLES || generation == 0 || generation > u32::MAX as usize {
+        return None;
+    }
+    Some(crate::handle::HandleId { slot: slot as u16, generation: generation as u32 })
+}
+
+/// ABI v1 Open=9: a0=NUL-terminated path, a1=rights (bit0 read, bit1 write).
+pub fn on_user_open(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) { return finish_user_syscall(frame, crate::syscall_abi::EINVAL); }
+    let path_ptr = unsafe { (*frame).x[10] };
+    let rights_arg = unsafe { (*frame).x[11] };
+    if rights_arg == 0 || rights_arg > 3
+        || !crate::vm::validate_user_range(path_ptr, USER_IO_MAX_PATH, false) {
+        return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
+    }
+    let path = unsafe { core::slice::from_raw_parts(path_ptr as *const u8, USER_IO_MAX_PATH) };
+    let path_len = match path.iter().position(|byte| *byte == 0) {
+        Some(length) if length > 0 => length,
+        _ => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let mut rights = crate::handle::Rights::NONE;
+    if rights_arg & 1 != 0 { rights = rights.union(crate::handle::Rights::READ); }
+    if rights_arg & 2 != 0 { rights = rights.union(crate::handle::Rights::WRITE); }
+    let process = match current_user_process() {
+        Some(process) => process,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let result = unsafe {
+        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).open_file(process, &path[..path_len], rights)
+    };
+    match result {
+        Ok(handle) => finish_user_syscall(frame, encode_user_handle(handle) as isize),
+        Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    }
+}
+
+/// ABI v1 Read=10: a0=handle, a1=user buffer, a2=count, a3=file offset.
+pub fn on_user_read(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) { return finish_user_syscall(frame, crate::syscall_abi::EINVAL); }
+    let (handle_arg, buffer, length, offset) = unsafe {
+        ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
+    };
+    if length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, true) {
+        return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
+    }
+    let handle = match decode_user_handle(handle_arg) {
+        Some(handle) => handle,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let process = match current_user_process() {
+        Some(process) => process,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let mut temporary = [0u8; USER_IO_MAX_TRANSFER];
+    let result = unsafe {
+        (&*core::ptr::addr_of!(PROCESS_IO)).read(process, handle, offset, &mut temporary[..length])
+    };
+    match result {
+        Ok(count) => {
+            unsafe { core::ptr::copy_nonoverlapping(temporary.as_ptr(), buffer as *mut u8, count); }
+            finish_user_syscall(frame, count as isize)
+        }
+        Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    }
+}
+
+/// ABI v1 Write=11: a0=handle, a1=user buffer, a2=count, a3=file offset.
+pub fn on_user_write(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) { return finish_user_syscall(frame, crate::syscall_abi::EINVAL); }
+    let (handle_arg, buffer, length, offset) = unsafe {
+        ((*frame).x[10], (*frame).x[11], (*frame).x[12], (*frame).x[13])
+    };
+    if length > USER_IO_MAX_TRANSFER || !crate::vm::validate_user_range(buffer, length, false) {
+        return finish_user_syscall(frame, crate::syscall_abi::EFAULT);
+    }
+    let handle = match decode_user_handle(handle_arg) {
+        Some(handle) => handle,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let process = match current_user_process() {
+        Some(process) => process,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let bytes = unsafe { core::slice::from_raw_parts(buffer as *const u8, length) };
+    let result = unsafe {
+        (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).write(process, handle, offset, bytes)
+    };
+    match result {
+        Ok(count) => finish_user_syscall(frame, count as isize),
+        Err(_) => finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    }
+}
+
+/// ABI v1 Close=12: a0=generation-tagged process-owned handle.
+pub fn on_user_close(frame: *mut TrapFrame) -> *mut TrapFrame {
+    if current_task_id() != Some(2) { return finish_user_syscall(frame, crate::syscall_abi::EINVAL); }
+    let handle = match decode_user_handle(unsafe { (*frame).x[10] }) {
+        Some(handle) => handle,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let process = match current_user_process() {
+        Some(process) => process,
+        None => return finish_user_syscall(frame, crate::syscall_abi::EINVAL),
+    };
+    let result = unsafe { (&mut *core::ptr::addr_of_mut!(PROCESS_IO)).close(process, handle) };
+    finish_user_syscall(frame, if result.is_ok() { 0 } else { crate::syscall_abi::EINVAL })
+}
+
 pub fn user_timer_preemption_observed() -> bool {
     USER_TIMER_PREEMPTED.load(Ordering::Acquire)
 }
