@@ -2,20 +2,20 @@
 
 Xzuff Go is a proposed native systems and application language for OpenXzuff UI. It is a new language; it is not Google's Go, Rust, C++, Lua, or Luau.
 
-This document defines the initial syntax direction only. It does not claim that a compiler or RV64 code generator has been implemented.
+This document defines the initial syntax direction only. It does not claim that the complete language compiler or runtime has been implemented.
 
 ## Design rules
 
-- Readable keywords; no Rust-style `fn`, `let`, `->`, or `::` syntax.
+- Readable keywords; no Rust-style fn, let, arrow-return, or double-colon syntax.
 - Braces delimit blocks; each declaration or statement ends with a semicolon.
 - Static types are explicit in declarations and function results.
 - The first compiler target is RV64 machine code.
 - The compiler implementation may use C++; selected low-level components may use Rust, but Xzuff Go source syntax is independent of either implementation language.
-- The initial executable format is tentatively `.xexe`; it must be specified alongside the loader and ABI before programs can run on Gravity Kernel.
+- The initial executable format is .xexe; it is specified alongside the initial Gravity ABI and validator, but general process loading is not complete.
 
 ## Example program
 
-```xgo
+~~~xgo
 module Hello;
 
 import System.Console;
@@ -30,30 +30,30 @@ function main() returns i32 {
 
     return 0;
 }
-```
+~~~
 
-The example describes the proposed language syntax. `System.Console` and its functions are standard-library API proposals, not implemented APIs yet.
+The example describes the proposed language syntax. System.Console and its functions are standard-library API proposals, not implemented APIs yet.
 
 ## Declarations
 
-```xgo
+~~~xgo
 constant maxItems: u32 = 64;
 variable currentItem: u32 = 0;
 
 function add(left: i32, right: i32) returns i32 {
     return left + right;
 }
-```
+~~~
 
-- `constant` declares a binding that cannot be reassigned.
-- `variable` declares a mutable binding.
-- Function parameters use `name: type`.
-- `returns type` specifies the return type.
-- The first draft supports `void`, `bool`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, and `string`.
+- constant declares a binding that cannot be reassigned.
+- variable declares a mutable binding.
+- Function parameters use name: type.
+- returns type specifies the return type.
+- The first draft proposes void, bool, i8, i16, i32, i64, u8, u16, u32, u64, f32, f64, and string.
 
 ## Conditions and loops
 
-```xgo
+~~~xgo
 if currentItem < maxItems {
     currentItem = currentItem + 1;
 } else {
@@ -63,26 +63,32 @@ if currentItem < maxItems {
 while currentItem < 10 {
     currentItem = currentItem + 1;
 }
-```
+~~~
 
-The grammar and type checker must define boolean conditions, operator precedence, scope, overflow behavior, and loop control before this example can be compiler-tested.
+The full grammar and type checker must define boolean conditions, scope, overflow behavior, and loop control before this example can be compiler-tested.
 
 ## Modules and imports
 
-```xgo
+~~~xgo
 module Desktop;
 
 import Xzuff.GUI;
 import System.Console;
-```
+~~~
 
 Use dotted module names rather than Rust-style path separators. Module resolution rules will be documented with the package and linker design.
 
+## Implemented compiler subset
+
+The current compiler is intentionally much narrower than this draft. It accepts one function main() returns i32 body containing one return statement whose value is an integer constant expression. The expression subset supports unary plus/minus, multiplication, division, remainder, addition, subtraction, and parentheses. The compiler folds the expression at compile time using checked signed 64-bit intermediates and requires the final value to fit signed i32.
+
+The RV64 backend emits an exit stub using Gravity ABI v1 Exit (syscall ID 0), then writes a .xexe v1 image. It does not yet generate runtime arithmetic for variables or parameters, and the kernel validator does not yet load or execute arbitrary .xexe images.
+
 ## Native compilation pipeline
 
-`source (.xgo) -> lexer -> parser -> type checker -> intermediate representation -> optimizer -> RV64 machine-code generator -> linker -> executable`
+source (.xgo) -> lexer -> parser -> semantic/type checker -> intermediate representation -> optimizer -> RV64 machine-code generator -> linker -> executable
 
-The compiler must emit real RV64 instructions and test them with a disassembler or emulator. Producing assembly text alone, or merely writing an example source file, is not proof of a working native compiler.
+The implemented milestone currently covers lexing, parsing and constant-expression evaluation for the restricted subset, a small RV64 exit-stub generator, and .xexe image emission/validation. The general type checker, IR, optimizer, linker and process loader remain planned.
 
 ## Planned implementation milestones
 
@@ -95,4 +101,4 @@ The compiler must emit real RV64 instructions and test them with a disassembler 
 
 ## Status
 
-Draft language design only. Compiler, linker, executable loader, standard library, and RV64 execution support are not implemented by this specification.
+Draft language design and a narrow, executable compiler implementation subset. This is not a complete language compiler, linker, standard library, or RV64 application runtime.

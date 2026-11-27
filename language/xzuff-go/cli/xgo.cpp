@@ -1,10 +1,23 @@
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -15,25 +28,96 @@ fs::path executableDir(const char* argv0) {
     return ec ? fs::current_path() : p.parent_path();
 }
 
-// Quote one argument for the POSIX shell used by the current Linux CI target.
-std::string shellQuote(const fs::path& path) {
-    const std::string value = path.string();
-    std::string quoted = "'";
-    for (char c : value) {
-        if (c == '\'') quoted += "'\\''";
-        else quoted.push_back(c);
+// Launch sibling tools without a shell. This keeps paths with spaces safe
+// and avoids shell-quoting differences between POSIX and Windows hosts.
+#ifdef _WIN32
+std::wstring quoteWindowsArgument(std::wstring_view value) {
+    std::wstring quoted = L"\"";
+    std::size_t backslashes = 0;
+    for (wchar_t c : value) {
+        if (c == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (c == L'"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted.push_back(L'"');
+        } else {
+            quoted.append(backslashes, L'\\');
+            quoted.push_back(c);
+        }
+        backslashes = 0;
     }
-    quoted.push_back('\'');
+    quoted.append(backslashes * 2, L'\\');
+    quoted.push_back(L'"');
     return quoted;
 }
+#endif
 
 int invoke(const fs::path& executable, const std::vector<fs::path>& args) {
-    std::string command = shellQuote(executable);
-    for (const auto& arg : args) command += " " + shellQuote(arg);
-    const int result = std::system(command.c_str());
-    if (result == -1) return 1;
-    // POSIX system() encodes the child exit status; normalize it for callers.
-    return (result >> 8) & 0xFF;
+#ifdef _WIN32
+    std::wstring commandLine = quoteWindowsArgument(executable.wstring());
+    for (const auto& arg : args) {
+        commandLine.push_back(L' ');
+        commandLine += quoteWindowsArgument(arg.wstring());
+    }
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+
+    const std::wstring application = executable.wstring();
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = sizeof(startupInfo);
+    PROCESS_INFORMATION processInfo{};
+    if (!CreateProcessW(application.c_str(), mutableCommandLine.data(),
+                        nullptr, nullptr, TRUE, 0, nullptr, nullptr,
+                        &startupInfo, &processInfo)) {
+        std::cerr << "xgo: CreateProcessW failed for " << executable
+                  << " (Windows error " << GetLastError() << ")\n";
+        return 127;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    const BOOL haveExitCode =
+        waitResult == WAIT_OBJECT_0 && GetExitCodeProcess(processInfo.hProcess, &exitCode);
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    if (!haveExitCode) {
+        std::cerr << "xgo: failed waiting for " << executable << "\n";
+        return 127;
+    }
+    return static_cast<int>(exitCode);
+#else
+    std::vector<std::string> storage;
+    storage.reserve(args.size() + 1);
+    storage.push_back(executable.string());
+    for (const auto& arg : args) storage.push_back(arg.string());
+
+    std::vector<char*> argv;
+    argv.reserve(storage.size() + 1);
+    for (auto& value : storage) argv.push_back(value.data());
+    argv.push_back(nullptr);
+
+    const pid_t child = fork();
+    if (child < 0) {
+        std::cerr << "xgo: fork failed: " << std::strerror(errno) << '\n';
+        return 127;
+    }
+    if (child == 0) {
+        execv(storage.front().c_str(), argv.data());
+        _exit(errno == ENOENT ? 127 : 126);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        std::cerr << "xgo: waitpid failed: " << std::strerror(errno) << '\n';
+        return 127;
+    }
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return 1;
+#endif
 }
 
 bool validName(std::string_view name) {
@@ -55,6 +139,7 @@ int usage(bool toError = true) {
     out << "Xzuff Go CLI\n"
         << "  xgo create <nama_projek>\n"
         << "  xgo check\n"
+        << "  xgo test\n"
         << "  xgo run\n"
         << "  xgo build\n"
         << "  xgo delete <nama_projek>\n";
@@ -77,8 +162,13 @@ int main(int argc, char** argv) {
 
     const std::string_view command(argv[1]);
     const fs::path tools = executableDir(argv[0]);
+#ifdef _WIN32
+    const fs::path checker = tools / "xzuff-check.exe";
+    const fs::path compiler = tools / "xzuff-go.exe";
+#else
     const fs::path checker = tools / "xzuff-check";
     const fs::path compiler = tools / "xzuff-go";
+#endif
     const fs::path root = fs::current_path();
 
     if (command == "create") {
@@ -178,13 +268,22 @@ int main(int argc, char** argv) {
     if (command == "run") {
         if (argc != 2) return usage();
         if (requireProject(root, command) != 0) return 1;
+        std::cerr << "xgo run: application execution is not available yet; "
+                     "the Gravity Kernel has no general .xexe process loader. "
+                     "Use xgo test for source smoke tests or xgo build to produce an image.\n";
+        return 1;
+    }
+
+    if (command == "test") {
+        if (argc != 2) return usage();
+        if (requireProject(root, command) != 0) return 1;
         if (!fs::is_regular_file(checker)) {
-            std::cerr << "xgo run: Coder Checker executable not found: " << checker << '\n';
+            std::cerr << "xgo test: Coder Checker executable not found: " << checker << '\n';
             return 1;
         }
         const fs::path tests = root / "tests";
         if (!fs::is_directory(tests)) {
-            std::cerr << "xgo run: tests directory not found\n";
+            std::cerr << "xgo test: tests directory not found\n";
             return 1;
         }
         std::size_t count = 0;
@@ -201,10 +300,10 @@ int main(int argc, char** argv) {
             std::cout << "[PASS] " << entry.path().filename().string() << '\n';
         }
         if (count == 0) {
-            std::cerr << "xgo run: no .xgo test files found in tests/\n";
+            std::cerr << "xgo test: no .xgo test files found in tests/\n";
             return 1;
         }
-        std::cout << "xgo run: PASS (" << count
+        std::cout << "xgo test: PASS (" << count
                   << " source smoke test(s)); no build was performed\n";
         return 0;
     }

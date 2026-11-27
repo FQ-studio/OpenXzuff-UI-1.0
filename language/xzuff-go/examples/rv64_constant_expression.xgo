@@ -1,0 +1,4 @@
+function main() returns i32 {
+    // 9 * 4 - 3 = 33; multiplication binds before subtraction.
+    return (6 + 3) * 4 - 6 / 2;
+}

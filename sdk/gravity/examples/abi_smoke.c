@@ -1,5 +1,12 @@
 #include <gravity/syscall.h>
 
+_Static_assert(GRAVITY_ABI_VERSION == 1u, "SDK and kernel Gravity ABI versions must match");
+_Static_assert(GRAVITY_XEXE_FORMAT_VERSION == 1u, "unexpected .xexe format version");
+_Static_assert(GRAVITY_XEXE_HEADER_SIZE == 32u, "unexpected .xexe v1 header size");
+_Static_assert(GRAVITY_XEXE_ARCH_RV64 == 1u, "unexpected .xexe architecture id");
+_Static_assert(GRAVITY_SYS_EXIT == 0u && GRAVITY_SYS_YIELD == 4u,
+               "Gravity syscall IDs changed without an ABI version update");
+
 /*
  * Compile-only SDK example. The live kernel currently has a built-in U-mode
  * probe, not a general application loader, so CI does not execute this object.

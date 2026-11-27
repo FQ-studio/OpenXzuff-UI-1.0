@@ -45,7 +45,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Compile Xzuff Go Gravity Kernel .xexe fixture
         run: |
-          ./build/xzuff-go language/xzuff-go/tests/return_42.xgo build/return_42.xexe
+          ./build/xzuff-go language/xzuff-go/examples/rv64_return_42.xgo build/return_42.xexe
           ./build/xexe-loader-test build/return_42.xexe
           test "$(wc -c < build/return_42.xexe)" -gt 32
           test "$(od -An -tx1 -N8 build/return_42.xexe | awk '{ $1=$1; gsub(/ /, ""); print }')" = "585a584558453100"
@@ -93,7 +93,7 @@ jobs:
           install -m 0755 build-android-arm64/xgo "$DIST/bin/xgo"
           install -m 0755 build-android-arm64/xzuff-go "$DIST/bin/xzuff-go"
           install -m 0755 build-android-arm64/xzuff-check "$DIST/bin/xzuff-check"
-          install -m 0644 language/xzuff-go/tests/return_42.xgo "$DIST/examples/return_42.xgo"
+          install -m 0644 language/xzuff-go/examples/rv64_return_42.xgo "$DIST/examples/return_42.xgo"
           install -m 0644 build/return_42.xexe "$DIST/examples/return_42.xexe"
           cat > "$DIST/README.txt" <<'EOF'
           OpenXzuff UI 1.0 - Xzuff Go / xgo Android ARM64 toolchain for Termux

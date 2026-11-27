@@ -1,4 +1,5 @@
 #include <array>
+#include <charconv>
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -6,8 +7,11 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
+
+#include <gravity/abi.h>
 
 namespace {
 
@@ -31,20 +35,21 @@ public:
                 while (position_ < source_.size() && source_[position_] != '\n') advance();
                 continue;
             }
+
             const std::size_t startLine = line_;
             const std::size_t startColumn = column_;
             if (isAlpha(c) || c == '_') {
                 std::string value;
-                while (position_ < source_.size() && (isAlpha(source_[position_]) || isDigit(source_[position_]) || source_[position_] == '_')) {
+                while (position_ < source_.size() &&
+                       (isAlpha(source_[position_]) || isDigit(source_[position_]) || source_[position_] == '_')) {
                     value.push_back(source_[position_]);
                     advance();
                 }
                 tokens.push_back({value, startLine, startColumn});
                 continue;
             }
-            if (isDigit(c) || (c == '-' && isDigit(peek(1)))) {
+            if (isDigit(c)) {
                 std::string value;
-                if (c == '-') { value.push_back(c); advance(); }
                 while (position_ < source_.size() && isDigit(source_[position_])) {
                     value.push_back(source_[position_]);
                     advance();
@@ -52,12 +57,13 @@ public:
                 tokens.push_back({value, startLine, startColumn});
                 continue;
             }
-            if (std::string_view("(){}:;").find(c) != std::string_view::npos) {
+            if (std::string_view("(){}:;+-*/%").find(c) != std::string_view::npos) {
                 tokens.push_back({std::string(1, c), startLine, startColumn});
                 advance();
                 continue;
             }
-            throw std::runtime_error("unexpected character at line " + std::to_string(line_) + ", column " + std::to_string(column_));
+            throw std::runtime_error("unexpected character at line " + std::to_string(line_) +
+                                     ", column " + std::to_string(column_));
         }
         tokens.push_back({"<end>", line_, column_});
         return tokens;
@@ -66,7 +72,9 @@ public:
 private:
     static bool isAlpha(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
     static bool isDigit(char c) { return c >= '0' && c <= '9'; }
-    char peek(std::size_t offset) const { return position_ + offset < source_.size() ? source_[position_ + offset] : '\0'; }
+    char peek(std::size_t offset) const {
+        return position_ + offset < source_.size() ? source_[position_ + offset] : '\0';
+    }
     void advance() { ++position_; ++column_; }
 
     std::string source_;
@@ -88,42 +96,168 @@ public:
         expect("i32");
         expect("{");
         expect("return");
-        const Token value = current();
-        std::int64_t parsed = 0;
-        try {
-            std::size_t consumed = 0;
-            parsed = std::stoll(value.text, &consumed, 10);
-            if (consumed != value.text.size()) fail("expected an integer return value");
-        } catch (const std::exception&) {
-            fail("expected an integer return value");
+        const std::int64_t parsed = parseExpression();
+        if (parsed < std::numeric_limits<std::int32_t>::min() ||
+            parsed > std::numeric_limits<std::int32_t>::max()) {
+            fail("constant expression result must fit signed i32 (-2147483648..2147483647)");
         }
-        if (parsed < -2147483648LL || parsed > 2147483647LL) fail("return constant must fit signed i32 (-2147483648..2147483647)");
-        ++index_;
         expect(";");
         expect("}");
-        if (current().text != "<end>") fail("only one function, main, is supported by this compiler milestone");
+        if (current().text != "<end>") {
+            fail("only one function, main, is supported by this compiler milestone");
+        }
         return static_cast<std::int32_t>(parsed);
     }
 
 private:
+    static bool isDigit(char c) { return c >= '0' && c <= '9'; }
+
     const Token& current() const { return tokens_.at(index_); }
+
     [[noreturn]] void fail(const std::string& message) const {
-        throw std::runtime_error(message + " at line " + std::to_string(current().line) + ", column " + std::to_string(current().column));
+        throw std::runtime_error(message + " at line " + std::to_string(current().line) +
+                                 ", column " + std::to_string(current().column));
     }
+
     void expect(const std::string& expected) {
-        if (current().text != expected) fail("expected '" + expected + "', found '" + current().text + "'");
+        if (current().text != expected) {
+            fail("expected '" + expected + "', found '" + current().text + "'");
+        }
         ++index_;
     }
+
+    bool match(std::string_view expected) {
+        if (current().text != expected) return false;
+        ++index_;
+        return true;
+    }
+
+    std::int64_t checkedAdd(std::int64_t left, std::int64_t right) const {
+        const auto minimum = std::numeric_limits<std::int64_t>::min();
+        const auto maximum = std::numeric_limits<std::int64_t>::max();
+        if ((right > 0 && left > maximum - right) ||
+            (right < 0 && left < minimum - right)) {
+            fail("signed 64-bit constant-expression overflow in addition");
+        }
+        return left + right;
+    }
+
+    std::int64_t checkedSubtract(std::int64_t left, std::int64_t right) const {
+        const auto minimum = std::numeric_limits<std::int64_t>::min();
+        const auto maximum = std::numeric_limits<std::int64_t>::max();
+        if ((right > 0 && left < minimum + right) ||
+            (right < 0 && left > maximum + right)) {
+            fail("signed 64-bit constant-expression overflow in subtraction");
+        }
+        return left - right;
+    }
+
+    std::int64_t checkedMultiply(std::int64_t left, std::int64_t right) const {
+        const auto minimum = std::numeric_limits<std::int64_t>::min();
+        const auto maximum = std::numeric_limits<std::int64_t>::max();
+        if (left == 0 || right == 0) return 0;
+        if ((left == -1 && right == minimum) || (right == -1 && left == minimum)) {
+            fail("signed 64-bit constant-expression overflow in multiplication");
+        }
+        if (left > 0) {
+            if ((right > 0 && left > maximum / right) ||
+                (right < 0 && right < minimum / left)) {
+                fail("signed 64-bit constant-expression overflow in multiplication");
+            }
+        } else {
+            if ((right > 0 && left < minimum / right) ||
+                (right < 0 && right < maximum / left)) {
+                fail("signed 64-bit constant-expression overflow in multiplication");
+            }
+        }
+        return left * right;
+    }
+
+    std::int64_t checkedDivide(std::int64_t left, std::int64_t right) const {
+        if (right == 0) fail("division by zero in constant expression");
+        if (left == std::numeric_limits<std::int64_t>::min() && right == -1) {
+            fail("signed 64-bit constant-expression overflow in division");
+        }
+        return left / right;
+    }
+
+    std::int64_t checkedModulo(std::int64_t left, std::int64_t right) const {
+        if (right == 0) fail("modulo by zero in constant expression");
+        if (left == std::numeric_limits<std::int64_t>::min() && right == -1) {
+            fail("signed 64-bit constant-expression overflow in modulo");
+        }
+        return left % right;
+    }
+
+    std::int64_t parseExpression() { return parseAdditive(); }
+
+    std::int64_t parseAdditive() {
+        std::int64_t value = parseMultiplicative();
+        while (current().text == "+" || current().text == "-") {
+            const std::string operation = current().text;
+            ++index_;
+            const std::int64_t right = parseMultiplicative();
+            value = operation == "+" ? checkedAdd(value, right) : checkedSubtract(value, right);
+        }
+        return value;
+    }
+
+    std::int64_t parseMultiplicative() {
+        std::int64_t value = parseUnary();
+        while (current().text == "*" || current().text == "/" || current().text == "%") {
+            const std::string operation = current().text;
+            ++index_;
+            const std::int64_t right = parseUnary();
+            if (operation == "*") value = checkedMultiply(value, right);
+            else if (operation == "/") value = checkedDivide(value, right);
+            else value = checkedModulo(value, right);
+        }
+        return value;
+    }
+
+    std::int64_t parseUnary() {
+        if (match("+")) return parseUnary();
+        if (match("-")) {
+            const std::int64_t value = parseUnary();
+            if (value == std::numeric_limits<std::int64_t>::min()) {
+                fail("signed 64-bit constant-expression overflow in unary minus");
+            }
+            return -value;
+        }
+        return parsePrimary();
+    }
+
+    std::int64_t parsePrimary() {
+        if (match("(")) {
+            const std::int64_t value = parseExpression();
+            expect(")");
+            return value;
+        }
+
+        const Token token = current();
+        if (token.text.empty() || !isDigit(token.text.front())) {
+            fail("expected an integer literal or '(' in constant expression");
+        }
+        std::int64_t value = 0;
+        const char* begin = token.text.data();
+        const char* end = begin + token.text.size();
+        const auto parsed = std::from_chars(begin, end, value, 10);
+        if (parsed.ec == std::errc::result_out_of_range || parsed.ptr != end) {
+            fail("integer literal exceeds signed 64-bit range");
+        }
+        if (parsed.ec != std::errc{}) fail("invalid integer literal");
+        ++index_;
+        return value;
+    }
+
     std::vector<Token> tokens_;
     std::size_t index_ = 0;
 };
 
 #ifndef XZUFF_CHECKER_MODE
 std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
-    // Gravity Kernel ABI v1: a0 carries the exit status; a7 carries syscall ID 0 for Exit.
-    // Build any signed i32 using LUI+ADDIW when the low 12 bits are nonzero.
-    // ADDIW sign-extends the resulting 32-bit value, which is essential at
-    // INT32_MAX where the rounded LUI immediate has bit 19 set.
+    // Gravity ABI v1: a0 carries the Exit status; a7 carries syscall ID 0.
+    // LUI+ADDIW builds every signed i32 value and ADDIW sign-extends bit 31.
     const std::int64_t value = returnValue;
     const std::int64_t upper = (value + 0x800) >> 12;
     const std::int64_t lower = value - (upper * 4096);
@@ -135,87 +269,161 @@ std::vector<std::uint8_t> generateRv64(std::int32_t returnValue) {
         code.push_back(static_cast<std::uint8_t>((instruction >> 24U) & 0xFFU));
     };
     if (upper == 0) {
-        emit((static_cast<std::uint32_t>(lower) & 0xFFFU) << 20U | (10U << 7U) | 0x13U); // addi a0, zero, lower
+        emit((static_cast<std::uint32_t>(lower) & 0xFFFU) << 20U |
+             (10U << 7U) | 0x13U);
     } else {
         const auto upper20 = static_cast<std::uint32_t>(upper) & 0xFFFFFU;
-        emit((upper20 << 12U) | (10U << 7U) | 0x37U); // lui a0, upper20
+        emit((upper20 << 12U) | (10U << 7U) | 0x37U);
         if (lower != 0) {
             const auto lower12 = static_cast<std::uint32_t>(lower) & 0xFFFU;
-            emit((lower12 << 20U) | (10U << 15U) | (10U << 7U) | 0x1BU); // addiw a0, a0, lower; sign-extend i32
+            emit((lower12 << 20U) | (10U << 15U) | (10U << 7U) | 0x1BU);
         }
     }
-    emit((17U << 7U) | 0x13U); // addi a7, zero, Exit syscall 0
-    emit(0x00000073U); // ecall
+    emit((static_cast<std::uint32_t>(GRAVITY_SYS_EXIT) << 20U) |
+         (17U << 7U) | 0x13U);
+    emit(0x00000073U);
     return code;
 }
 
-void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset, std::uint64_t value, std::size_t width) {
-    if (offset + width > bytes.size()) throw std::runtime_error("internal .xexe layout overflow");
+void writeLe(std::vector<std::uint8_t>& bytes, std::size_t offset,
+             std::uint64_t value, std::size_t width) {
+    if (offset > bytes.size() || width > bytes.size() - offset) {
+        throw std::runtime_error("internal .xexe layout overflow");
+    }
     for (std::size_t i = 0; i < width; ++i) {
         bytes[offset + i] = static_cast<std::uint8_t>((value >> (8U * i)) & 0xFFU);
     }
 }
 
 std::vector<std::uint8_t> makeGravityXexe(const std::vector<std::uint8_t>& code) {
-    // OpenXzuff .xexe v1 header: magic[8], version:u16, header_size:u16,
-    // architecture:u16 (1 = RV64), ABI version:u16, entry_offset:u64,
-    // code_size:u32, flags:u32. All integer fields are little-endian.
-    constexpr std::size_t headerSize = 32;
+    if (code.empty()) throw std::runtime_error("cannot emit an .xexe with an empty code payload");
+    if (code.size() > std::numeric_limits<std::uint32_t>::max()) {
+        throw std::runtime_error(".xexe code payload exceeds the v1 size field");
+    }
+    constexpr std::size_t headerSize = GRAVITY_XEXE_HEADER_SIZE;
+    if (code.size() > std::numeric_limits<std::size_t>::max() - headerSize) {
+        throw std::runtime_error(".xexe image size overflow");
+    }
     std::vector<std::uint8_t> executable(headerSize + code.size(), 0);
-    const std::array<std::uint8_t, 8> magic{'X','Z','X','E','X','E','1',0};
-    for (std::size_t i = 0; i < magic.size(); ++i) executable[i] = magic[i];
-    writeLe(executable, 8, 1, 2); // format version
-    writeLe(executable, 10, headerSize, 2);
-    writeLe(executable, 12, 1, 2); // RV64
-    writeLe(executable, 14, 1, 2); // Gravity Kernel ABI v1
-    writeLe(executable, 16, headerSize, 8); // entry offset from start of file
-    writeLe(executable, 24, code.size(), 4);
-    writeLe(executable, 28, 0, 4); // flags reserved; must be zero in v1
+    constexpr char magic[] = GRAVITY_XEXE_MAGIC;
+    static_assert(sizeof(magic) == 8, "Gravity .xexe magic must remain exactly 8 bytes");
+    for (std::size_t i = 0; i < sizeof(magic); ++i) {
+        executable[i] = static_cast<std::uint8_t>(magic[i]);
+    }
+    writeLe(executable, GRAVITY_XEXE_OFFSET_FORMAT_VERSION, GRAVITY_XEXE_FORMAT_VERSION, 2);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_HEADER_SIZE, headerSize, 2);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_ARCHITECTURE, GRAVITY_XEXE_ARCH_RV64, 2);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_ABI_VERSION, GRAVITY_ABI_VERSION, 2);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_ENTRY, headerSize, 8);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_CODE_SIZE, code.size(), 4);
+    writeLe(executable, GRAVITY_XEXE_OFFSET_FLAGS, GRAVITY_XEXE_RESERVED_FLAGS, 4);
     for (std::size_t i = 0; i < code.size(); ++i) executable[headerSize + i] = code[i];
     return executable;
 }
 
 int selfTest() {
     const auto zero = generateRv64(0);
-    const std::vector<std::uint8_t> expectedZero{0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedZero{
+        0x13, 0x05, 0x00, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00
+    };
     if (zero != expectedZero) {
         std::cerr << "FAIL: RV64 instruction encoding for return 0\n";
         return 1;
     }
+
     const auto fortyTwo = generateRv64(42);
-    const std::vector<std::uint8_t> expectedFortyTwo{0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedFortyTwo{
+        0x13, 0x05, 0xA0, 0x02, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00
+    };
     if (fortyTwo != expectedFortyTwo) {
         std::cerr << "FAIL: RV64 instruction encoding for return 42\n";
         return 1;
     }
+
     const auto large = generateRv64(65536);
-    const std::vector<std::uint8_t> expectedLarge{0x37, 0x05, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+    const std::vector<std::uint8_t> expectedLarge{
+        0x37, 0x05, 0x01, 0x00, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00
+    };
     if (large != expectedLarge) {
         std::cerr << "FAIL: RV64 instruction encoding for return 65536\n";
         return 1;
     }
-    const auto negative = generateRv64(-2147483647 - 1);
-    const std::vector<std::uint8_t> expectedNegative{0x37, 0x05, 0x00, 0x80, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00};
+
+    const auto negative = generateRv64(std::numeric_limits<std::int32_t>::min());
+    const std::vector<std::uint8_t> expectedNegative{
+        0x37, 0x05, 0x00, 0x80, 0x93, 0x08, 0x00, 0x00, 0x73, 0x00, 0x00, 0x00
+    };
     if (negative != expectedNegative) {
         std::cerr << "FAIL: RV64 instruction encoding for INT32_MIN\n";
         return 1;
     }
-    const auto maximum = generateRv64(2147483647);
+
+    const auto maximum = generateRv64(std::numeric_limits<std::int32_t>::max());
     const std::vector<std::uint8_t> expectedMaximum{
-        0x37, 0x05, 0x00, 0x80, // lui a0, 0x80000
-        0x1B, 0x05, 0xF5, 0xFF, // addiw a0, a0, -1 (sign-extends to INT32_MAX)
-        0x93, 0x08, 0x00, 0x00, // addi a7, zero, Exit syscall 0
-        0x73, 0x00, 0x00, 0x00  // ecall
+        0x37, 0x05, 0x00, 0x80,
+        0x1B, 0x05, 0xF5, 0xFF,
+        0x93, 0x08, 0x00, 0x00,
+        0x73, 0x00, 0x00, 0x00
     };
     if (maximum != expectedMaximum) {
-        std::cerr << "FAIL: RV64 instruction encoding for INT32_MAX\\n";
+        std::cerr << "FAIL: RV64 instruction encoding for INT32_MAX\n";
         return 1;
     }
-    std::cout << "Xzuff Go compiler unit self-test: PASS\n";
+
+    const auto parse = [](std::string source) {
+        return Parser(Lexer(std::move(source)).scan()).parseMainReturn();
+    };
+    struct ExpressionCase {
+        const char* source;
+        std::int32_t expected;
+    };
+    const std::array<ExpressionCase, 8> expressions{{
+        {"function main() returns i32 { return 2 + 3 * 4; }", 14},
+        {"function main() returns i32 { return (2 + 3) * 4; }", 20},
+        {"function main() returns i32 { return -(-7 + 2) * 3; }", 15},
+        {"function main() returns i32 { return 18 / 3 / 2 + 17 % 5; }", 5},
+        {"function main() returns i32 { return 1 - -2; }", 3},
+        {"function main() returns i32 { return +7 + 1; }", 8},
+        {"function main() returns i32 { return -7 * -6; }", 42},
+        {"function main() returns i32 { return -2147483648; }", std::numeric_limits<std::int32_t>::min()}
+    }};
+    for (const auto& test : expressions) {
+        if (parse(test.source) != test.expected) {
+            std::cerr << "FAIL: constant-expression parser or precedence\n";
+            return 1;
+        }
+    }
+
+    const std::array<const char*, 10> invalidExpressions{{
+        "function main() returns i32 { return 1 / (2 - 2); }",
+        "function main() returns i32 { return 2147483647 + 1; }",
+        "function main() returns i32 { return 9223372036854775807 + 1; }",
+        "function main() returns i32 { return 2 + * 3; }",
+        "function main() returns i32 { return 9223372036854775807 * 2; }",
+        "function main() returns i32 { return -9223372036854775807 * -2; }",
+        "function main() returns i32 { return 9223372036854775807 - -1; }",
+        "function main() returns i32 { return (-9223372036854775807 - 1) / -1; }",
+        "function main() returns i32 { return (-9223372036854775807 - 1) % -1; }",
+        "function main() returns i32 { return 1 % 0; }"
+    }};
+    for (const char* source : invalidExpressions) {
+        bool rejected = false;
+        try {
+            (void)parse(source);
+        } catch (const std::exception&) {
+            rejected = true;
+        }
+        if (!rejected) {
+            std::cerr << "FAIL: invalid constant expression was accepted\n";
+            return 1;
+        }
+    }
+
+    std::cout << "Xzuff Go compiler self-test: PASS (RV64 codegen and constant expressions)\n";
     return 0;
 }
-
 #endif // XZUFF_CHECKER_MODE
+
 } // namespace
 
 #ifdef XZUFF_CHECKER_MODE
@@ -246,8 +454,6 @@ std::string jsonEscape(std::string_view value) {
 int main(int argc, char** argv) {
 #ifdef XZUFF_CHECKER_MODE
     bool json = false;
-#endif
-#ifdef XZUFF_CHECKER_MODE
     if (argc == 2 && std::string_view(argv[1]) == "--help") {
         std::cout << "Usage: xzuff-check [--json] <input.xgo>\n";
         return 0;
@@ -282,11 +488,12 @@ int main(int argc, char** argv) {
     if (argc != 3) {
         std::cerr << "Usage: xzuff-go <input.xgo> <output.xexe>\n"
                   << "       xzuff-go --check <input.xgo>\n"
-                  << "Supported subset: function main() returns i32 { return INTEGER; }\n";
+                  << "Supported subset: function main() returns i32 { return CONSTANT_EXPRESSION; }\n";
         return 2;
     }
     const std::string inputPath = argv[1];
 #endif
+
     try {
         std::ifstream input(inputPath, std::ios::binary);
         if (!input) throw std::runtime_error("cannot open input source file");
@@ -306,10 +513,14 @@ int main(int argc, char** argv) {
         const auto executable = makeGravityXexe(code);
         std::ofstream output(argv[2], std::ios::binary);
         if (!output) throw std::runtime_error("cannot create output file");
-        output.write(reinterpret_cast<const char*>(executable.data()), static_cast<std::streamsize>(executable.size()));
+        output.write(reinterpret_cast<const char*>(executable.data()),
+                     static_cast<std::streamsize>(executable.size()));
         if (!output) throw std::runtime_error("failed while writing output file");
-        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size() << " bytes) with RV64 machine code. Entry function exits with status " << returnValue << ".\n";
-        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID 0).\n";
+        std::cout << "Generated Gravity Kernel .xexe executable (" << executable.size()
+                  << " bytes) with RV64 machine code. Entry function exits with status "
+                  << returnValue << ".\n";
+        std::cout << "Target ABI is Gravity Kernel RV64 ABI v1 (Exit syscall ID "
+                  << GRAVITY_SYS_EXIT << ").\n";
         return 0;
 #endif
     } catch (const std::exception& error) {
