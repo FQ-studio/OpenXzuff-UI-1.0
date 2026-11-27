@@ -37,5 +37,13 @@ bool GailRuntime::load(std::string_view source,std::string* error){
  if(!(add_||subtract_||multiply_||divide_)){if(error)*error="GAIL declares no supported arithmetic mechanisms";return false;}
  loaded_=true;if(error)error->clear();return true;
 }
-GailResult GailRuntime::ask(std::string_view question)const{if(!loaded_)return {false,0,{},"GAIL program is not loaded"};auto r=arithmetic_.evaluate(question);if(!r.ok)return {false,0,{},r.error};return {true,r.value,sentence_.compose(question,r.value),{}};}
+GailResult GailRuntime::ask(std::string_view question)const{
+ if(!loaded_)return {false,0,{},"GAIL program is not loaded"};
+ const bool usesDivide=question.find('/')!=std::string_view::npos||question.find("÷")!=std::string_view::npos;
+ if((question.find('+')!=std::string_view::npos&&!add_)||(question.find('-')!=std::string_view::npos&&!subtract_)||(question.find('*')!=std::string_view::npos&&!multiply_)||(usesDivide&&!divide_))
+  return {false,0,{},"the requested operation is not declared in this GAIL program"};
+ auto r=arithmetic_.evaluate(question);
+ if(!r.ok)return {false,0,{},r.error};
+ return {true,r.value,sentence_.compose(question,r.value),{}};
+}
 } // namespace gravity::ai
