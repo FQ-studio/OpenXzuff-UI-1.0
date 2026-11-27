@@ -8,6 +8,8 @@
 - PR #16 remains a draft and is not merged into main.
 - Compiler/ABI implementation commit: fd8a693ca783d1f90e03c8be78961cb83eb56e66
 - Compiler parser build-fix commit: 9505fc6b71424791792ac671f9b5f89edb03b804
+- CLI runtime-boundary commit: 07e1749ea4d9d0810bdbcef3a8ed581750992cb9
+- Arithmetic overflow test-coverage commit: a4f9ed7fca6556c97c1d9a68c266bad7a0370aad
 
 ## Changes completed
 
@@ -19,7 +21,7 @@
 - Added checked signed 64-bit intermediate arithmetic, division/remainder-by-zero rejection, signed overflow rejection and final signed-i32 range checking.
 - Kept expression evaluation as compile-time constant folding. The compiler does not yet emit dynamic arithmetic for variables or runtime values.
 - Added examples/rv64_constant_expression.xgo, which evaluates to 33.
-- Expanded the compiler self-test and Coder Checker CTest cases for precedence, unary operators, division by zero, i32 overflow, i64 overflow and malformed expressions.
+- Expanded the compiler self-test and Coder Checker CTest cases for precedence, unary plus/minus, division/remainder by zero, i32 overflow, i64 add/subtract/multiply/divide/modulo overflow and malformed expressions.
 
 ### Gravity ABI and XEXE
 
@@ -32,12 +34,13 @@
 - Added C11 static assertions in sdk/gravity/examples/abi_smoke.c for Gravity ABI v1, .xexe v1 header geometry and stable Exit/Yield syscall IDs.
 - Kept the SDK wrapper boundary explicit: Exit, SendMessage, ReceiveMessage and Yield are the current general C wrappers in this branch.
 - Kept the NDK as a freestanding RV64 C object toolchain. It is not yet a linkable application NDK.
+- Added xgo test for source smoke checks and made xgo run return an explicit unsupported diagnostic until a general .xexe process loader and process startup path exist.
 
 ## Verification evidence
 
-- Windows host: [Xzuff Go Windows Host Smoke run #46081788865](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46081788865) — SUCCESS on commit 9505fc6. CTest selected suite: 15/15 passed. This is a Windows x64 hosted runner, not a native Windows ARM64 runner.
-- Linux / SDK / NDK / Android: [OpenXzuff UI Runtime run #46081788858](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46081788858) — the following Xzuff-relevant steps completed successfully on commit 9505fc6: configure/build, OS contracts + Xzuff Go/Coder Checker tests, compiler-produced .xexe fixture, RV64 bare-metal C toolchain installation, Gravity RV64 NDK configure/build, Android SDK/NDK setup, Android ARM64 cross-compilation of xgo/xzuff-go/xzuff-check, and packaging of the Android ARM64 toolchain and Gravity RV64 SDK/NDK. The overall workflow was still running later unrelated Luau/JavaScript/Lua/3D jobs when this checkpoint was recorded; do not label the entire workflow PASS.
-- VisionFive 2: [Readiness run #46081788860](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46081788860) — SUCCESS for hosted build, strict-warning, CTest and board-contract checks. This is not a physical VisionFive 2 boot.
+- Windows host: [Xzuff Go Windows Host Smoke run #46082251895](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46082251895) — SUCCESS on commit a4f9ed7. CTest selected suite: 15/15 passed, including the xgo test/run boundary, constant-expression parsing, overflow rejection and compiler-produced .xexe validation. This is a Windows x64 hosted runner, not a native Windows ARM64 runner.
+- Linux / SDK / NDK / Android: [OpenXzuff UI Runtime run #46082251936](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46082251936) — the following Xzuff-relevant steps completed successfully on commit a4f9ed7: configure/build, OS contracts + Xzuff Go/Coder Checker tests, compiler-produced .xexe fixture, RV64 bare-metal C toolchain installation, Gravity RV64 NDK configure/build, Android SDK/NDK setup, Android ARM64 cross-compilation of xgo/xzuff-go/xzuff-check, and packaging of the Android ARM64 toolchain and Gravity RV64 SDK/NDK. The overall workflow was still running later unrelated Luau/JavaScript/Lua/3D jobs when this checkpoint was recorded; do not label the entire workflow PASS.
+- VisionFive 2: [Readiness run #46082204352](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/46082204352) — SUCCESS for hosted build, strict-warning, CTest and board-contract checks on the immediately preceding CLI commit. This is not a physical VisionFive 2 boot.
 - Separate kernel/QEMU evidence: [RV64 S-Mode Kernel run #45969995127](https://github.com/FQ-studio/OpenXzuff-UI-1.0/actions/runs/45969995127) — SUCCESS on the separate Gravity/kernel branch. It built the RV64 kernel ELF and completed the OpenSBI/QEMU boot with UART RX interrupt injection. This is not the same branch/commit as PR #16 and does not execute the compiler-produced .xexe application.
 
 ## Current implementation boundary
