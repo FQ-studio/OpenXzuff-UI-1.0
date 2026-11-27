@@ -5,6 +5,8 @@ on:
   push:
     paths:
       - 'kernel/**'
+      - 'ai/gravity/**'
+      - 'CMakeLists.txt'
       - 'sdk/gravity/**'
       - 'win32-gaming/**'
       - 'CMakeLists.txt'
