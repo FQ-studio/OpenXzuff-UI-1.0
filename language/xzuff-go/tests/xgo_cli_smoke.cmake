@@ -19,10 +19,19 @@ if(NOT check_out MATCHES "Xzuff Go check: PASS")
   message(FATAL_ERROR "xgo did not forward Coder Checker output\n${check_out}\n${check_err}")
 endif()
 
+execute_process(COMMAND "${XGO}" test WORKING_DIRECTORY "${WORK_DIR}"
+  RESULT_VARIABLE test_result OUTPUT_VARIABLE test_out ERROR_VARIABLE test_err)
+if(NOT test_result EQUAL 0)
+  message(FATAL_ERROR "xgo test failed (${test_result})\n${test_out}\n${test_err}")
+endif()
+
 execute_process(COMMAND "${XGO}" run WORKING_DIRECTORY "${WORK_DIR}"
   RESULT_VARIABLE run_result OUTPUT_VARIABLE run_out ERROR_VARIABLE run_err)
-if(NOT run_result EQUAL 0)
-  message(FATAL_ERROR "xgo run failed (${run_result})\n${run_out}\n${run_err}")
+if(run_result EQUAL 0)
+  message(FATAL_ERROR "xgo run unexpectedly claimed that an application runtime is available")
+endif()
+if(NOT run_err MATCHES "general .xexe process loader")
+  message(FATAL_ERROR "xgo run did not explain the missing process loader\n${run_out}\n${run_err}")
 endif()
 
 execute_process(COMMAND "${XGO}" build WORKING_DIRECTORY "${WORK_DIR}"
@@ -45,5 +54,5 @@ if(bad_check_result EQUAL 2)
   message(FATAL_ERROR "xgo check returned usage exit 2 instead of a source diagnostic\n${bad_check_out}\n${bad_check_err}")
 endif()
 
-message(STATUS "xgo CLI smoke test: PASS (create/check/run/build and checker rejection)")
+message(STATUS "xgo CLI smoke test: PASS (create/check/test/run guard/build and checker rejection)")
 file(REMOVE_RECURSE "${WORK_DIR}")

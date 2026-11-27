@@ -46,13 +46,15 @@
 |---|---|---|
 | Xzuff Go compiler | One main function returning an i32 constant expression; emits RV64 Exit stub | No variables, runtime arithmetic, functions, modules, IR or optimizer |
 | Coder Checker | Shares compiler lexer/parser; expression and rejection tests pass | Not a full language type checker/linter |
-| xgo CLI | create/check/build and source-smoke run; POSIX and Windows process launch tested | run does not execute compiled applications |
+| xgo CLI | create/check/test/build; run explicitly reports the missing runtime; POSIX and Windows process launch tested | no application execution until the general loader and process startup exist |
 | Gravity ABI | Shared v1 syscall and .xexe constants | No general per-process memory/startup contract |
 | .xexe v1 | 32-byte code-only image; compiler output and validator integration tested | No data/BSS, relocations, symbol table, linker or process loader |
 | Gravity SDK | Sysroot headers and Exit/Send/Receive/Yield wrappers | No general application memory or file-service wrappers in this branch |
 | Gravity NDK | RV64IMAC/LP64 freestanding C object build | No C++ runtime, libc, CRT, linker or application launcher |
 | Android ARM64 host tools | xgo/compiler/checker cross-built and packaged for arm64-v8a | No physical Termux device test in this run |
 | Windows host tools | Windows x64 compiler/CLI/validator tests passed | No native Windows ARM64 runner test |
+
+The xgo CLI now separates source smoke tests under xgo test from application execution under xgo run. The latter returns a clear not-supported diagnostic because the general .xexe process loader is not implemented.
 
 ## Next technical gates
 

@@ -139,6 +139,7 @@ int usage(bool toError = true) {
     out << "Xzuff Go CLI\n"
         << "  xgo create <nama_projek>\n"
         << "  xgo check\n"
+        << "  xgo test\n"
         << "  xgo run\n"
         << "  xgo build\n"
         << "  xgo delete <nama_projek>\n";
@@ -267,13 +268,22 @@ int main(int argc, char** argv) {
     if (command == "run") {
         if (argc != 2) return usage();
         if (requireProject(root, command) != 0) return 1;
+        std::cerr << "xgo run: application execution is not available yet; "
+                     "the Gravity Kernel has no general .xexe process loader. "
+                     "Use xgo test for source smoke tests or xgo build to produce an image.\n";
+        return 1;
+    }
+
+    if (command == "test") {
+        if (argc != 2) return usage();
+        if (requireProject(root, command) != 0) return 1;
         if (!fs::is_regular_file(checker)) {
-            std::cerr << "xgo run: Coder Checker executable not found: " << checker << '\n';
+            std::cerr << "xgo test: Coder Checker executable not found: " << checker << '\n';
             return 1;
         }
         const fs::path tests = root / "tests";
         if (!fs::is_directory(tests)) {
-            std::cerr << "xgo run: tests directory not found\n";
+            std::cerr << "xgo test: tests directory not found\n";
             return 1;
         }
         std::size_t count = 0;
@@ -290,10 +300,10 @@ int main(int argc, char** argv) {
             std::cout << "[PASS] " << entry.path().filename().string() << '\n';
         }
         if (count == 0) {
-            std::cerr << "xgo run: no .xgo test files found in tests/\n";
+            std::cerr << "xgo test: no .xgo test files found in tests/\n";
             return 1;
         }
-        std::cout << "xgo run: PASS (" << count
+        std::cout << "xgo test: PASS (" << count
                   << " source smoke test(s)); no build was performed\n";
         return 0;
     }

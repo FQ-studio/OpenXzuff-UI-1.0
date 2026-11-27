@@ -81,13 +81,15 @@ The terminal-facing command dispatcher is built as xgo. Build all targets with C
 ./build/xgo create HelloWorld
 cd HelloWorld
 ../build/xgo check
-../build/xgo run
+../build/xgo test
 ../build/xgo build
+../build/xgo run
 ~~~
 
 - xgo create creates xgo.project, src/main.xgo, and tests/smoke_test.xgo.
 - xgo check runs Coder Checker against src/main.xgo.
-- xgo run checks each .xgo test file under tests; it does not execute a program or provide a runtime.
+- xgo test checks each .xgo test file under tests.
+- xgo run returns an explicit not-supported diagnostic until the kernel has a general .xexe process loader and process startup path.
 - xgo build runs Coder Checker first, then invokes the compiler to write build/project-name.xexe.
 - xgo delete only targets a project directly under the current directory and requires typing DELETE before recursive removal.
 
