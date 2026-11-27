@@ -377,12 +377,14 @@ int selfTest() {
         const char* source;
         std::int32_t expected;
     };
-    const std::array<ExpressionCase, 6> expressions{{
+    const std::array<ExpressionCase, 8> expressions{{
         {"function main() returns i32 { return 2 + 3 * 4; }", 14},
         {"function main() returns i32 { return (2 + 3) * 4; }", 20},
         {"function main() returns i32 { return -(-7 + 2) * 3; }", 15},
         {"function main() returns i32 { return 18 / 3 / 2 + 17 % 5; }", 5},
         {"function main() returns i32 { return 1 - -2; }", 3},
+        {"function main() returns i32 { return +7 + 1; }", 8},
+        {"function main() returns i32 { return -7 * -6; }", 42},
         {"function main() returns i32 { return -2147483648; }", std::numeric_limits<std::int32_t>::min()}
     }};
     for (const auto& test : expressions) {
@@ -392,11 +394,17 @@ int selfTest() {
         }
     }
 
-    const std::array<const char*, 4> invalidExpressions{{
+    const std::array<const char*, 10> invalidExpressions{{
         "function main() returns i32 { return 1 / (2 - 2); }",
         "function main() returns i32 { return 2147483647 + 1; }",
         "function main() returns i32 { return 9223372036854775807 + 1; }",
-        "function main() returns i32 { return 2 + * 3; }"
+        "function main() returns i32 { return 2 + * 3; }",
+        "function main() returns i32 { return 9223372036854775807 * 2; }",
+        "function main() returns i32 { return -9223372036854775807 * -2; }",
+        "function main() returns i32 { return 9223372036854775807 - -1; }",
+        "function main() returns i32 { return (-9223372036854775807 - 1) / -1; }",
+        "function main() returns i32 { return (-9223372036854775807 - 1) % -1; }",
+        "function main() returns i32 { return 1 % 0; }"
     }};
     for (const char* source : invalidExpressions) {
         bool rejected = false;
