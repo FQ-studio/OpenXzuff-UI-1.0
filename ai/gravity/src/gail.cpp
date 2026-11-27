@@ -21,6 +21,7 @@ private:
  std::string_view s_;std::size_t pos_{};
 };
 std::string trim(std::string_view s){std::size_t a=0,b=s.size();while(a<b&&std::isspace(static_cast<unsigned char>(s[a])))++a;while(b>a&&std::isspace(static_cast<unsigned char>(s[b-1])))--b;return std::string(s.substr(a,b-a));}
+bool has(std::string_view source,std::string_view token){return source.find(token)!=std::string_view::npos;}
 }
 ArithmeticResult ArithmeticEngine::evaluate(std::string_view e)const{return Parser(e).run();}
 std::string SentenceEngine::compose(std::string_view question,std::int64_t answer)const{return "Hasil pengiraan bagi "+trim(question)+" ialah "+std::to_string(answer)+".";}
