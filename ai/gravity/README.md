@@ -1,18 +1,21 @@
-# Gravity AI — Native Knowledge and Inference
+# Gravity AI — Native Knowledge, GAIL and Inference
 
 Gravity AI is an in-tree OpenXzuff UI subsystem implemented in C++20. It is not a separate Core edition.
 
-## Implemented now
-- Custom embedded knowledge store with a small SQL surface (CREATE TABLE knowledge and SELECT ... FROM knowledge), document insertion, bounded binary persistence, duplicate-ID checks and corruption checks.
-- RAG retrieval using BM25 lexical ranking over indexed document text.
-- Native CPU inference primitive using int8-quantized linear weights, float activations, tanh output and greedy logit selection.
+## Implemented in this branch
+- Existing custom embedded knowledge store, bounded .gxk binary persistence and BM25 lexical RAG.
+- Existing INT8-weight native inference primitive.
+- GAIL runtime entry points in C++: validates the initial @start/@ai/native/int8/code_end program envelope.
+- Arithmetic Engine: integer addition, subtraction, multiplication, division (/ and ÷), unary signs, parentheses, precedence, division-by-zero rejection and signed 64-bit overflow checks.
+- Sentence Engine: appends the computed answer after a generated deterministic Malay sentence. This is a template engine, not a trained natural-language generator.
+- Example source: examples/arithmetic.gxk. Host CMake tests exercise the arithmetic and runtime behavior.
 - No PyTorch, Python runtime or external database dependency.
 
-## Honest model boundary
-The inference runtime is executable C++ code, but it is not itself a trained language model. A trained/exported checkpoint and tokenizer are required for useful natural-language generation. Current RAG is lexical BM25, not embedding-based semantic retrieval. These limitations are explicit.
+## GAIL behavior and limits
+The current GAIL runtime validates the program envelope and exposes arithmetic question evaluation. It does not yet parse arbitrary GAIL declarations or compile general GAIL programs to machine code. The arithmetic evaluator is deterministic C++; it is not neural inference. The `precision int8` setting applies to neural inference configuration and does not truncate exact integer arithmetic.
 
-## Knowledge sharing and automatic updates
-The store accepts knowledge documents from trusted importers and persists them in .gxk format. The next integration stage is a source-adapter pipeline for repository documentation, curated public technical references and user-authorized ChatGPT/API exports, retaining source attribution, version, timestamp and licensing metadata. There is no supported API for reading GPT-6 private weights or internal model state, so no such transfer is claimed.
+## Honest model boundary
+The inference primitive is not a trained language model. A trained/exported checkpoint, tokenizer and generation pipeline are still required for open-ended natural-language generation. Current RAG is lexical BM25, not embedding-based semantic retrieval. SentenceEngine currently uses a deterministic template.
 
 ## Build and test
-The top-level CMake build produces gravity-ai-test; CTest runs the SQL/RAG/inference smoke test. This implementation currently targets host C++20 for CI validation. RV64-native deployment still requires integration with the OS runtime, allocator, storage and scheduler.
+The top-level CMake build produces gravity-ai-test and gravity-gail-test. CTest covers SQL/RAG/inference primitives and GAIL arithmetic/sentence behavior. This implementation currently targets host C++20 for CI validation. RV64-native deployment still requires integration with the OS runtime, allocator, storage and scheduler.
