@@ -18,3 +18,6 @@ add_executable(gravity-gail-test ai/gravity/tests/gail_arithmetic_test.cpp)
 target_link_libraries(gravity-gail-test PRIVATE gravity-ai-native)
 target_compile_options(gravity-gail-test PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-UNDEBUG;-Wall;-Wextra;-Wpedantic;-Werror>)
 add_test(NAME gravity-gail-arithmetic-sentence COMMAND gravity-gail-test)
+
+add_executable(gravity-elf-to-gnb ai/gravity/tools/elf_to_gnb.cpp)
+target_compile_options(gravity-elf-to-gnb PRIVATE $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Werror>)
