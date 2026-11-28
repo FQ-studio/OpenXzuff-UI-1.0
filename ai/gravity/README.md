@@ -19,3 +19,7 @@ The inference primitive is not a trained language model. A trained/exported chec
 
 ## Build and test
 The top-level CMake build produces gravity-ai-test and gravity-gail-test. CTest covers SQL/RAG/inference primitives and GAIL arithmetic/sentence behavior. This implementation currently targets host C++20 for CI validation. RV64-native deployment still requires integration with the OS runtime, allocator, storage and scheduler.
+
+## Native RV64 output
+
+The GNB v1 container and ELF-to-GNB converter are specified in [README-GNB.md](README-GNB.md). Clang/LLVM is the code-generation backend: it produces a static RV64 ELF intermediate, and the separate `gravity-elf-to-gnb` host tool packages its loadable segments into the Gravity-specific `.gnb` format. This does not make Clang itself emit GNB. The GNB loader and end-to-end GAIL-to-C++ source generator remain integration work.
