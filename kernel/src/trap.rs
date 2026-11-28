@@ -273,7 +273,8 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
                     || !crate::runtime::register_context_observed()
                     || !crate::runtime::ipc_roundtrip_observed()
                     || !crate::runtime::ipc_empty_receive_observed()
-                    || !crate::runtime::user_vm_roundtrip_observed() {
+                    || !crate::runtime::user_vm_roundtrip_observed()
+                    || !crate::runtime::user_file_io_roundtrip_observed() {
                     crate::console_write("U-mode syscall integration: FAIL\n");
                     crate::halt();
                 }
@@ -291,6 +292,10 @@ pub extern "C" fn gravity_u_trap_handler(frame_ptr: *mut TrapFrame) -> *mut Trap
             crate::syscall_abi::MAP_MEMORY => crate::runtime::on_user_map_memory(frame_ptr),
             crate::syscall_abi::UNMAP_MEMORY => crate::runtime::on_user_unmap_memory(frame_ptr),
             crate::syscall_abi::PROTECT_MEMORY => crate::runtime::on_user_protect_memory(frame_ptr),
+            crate::syscall_abi::OPEN => crate::runtime::on_user_open(frame_ptr),
+            crate::syscall_abi::READ => crate::runtime::on_user_read(frame_ptr),
+            crate::syscall_abi::WRITE => crate::runtime::on_user_write(frame_ptr),
+            crate::syscall_abi::CLOSE => crate::runtime::on_user_close(frame_ptr),
             5 => {
                 if !crate::runtime::user_timer_preemption_observed() {
                     crate::console_write("U-mode timer preemption + saved-frame resume: FAIL\n");

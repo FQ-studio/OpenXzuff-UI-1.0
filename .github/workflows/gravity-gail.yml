@@ -1,0 +1,30 @@
+name: Gravity AI GAIL and GNB Pipeline
+on:
+  push:
+    paths:
+      - "ai/gravity/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/gravity-gail.yml"
+  pull_request:
+    paths:
+      - "ai/gravity/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/gravity-gail.yml"
+  workflow_dispatch:
+jobs:
+  gail-and-gnb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Clang and LLD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+      - name: Configure C++20 host tools
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build Gravity AI tests and GNB converter
+        run: cmake --build build --target gravity-gail-test gravity-elf-to-gnb --parallel 2
+      - name: Run GAIL tests
+        run: ctest --test-dir build -R gravity-gail-arithmetic-sentence --output-on-failure
+      - name: Compile real RV64 ELF with Clang and convert to GNB
+        run: bash ai/gravity/tests/gnb_smoke.sh clang build/gravity-elf-to-gnb

@@ -1,0 +1,28 @@
+@start {
+    mode native;
+    precision int8;
+}
+
+@ai {
+    quest : have *
+    mechanism : multiply number with number
+    answer : from multiplication result
+
+    quest : have +
+    mechanism : plus number with number
+    answer : from addition result
+
+    quest : have -
+    mechanism : subtract number from number
+    answer : from subtraction result
+
+    quest : have ÷
+    mechanism : divide number by number
+    answer : from division result
+
+    answer + sentence {
+        sentence by_ai();
+    }
+}
+
+code_end;
