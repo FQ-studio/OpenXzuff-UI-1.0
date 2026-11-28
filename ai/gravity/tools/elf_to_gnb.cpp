@@ -25,7 +25,7 @@ B convert(const B&e){
  if(!n||phoff>e.size()||std::uint64_t(n)*56>e.size()-phoff)throw std::runtime_error("invalid program-header table");
  std::vector<S> ss;
  for(std::uint16_t i=0;i<n;++i){auto p=std::size_t(phoff)+std::size_t(i)*56;if(r32(e,p)!=1)continue;
-  auto fl=r32(e,p+4),off=r64(e,p+8),va=r64(e,p+16),fs=r64(e,p+32),ms=r64(e,p+40),al=r64(e,p+48);
+  const auto fl=r32(e,p+4); const auto off=r64(e,p+8),va=r64(e,p+16),fs=r64(e,p+32),ms=r64(e,p+40),al=r64(e,p+48);
   if(fs>ms||off>e.size()||fs>e.size()-off)throw std::runtime_error("invalid PT_LOAD bounds");
   if(ms==0)continue;if(al>1&&(al&(al-1)))throw std::runtime_error("invalid PT_LOAD alignment");
   ss.push_back({va,ms,fs,off,al,fl});
@@ -43,7 +43,7 @@ bool verify(const B&b){
  auto n=r32(b,24),table=r64(b,32),payload=r64(b,40);
  if(!n||n>64||table!=56||payload!=56+std::uint64_t(n)*48||payload>b.size())return false;
  if(hash(b,56)!=r64(b,48))return false;
- for(std::uint32_t i=0;i<n;++i){auto p=56+std::size_t(i)*48,mem=r64(b,p+8),sz=r64(b,p+16),off=r64(b,p+24);
+ for(std::uint32_t i=0;i<n;++i){const auto p=56+std::size_t(i)*48; const auto mem=r64(b,p+8),sz=r64(b,p+16),off=r64(b,p+24);
   if(sz>mem||off<payload||off>b.size()||sz>b.size()-off)return false;
   auto al=r64(b,p+32);if(al>1&&(al&(al-1)))return false;
  }
