@@ -2,6 +2,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <stdexcept>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -27,7 +29,8 @@ B convert(const B&e){
  for(std::uint16_t i=0;i<n;++i){auto p=std::size_t(phoff)+std::size_t(i)*56;if(r32(e,p)!=1)continue;
   const auto fl=r32(e,p+4); const auto off=r64(e,p+8),va=r64(e,p+16),fs=r64(e,p+32),ms=r64(e,p+40),al=r64(e,p+48);
   if(fs>ms||off>e.size()||fs>e.size()-off)throw std::runtime_error("invalid PT_LOAD bounds");
-  if(ms==0)continue;if(al>1&&(al&(al-1)))throw std::runtime_error("invalid PT_LOAD alignment");
+  if(ms==0) continue;
+  if(al>1&&(al&(al-1))) throw std::runtime_error("invalid PT_LOAD alignment");
   ss.push_back({va,ms,fs,off,al,fl});
  }
  if(ss.empty()||ss.size()>64)throw std::runtime_error("requires 1..64 PT_LOAD segments");
@@ -40,12 +43,13 @@ B convert(const B&e){
 }
 bool verify(const B&b){
  if(b.size()<56||b[0]!='G'||b[1]!='N'||b[2]!='B'||b[3]!='1'||r16(b,4)!=1||r16(b,6)!=56||r32(b,8)!=1)return false;
- auto n=r32(b,24),table=r64(b,32),payload=r64(b,40);
+ const auto n=r32(b,24); const auto table=r64(b,32),payload=r64(b,40);
  if(!n||n>64||table!=56||payload!=56+std::uint64_t(n)*48||payload>b.size())return false;
  if(hash(b,56)!=r64(b,48))return false;
  for(std::uint32_t i=0;i<n;++i){const auto p=56+std::size_t(i)*48; const auto mem=r64(b,p+8),sz=r64(b,p+16),off=r64(b,p+24);
-  if(sz>mem||off<payload||off>b.size()||sz>b.size()-off)return false;
-  auto al=r64(b,p+32);if(al>1&&(al&(al-1)))return false;
+  if(sz>mem||off<payload||off>b.size()||sz>b.size()-off) return false;
+  const auto al=r64(b,p+32);
+  if(al>1&&(al&(al-1))) return false;
  }
  return true;
 }
