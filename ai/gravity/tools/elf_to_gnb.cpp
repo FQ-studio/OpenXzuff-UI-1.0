@@ -4,7 +4,6 @@
 #include <iostream>
 #include <iterator>
 #include <stdexcept>
-#include <stdexcept>
 #include <string>
 #include <vector>
 namespace {
